@@ -20,6 +20,8 @@ import Data.Text.Lazy.IO          as TL
 --import Data.Map                   as M
 import Data.Aeson.KeyMap          as KM
 import Data.Aeson.Key             as K
+import qualified Data.Scientific as Sci
+import qualified Data.Vector as V
 import Prelude                    as P
 
 someFunc :: IO ()
@@ -118,3 +120,50 @@ f1 theData = do
   P.putStrLn $ case r of
        Just b -> b
        Nothing -> "Some error perhaps..."
+
+-- | A JSON \"object\" (key\/value map).
+type MatchObject = KeyMap MatchPattern
+
+-- | A JSON \"array\" (sequence).
+type MatchArray = V.Vector MatchPattern -- TODO just use list?
+
+data MatchPattern = MatchObject !MatchObject -- literal
+                  | MatchArray !MatchArray -- literal
+                  | MatchString !T.Text
+                  | MatchNumber !Sci.Scientific
+                  | MatchBool !Bool
+                  | MatchNull
+                  | MatchLiteral
+                  | MatchObjectPartial !MatchObject -- specific
+                  | MatchArrayAll !MatchPattern -- specific
+                  | MatchArraySome !MatchPattern -- specific
+                    deriving (Eq, Show)
+
+data MatchPatternResult = MatchObjectResult !MatchObject -- literal
+                          deriving (Eq, Show)
+-- pattern -> value -> result
+matchPattern :: MatchPattern -> Value -> Maybe MatchPattern
+matchPattern (MatchObject m) (Object a) = if keys m /= keys a then Nothing else fmap (MatchObjectPartial . KM.fromList) $ L.foldl' f (Just []) (keys m)
+  where f acc k = do
+          acc' <- acc
+          m' <- KM.lookup k m
+          a' <- KM.lookup k a
+          p <- matchPattern m' a'
+          return $ acc' ++ [(k, p)]
+matchPattern (MatchArray m) (Array a) = Nothing
+matchPattern (MatchString m) (String a) = if m == a then Just MatchLiteral else Nothing
+matchPattern (MatchNumber m) (Number a) = if m == a then Just MatchLiteral else Nothing
+matchPattern _ _ = Nothing
+
+-- pattern -> result -> Either String Value
+applyPattern _ _ = Left "Unknown error"
+
+--data MatchResult = ...
+
+{-
+MatchPartialMap
+Match...
+-}
+
+--match1 = Object (fromList [("body", Object (fromList [("body", v)]))])
+--f2 (Object a) = 
