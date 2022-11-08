@@ -136,11 +136,14 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchLiteral
                   | MatchAny
                   | MatchAnyResult !Value
+                  | MatchAnyResultU
                   | MatchObjectPartial !MatchObject -- specific
                   | MatchObjectPartialResult Value !MatchObject -- specific
+                  | MatchObjectPartialResultU !MatchObject -- specific
                   -- | MatchArrayAll !MatchPattern -- specific
                   | MatchArraySome !MatchPattern -- specific
                   | MatchArraySomeResult [(Int, Value)] [(Int, MatchPattern)] -- specific
+                  | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
                     deriving (Eq, Show)
 
 -- pattern -> value -> result
@@ -164,11 +167,10 @@ matchPattern (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult 
 
 matchPattern (MatchArraySome m) (Array a) = fmap (uncurry MatchArraySomeResult) $ L.foldl' f (Just (mempty, mempty)) $ P.zip [0..] (V.toList a)
   where f acc (idx, e) = do
-          acc
-          --(a1, a2) <- acc
-          --return $ case matchPattern m e of
-          --            Nothing -> (a1 ++ [(idx, e)], a2)
-          --            Just r -> (a1, a2 ++ [(idx, r)])
+          (a1, a2) <- acc
+          return $ case matchPattern m e of
+                      Nothing -> (a1 ++ [(idx, e)], a2)
+                      Just r -> (a1, a2 ++ [(idx, r)])
 
 --matchPattern (MatchArray m) (Array a) = Nothing
 matchPattern MatchAny a = Just $ MatchAnyResult a
@@ -226,6 +228,11 @@ applyPattern MatchLiteral MatchNull = Right Null
 -- ...
 applyPattern _ _ = Left "Unknown error"
 
+resetUnsignificant (MatchObjectPartialResult _ a) = MatchObjectPartialResultU (fmap resetUnsignificant a)
+resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . fmap) resetUnsignificant a)
+resetUnsignificant (MatchAnyResult _) = MatchAnyResultU
+resetUnsignificant a = a
+
 p1 theData = do
   d <- theData
   let v = do
@@ -235,8 +242,13 @@ p1 theData = do
         r <- matchPattern (MatchObjectPartial
                             (fromList [
                               (fromString "type", MatchString $ T.pack "ClassDef"),
-                              (fromString "body", MatchArraySome MatchAny)
+                              (fromString "body", (MatchObjectPartial
+                                                    (fromList [
+                                                      (fromString "type", MatchString $ T.pack "IndentedBlock"),
+                                                      (fromString "body", MatchArraySome MatchAny)
+                                                    ])))
                             ])) vv
+        r <- return $ resetUnsignificant r
         return r
   return v
 
