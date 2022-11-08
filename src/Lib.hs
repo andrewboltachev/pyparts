@@ -83,13 +83,15 @@ asKeyMap (Object a) = a
 asKeyMap _ = error "not a keymap"
 
 -- fmap (>>= (\x -> case x of Object a -> Just a; _ -> Nothing)) getData
+find1 b = Nothing
 
 f1 :: IO (Maybe Value) -> IO ()
 f1 theData = do
   d <- theData
   let r = do
             x <- d
-            x <- case x of Object a -> Just (KM.toList a); _ -> Nothing -- [(k, v)]
+            x <- case x of Object a -> Just (KM.toList a); _ -> Nothing
+            x <- L.foldl' (\a (k, v) -> (\p -> (++[(k, p)])) <$> (find1 v) <*> a) (Just ([] :: [(Key, Value)])) x
             return $ P.concat $ fmap (\(k, v) -> (((++"\n") . K.toString) k) ++ ("\t" ++ show v ++ "\n") ++ "\n\n\n") x
   P.putStrLn $ case r of
        Just b -> b
