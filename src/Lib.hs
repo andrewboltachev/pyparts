@@ -134,6 +134,8 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchBool !Bool
                   | MatchNull
                   | MatchLiteral
+                  | MatchAny
+                  | MatchAnyResult !Value
                   | MatchObjectPartial !MatchObject -- specific
                   | MatchObjectPartialResult Value !MatchObject -- specific
                   -- | MatchArrayAll !MatchPattern -- specific
@@ -162,12 +164,14 @@ matchPattern (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult 
 
 matchPattern (MatchArraySome m) (Array a) = fmap (uncurry MatchArraySomeResult) $ L.foldl' f (Just (mempty, mempty)) $ P.zip [0..] (V.toList a)
   where f acc (idx, e) = do
-          (a1, a2) <- acc
-          return $ case matchPattern m e of
-                      Nothing -> (a1 ++ [(idx, e)], a2)
-                      Just r -> (a1, a2 ++ [(idx, r)])
+          acc
+          --(a1, a2) <- acc
+          --return $ case matchPattern m e of
+          --            Nothing -> (a1 ++ [(idx, e)], a2)
+          --            Just r -> (a1, a2 ++ [(idx, r)])
 
 --matchPattern (MatchArray m) (Array a) = Nothing
+matchPattern MatchAny a = Just $ MatchAnyResult a
 -- valueless
 matchPattern (MatchString m) (String a) = if m == a then Just MatchLiteral else Nothing
 matchPattern (MatchNumber m) (Number a) = if m == a then Just MatchLiteral else Nothing
@@ -221,6 +225,20 @@ applyPattern MatchLiteral (MatchBool m) = Right (Bool m)
 applyPattern MatchLiteral MatchNull = Right Null
 -- ...
 applyPattern _ _ = Left "Unknown error"
+
+p1 theData = do
+  d <- theData
+  let v = do
+        d' <- d
+        d'' <- asKeyMap d'
+        vv <- KM.lookup (fromString "SimpleWhitespace") d''
+        r <- matchPattern (MatchObjectPartial
+                            (fromList [
+                              (fromString "type", MatchString $ T.pack "ClassDef"),
+                              (fromString "body", MatchArraySome MatchAny)
+                            ])) vv
+        return r
+  return v
 
 --data MatchResult = ...
 
