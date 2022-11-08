@@ -128,34 +128,98 @@ type MatchObject = KeyMap MatchPattern
 type MatchArray = V.Vector MatchPattern -- TODO just use list?
 
 data MatchPattern = MatchObject !MatchObject -- literal
-                  | MatchArray !MatchArray -- literal
+                  -- | MatchArray !MatchArray -- literal
                   | MatchString !T.Text
                   | MatchNumber !Sci.Scientific
                   | MatchBool !Bool
                   | MatchNull
                   | MatchLiteral
                   | MatchObjectPartial !MatchObject -- specific
-                  | MatchArrayAll !MatchPattern -- specific
+                  | MatchObjectPartialResult Value !MatchObject -- specific
+                  -- | MatchArrayAll !MatchPattern -- specific
                   | MatchArraySome !MatchPattern -- specific
+                  | MatchArraySomeResult [(Int, Value)] [(Int, MatchPattern)] -- specific
                     deriving (Eq, Show)
 
-data MatchPatternResult = MatchObjectResult !MatchObject -- literal
-                          deriving (Eq, Show)
 -- pattern -> value -> result
 matchPattern :: MatchPattern -> Value -> Maybe MatchPattern
-matchPattern (MatchObject m) (Object a) = if keys m /= keys a then Nothing else fmap (MatchObjectPartial . KM.fromList) $ L.foldl' f (Just []) (keys m)
+matchPattern (MatchObject m) (Object a) = if keys m /= keys a then Nothing else fmap (MatchObject . KM.fromList) $ L.foldl' f (Just []) (keys m)
   where f acc k = do
           acc' <- acc
           m' <- KM.lookup k m
           a' <- KM.lookup k a
           p <- matchPattern m' a'
           return $ acc' ++ [(k, p)]
-matchPattern (MatchArray m) (Array a) = Nothing
+
+matchPattern (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult leftOver) $ L.foldl' f (Just mempty) (keys m)
+  where leftOver = Object $ KM.difference a m
+        f acc k = do
+          acc' <- acc
+          m' <- KM.lookup k m
+          a' <- KM.lookup k a
+          p <- matchPattern m' a'
+          return $ KM.insert k p acc'
+
+matchPattern (MatchArraySome m) (Array a) = fmap (uncurry MatchArraySomeResult) $ L.foldl' f (Just (mempty, mempty)) $ P.zip [0..] (V.toList a)
+  where f acc (idx, e) = do
+          (a1, a2) <- acc
+          return $ case matchPattern m e of
+                      Nothing -> (a1 ++ [(idx, e)], a2)
+                      Just r -> (a1, a2 ++ [(idx, r)])
+
+--matchPattern (MatchArray m) (Array a) = Nothing
+-- valueless
 matchPattern (MatchString m) (String a) = if m == a then Just MatchLiteral else Nothing
 matchPattern (MatchNumber m) (Number a) = if m == a then Just MatchLiteral else Nothing
+matchPattern (MatchBool m) (Bool a) = if m == a then Just MatchLiteral else Nothing
+matchPattern MatchNull Null = Just MatchLiteral
+-- valued
+matchPattern MatchLiteral (String a) = Just $ MatchString a
+matchPattern MatchLiteral (Number a) = Just $ MatchNumber a
+matchPattern MatchLiteral (Bool a) = Just $ MatchBool a
+matchPattern MatchLiteral Null = Just $ MatchNull
+-- default case
 matchPattern _ _ = Nothing
 
+-- matchPattern (MatchString $ T.pack "abcd") (String $ T.pack "abcd")
+-- matchPattern (MatchNumber 11.0) (Number 11.0)
+-- matchPattern (MatchBool True) (Bool True)
+-- matchPattern MatchNull Null
+
 -- pattern -> result -> Either String Value
+applyPattern :: MatchPattern -> MatchPattern -> Either String Value
+applyPattern (MatchObjectPartial m) (MatchObjectPartialResult m1 m2) = do
+  -- <- KM.union m1 (Object a)
+  let f a b = a
+  mm <- if keys m /= keys m2 then Left "Keys mismatch" else Right $ L.foldl' f (KM.empty) (keys m)
+  let m2e err x = case x of
+                   Nothing -> Left err
+                   Just a -> Right a
+  m1' <- (m2e "Map mismatch") $ asKeyMap $ m1
+  return $ Object $ KM.union m1' mm
+
+applyPattern (MatchArraySome m) (MatchArraySomeResult a1 a2) = fmap (Array . V.fromList) $ L.foldl' f (Right []) [0..(P.length a1 + P.length a2 - 1)]
+  where f a idx = do
+          a' <- a
+          x <- case P.lookup idx a1 of
+                    Just v -> Right v
+                    Nothing -> case P.lookup idx a2 of
+                                    Nothing -> Left "Index not found"
+                                    Just r -> applyPattern m r
+          return $ a' ++ [x]
+
+-- valueless
+applyPattern (MatchString m) MatchLiteral = Right (String m)
+applyPattern (MatchNumber m) MatchLiteral = Right (Number m)
+applyPattern (MatchBool m) MatchLiteral = Right (Bool m)
+applyPattern MatchNull MatchLiteral = Right Null
+
+-- valued
+applyPattern MatchLiteral (MatchString m) = Right (String m)
+applyPattern MatchLiteral (MatchNumber m) = Right (Number m)
+applyPattern MatchLiteral (MatchBool m) = Right (Bool m)
+applyPattern MatchLiteral MatchNull = Right Null
+-- ...
 applyPattern _ _ = Left "Unknown error"
 
 --data MatchResult = ...
