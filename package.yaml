@@ -26,6 +26,7 @@ dependencies:
 - text
 - aeson
 - bytestring
+- vector
 
 ghc-options:
 - -Wall

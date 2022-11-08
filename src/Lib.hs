@@ -5,6 +5,7 @@ module Lib
     ( someFunc
     ) where
 
+import qualified Data.Vector.Generic
 import Data.List                  as L
 import GHC.Generics
 import Data.Aeson
@@ -82,15 +83,29 @@ asKeyMap :: Value -> Maybe Object
 asKeyMap (Object a) = Just a
 asKeyMap _ = Nothing
 
+asArray :: Value -> Maybe [Value]
+asArray (Array a) = Just $ Data.Vector.Generic.toList a
+asArray _ = Nothing
+
+mHead (x:_) = Just x
+mHead _ = Nothing
+
+ff a = do
+  a <- asKeyMap a
+  a <- KM.lookup (K.fromString "body") a
+  a <- asArray a
+  return $ P.filter (isSubMapOf (KM.fromList [((K.fromString "type"), String "AnnAssign")])) a
+
 -- fmap (>>= (\x -> case x of Object a -> Just a; _ -> Nothing)) getData
 find1 x = do
   x <- asKeyMap x
   x <- KM.lookup (K.fromString "body") x
   x <- asKeyMap x
   x <- KM.lookup (K.fromString "body") x
-  x <- asKeyMap x
-  x <- KM.lookup (K.fromString "type") x
-  return x
+  x <- asArray x
+  --x <- return $ P.concat $ fmap (\x -> if (isSubMapOf (KM.fromList [((K.fromString "type"), String "SimpleStatementLine")])) then x) x
+  x <- return $ P.filter (isSubMapOf (KM.fromList [((K.fromString "type"), String "SimpleStatementLine")])) x
+  (fmap . fmap) encode $ fmap P.concat $ P.traverse ff x
 
 f1 :: IO (Maybe Value) -> IO ()
 f1 theData = do
@@ -98,7 +113,7 @@ f1 theData = do
   let r = do
             x <- d
             x <- case x of Object a -> Just (KM.toList a); _ -> Nothing
-            x <- L.foldl' (\a (k, v) -> (\p -> (++[(k, p)])) <$> (find1 v) <*> a) (Just ([])) x
+            x <- L.foldl' (\a (k, v) -> (\p -> (++[(k, p)])) <$> (find1 v) <*> a) (Just mempty) x
             return $ P.concat $ fmap (\(k, v) -> (((++"\n") . K.toString) k) ++ ("\t" ++ show v ++ "\n") ++ "\n\n\n") x
   P.putStrLn $ case r of
        Just b -> b
