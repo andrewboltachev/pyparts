@@ -78,12 +78,19 @@ gather pred x = if (pred x) then [x] else case x :: Value of
 -- x1 = (fmap . fmap) (gather (\x -> case x of Object a -> (KM.lookup (K.fromString "type") a) == Just (String "SimpleStatementLine"); _ -> False)) getData
 -- (fmap . fmap) ((fmap (\x -> case x of Object a -> KM.lookup (K.fromString "annotation") a; _ -> error "woo")) . (gather (isSubMapOf (KM.fromList [((K.fromString "type"), String "AnnAssign")])))) getData
 --
-asKeyMap :: Value -> Object
-asKeyMap (Object a) = a
-asKeyMap _ = error "not a keymap"
+asKeyMap :: Value -> Maybe Object
+asKeyMap (Object a) = Just a
+asKeyMap _ = Nothing
 
 -- fmap (>>= (\x -> case x of Object a -> Just a; _ -> Nothing)) getData
-find1 b = Nothing
+find1 x = do
+  x <- asKeyMap x
+  x <- KM.lookup (K.fromString "body") x
+  x <- asKeyMap x
+  x <- KM.lookup (K.fromString "body") x
+  x <- asKeyMap x
+  x <- KM.lookup (K.fromString "type") x
+  return x
 
 f1 :: IO (Maybe Value) -> IO ()
 f1 theData = do
@@ -91,7 +98,7 @@ f1 theData = do
   let r = do
             x <- d
             x <- case x of Object a -> Just (KM.toList a); _ -> Nothing
-            x <- L.foldl' (\a (k, v) -> (\p -> (++[(k, p)])) <$> (find1 v) <*> a) (Just ([] :: [(Key, Value)])) x
+            x <- L.foldl' (\a (k, v) -> (\p -> (++[(k, p)])) <$> (find1 v) <*> a) (Just ([])) x
             return $ P.concat $ fmap (\(k, v) -> (((++"\n") . K.toString) k) ++ ("\t" ++ show v ++ "\n") ++ "\n\n\n") x
   P.putStrLn $ case r of
        Just b -> b
