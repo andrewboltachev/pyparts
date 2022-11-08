@@ -204,8 +204,8 @@ applyPattern (MatchObjectPartial m) (MatchObjectPartialResult m1 m2) = do
   m1' <- (m2e "Map mismatch") $ asKeyMap $ m1
   return $ Object $ KM.union m1' mm
 
-applyPattern (MatchArraySome m) (MatchArraySomeResult a1 a2) = fmap (Array . V.fromList) $ L.foldl' f (Right []) [0..(P.length a1 + P.length a2 - 1)]
-  where f a idx = do
+applyPattern (MatchArraySome m) (MatchArraySomeResult a1 a2) = do
+  let f a idx = do
           a' <- a
           x <- case P.lookup idx a1 of
                     Just v -> Right v
@@ -213,6 +213,9 @@ applyPattern (MatchArraySome m) (MatchArraySomeResult a1 a2) = fmap (Array . V.f
                                     Nothing -> Left "Index not found"
                                     Just r -> applyPattern m r
           return $ a' ++ [x]
+  xx <- (L.foldl' f (Right []) [0..(P.length a1 + P.length a2 - 1)])
+  xx <- if P.length xx > 0 then Right xx else Left "..."
+  return $ (Array . V.fromList) xx
 
 -- valueless
 applyPattern (MatchString m) MatchLiteral = Right (String m)
@@ -245,7 +248,14 @@ p1 theData = do
                               (fromString "body", (MatchObjectPartial
                                                     (fromList [
                                                       (fromString "type", MatchString $ T.pack "IndentedBlock"),
-                                                      (fromString "body", MatchArraySome MatchAny)
+                                                      (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
+                                                        (fromString "type", MatchString $ T.pack "SimpleStatementLine"),
+                                                        (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
+                                                            (fromString "type", MatchString $ T.pack "Annotation")
+                                                          ])))
+
+                                                          --(fromString "annotation", )
+                                                      ])))
                                                     ])))
                             ])) vv
         r <- return $ resetUnsignificant r
