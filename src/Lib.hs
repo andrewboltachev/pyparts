@@ -165,12 +165,15 @@ matchPattern (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult 
           p <- matchPattern m' a'
           return $ KM.insert k p acc'
 
-matchPattern (MatchArraySome m) (Array a) = fmap (uncurry MatchArraySomeResult) $ L.foldl' f (Just (mempty, mempty)) $ P.zip [0..] (V.toList a)
-  where f acc (idx, e) = do
+matchPattern (MatchArraySome m) (Array a) = do
+  let f acc (idx, e) = do
           (a1, a2) <- acc
           return $ case matchPattern m e of
                       Nothing -> (a1 ++ [(idx, e)], a2)
                       Just r -> (a1, a2 ++ [(idx, r)])
+  (a1, a2) <- L.foldl' f (Just (mempty, mempty)) $ P.zip [0..] (V.toList a)
+  --(a1, a2) <- if P.length a2 == 0 then Nothing else Just (a1, a2)
+  return $ MatchArraySomeResult a1 a2
 
 --matchPattern (MatchArray m) (Array a) = Nothing
 matchPattern MatchAny a = Just $ MatchAnyResult a
@@ -236,30 +239,59 @@ resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . f
 resetUnsignificant (MatchAnyResult _) = MatchAnyResultU
 resetUnsignificant a = a
 
+matchToValueMinimal :: MatchPattern -> Maybe Value
+matchToValueMinimal (MatchObjectPartialResultU m) = fmap Object $ ifNotEmpty =<< L.foldl' f (Just mempty) (keys m)
+  where
+    ifNotEmpty m = if KM.null m then Nothing else Just m
+    f acc k = do
+          acc' <- acc
+          v <- KM.lookup k m
+          return $ case matchToValueMinimal v of
+               Nothing -> acc'
+               (Just x) -> KM.insert k x acc'
+matchToValueMinimal (MatchArraySomeResultU m) = fmap Array $ ifNotEmpty =<< L.foldl' f (Just (V.empty :: V.Vector Value)) arr
+  where
+    arr = V.fromList $ fmap snd m
+    ifNotEmpty m = if V.null m then Nothing else Just m
+    f acc v = do
+          acc' <- acc
+          return $ case matchToValueMinimal v of
+               Nothing -> acc'
+               (Just x) -> V.snoc acc' x
+matchToValueMinimal (MatchString m) = Just (String m)
+matchToValueMinimal (MatchNumber m) = Just (Number m)
+matchToValueMinimal (MatchBool m) = Just (Bool m)
+matchToValueMinimal MatchNull = Just Null
+--matchToValueMinimal (MatchAny a) = Nothing
+matchToValueMinimal _ = Nothing
+
 p1 theData = do
   d <- theData
   let v = do
         d' <- d
         d'' <- asKeyMap d'
-        vv <- KM.lookup (fromString "SimpleWhitespace") d''
-        r <- matchPattern (MatchObjectPartial
-                            (fromList [
-                              (fromString "type", MatchString $ T.pack "ClassDef"),
-                              (fromString "body", (MatchObjectPartial
-                                                    (fromList [
-                                                      (fromString "type", MatchString $ T.pack "IndentedBlock"),
-                                                      (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
-                                                        (fromString "type", MatchString $ T.pack "SimpleStatementLine"),
+        let f vv = do
+              r <- matchPattern (MatchObjectPartial
+                                (fromList [
+                                  (fromString "type", MatchString $ T.pack "ClassDef"),
+                                  (fromString "body", (MatchObjectPartial
+                                                      (fromList [
+                                                        (fromString "type", MatchString $ T.pack "IndentedBlock"),
                                                         (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
-                                                            (fromString "type", MatchString $ T.pack "Annotation")
-                                                          ])))
-
-                                                          --(fromString "annotation", )
+                                                          (fromString "type", MatchString $ T.pack "SimpleStatementLine"),
+                                                          (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
+                                                              (fromString "type", MatchString $ T.pack "AnnAssign"),
+                                                              (fromString "target", (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Name"),
+                                                                                                                   (fromString "value", MatchLiteral)])))
+                                                            ])))
+  
+                                                            --(fromString "annotation", )
+                                                        ])))
                                                       ])))
-                                                    ])))
-                            ])) vv
-        r <- return $ resetUnsignificant r
-        return r
+                              ])) vv
+              r <- return $ resetUnsignificant r
+              return r
+        return $ fmap f (elems d'')
   return v
 
 --data MatchResult = ...
