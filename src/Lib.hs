@@ -290,9 +290,23 @@ p1 theData = do
                                                       ])))
                               ])) vv
               r <- return $ resetUnsignificant r
+              r <- matchToValueMinimal r
               return r
         return $ fmap f (elems d'')
   return v
+
+catMaybes xs = L.foldl' f mempty xs
+  where f a b = case b of
+                     Nothing -> a
+                     Just x -> a ++ [x]
+
+p2 theData = do
+  v <- p1 theData -- []
+  return $ do
+    v' <- v -- 
+    return $ do
+      v'' <- v'
+-- fmap (BL.intersperse $ T.pack " ") $ (fmap . fmap) encode $ fmap catMaybes $ (fmap . fmap) join $ fmap sequenceA $ p1 getData1
 
 --data MatchResult = ...
 
