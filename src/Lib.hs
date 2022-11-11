@@ -130,6 +130,8 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchAny
                   | MatchAnyResult !Value
                   | MatchAnyResultU
+                  | MatchSimpleOr [MatchPattern]
+                  | MatchSimpleOrResult MatchPattern
                   | MatchObjectPartial !MatchObject -- specific
                   | MatchObjectPartialResult Value !MatchObject -- specific
                   | MatchObjectPartialResultU !MatchObject -- specific
@@ -170,6 +172,10 @@ matchPattern (MatchArraySome m) (Array a) = do
 
 --matchPattern (MatchArray m) (Array a) = Nothing
 matchPattern MatchAny a = Just $ MatchAnyResult a
+matchPattern (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f Nothing ms
+  where f a b = case matchPattern a v of
+                     Nothing -> b
+                     Just x -> Just x
 -- valueless
 matchPattern (MatchString m) (String a) = if m == a then Just MatchLiteral else Nothing
 matchPattern (MatchNumber m) (Number a) = if m == a then Just MatchLiteral else Nothing
@@ -229,7 +235,8 @@ applyPattern _ _ = Left "Unknown error"
 
 resetUnsignificant (MatchObjectPartialResult _ a) = MatchObjectPartialResultU (fmap resetUnsignificant a)
 resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . fmap) resetUnsignificant a)
-resetUnsignificant (MatchAnyResult _) = MatchAnyResultU
+--resetUnsignificant (MatchAnyResult _) = MatchAnyResultU
+resetUnsignificant (MatchSimpleOrResult m) = resetUnsignificant m
 resetUnsignificant a = a
 
 matchToValueMinimal :: MatchPattern -> Maybe Value
@@ -255,7 +262,7 @@ matchToValueMinimal (MatchString m) = Just (String m)
 matchToValueMinimal (MatchNumber m) = Just (Number m)
 matchToValueMinimal (MatchBool m) = Just (Bool m)
 matchToValueMinimal MatchNull = Just Null
---matchToValueMinimal (MatchAny a) = Nothing
+matchToValueMinimal (MatchAnyResult a) = Just a
 matchToValueMinimal _ = Nothing
 
 p1 theData = do
@@ -278,7 +285,19 @@ p1 theData = do
                                                                                                                    (fromString "value", MatchLiteral)]))),
                                                               (fromString "annotation",
                                                                (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Annotation"),
-                                                                                              (fromString "annotation", (MatchObjectPartial (fromList [(fromString "type", MatchLiteral)])))])))
+                                                                                              (fromString "annotation",
+                                                                                               (MatchSimpleOr
+                                                                                               [
+                                                                                                (MatchObjectPartial (fromList [
+                                                                                                                                (fromString "type", MatchString $ T.pack "Subscript"),
+                                                                                                                                (fromString "value", MatchAny),
+                                                                                                                                (fromString "slice", MatchAny)
+                                                                                                                                ])),
+                                                                                                (MatchObjectPartial (fromList [
+                                                                                                                                (fromString "type", MatchString $ T.pack "Name"),
+                                                                                                                                (fromString "value", MatchLiteral)
+                                                                                                                                ]))
+                                                                                               ]))])))
                                                             ])))
   
                                                             --(fromString "annotation", )
@@ -302,7 +321,7 @@ p2 theData = do
   let x = do
             v' <- v -- :: [(Key, Value)]
             let f (k, v) = ((TL.encodeUtf8 . TL.pack) $ K.toString k) <> (TL.encodeUtf8 . TL.pack) "\n\n" <> encode v <> (TL.encodeUtf8 . TL.pack) "\n\n"
-            return $ BL.concat $ fmap f v'
+            return $ BL.concat $ fmap f v' --  $ BL.intersperse ((TL.encodeUtf8 . TL.pack) "\n")
   BL.putStrLn $ case x of
        Nothing -> (TL.encodeUtf8 . TL.pack) "Nothing to see"
        Just y -> y
