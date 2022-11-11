@@ -28,6 +28,7 @@ dependencies:
 - bytestring
 - vector
 - scientific
+- utf8-string
 
 ghc-options:
 - -Wall

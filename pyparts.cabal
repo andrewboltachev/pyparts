@@ -39,6 +39,7 @@ library
     , containers
     , scientific
     , text
+    , utf8-string
     , vector
   default-language: Haskell2010
 
@@ -58,6 +59,7 @@ executable pyparts-exe
     , pyparts
     , scientific
     , text
+    , utf8-string
     , vector
   default-language: Haskell2010
 
@@ -78,5 +80,6 @@ test-suite pyparts-test
     , pyparts
     , scientific
     , text
+    , utf8-string
     , vector
   default-language: Haskell2010

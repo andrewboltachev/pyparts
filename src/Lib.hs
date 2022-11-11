@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module Lib
     ( someFunc
@@ -23,6 +22,8 @@ import Data.Aeson.Key             as K
 import qualified Data.Scientific as Sci
 import qualified Data.Vector as V
 import Prelude                    as P
+import Control.Monad (join)
+import qualified Data.ByteString.UTF8       as BLU
 
 someFunc :: IO ()
 someFunc = P.putStrLn "someFunc"
@@ -60,14 +61,6 @@ getData = do
 
 t1 a = [show a]
 
-main :: IO ()
---main = P.print $ (decode (TL.encodeUtf8 . TL.pack $ "{\"name\":\"Joe\",\"age\":12}") :: Maybe Person)
-main = do
-  fileData <- getData
-  P.putStrLn $ case fileData of
-       Nothing -> "error reading file"
-       Just a -> "yess: " -- ++ show (KM.lookup (K.fromString "SimpleWhitespace") a)
-
 isSubMapOf :: Object -> Value -> Bool
 isSubMapOf e (Object a) = (P.all f . KM.toList) e where f (k, v) = KM.lookup k a == (Just v)
 isSubMapOf _ _ = False
@@ -96,7 +89,7 @@ ff a = do
   a <- asKeyMap a
   a <- KM.lookup (K.fromString "body") a
   a <- asArray a
-  return $ P.filter (isSubMapOf (KM.fromList [((K.fromString "type"), String "AnnAssign")])) a
+  return $ P.filter (isSubMapOf (KM.fromList [((K.fromString "type"), String $ T.pack "AnnAssign")])) a
 
 -- fmap (>>= (\x -> case x of Object a -> Just a; _ -> Nothing)) getData
 find1 x = do
@@ -106,7 +99,7 @@ find1 x = do
   x <- KM.lookup (K.fromString "body") x
   x <- asArray x
   --x <- return $ P.concat $ fmap (\x -> if (isSubMapOf (KM.fromList [((K.fromString "type"), String "SimpleStatementLine")])) then x) x
-  x <- return $ P.filter (isSubMapOf (KM.fromList [((K.fromString "type"), String "SimpleStatementLine")])) x
+  x <- return $ P.filter (isSubMapOf (KM.fromList [((K.fromString "type"), String $ T.pack "SimpleStatementLine")])) x
   (fmap . fmap) encode $ fmap P.concat $ P.traverse ff x
 
 f1 :: IO (Maybe Value) -> IO ()
@@ -282,7 +275,10 @@ p1 theData = do
                                                           (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
                                                               (fromString "type", MatchString $ T.pack "AnnAssign"),
                                                               (fromString "target", (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Name"),
-                                                                                                                   (fromString "value", MatchLiteral)])))
+                                                                                                                   (fromString "value", MatchLiteral)]))),
+                                                              (fromString "annotation",
+                                                               (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Annotation"),
+                                                                                              (fromString "annotation", (MatchObjectPartial (fromList [(fromString "type", MatchLiteral)])))])))
                                                             ])))
   
                                                             --(fromString "annotation", )
@@ -292,7 +288,7 @@ p1 theData = do
               r <- return $ resetUnsignificant r
               r <- matchToValueMinimal r
               return r
-        return $ fmap f (elems d'')
+        return $ (fmap . fmap) f (KM.toList d'')
   return v
 
 catMaybes xs = L.foldl' f mempty xs
@@ -301,11 +297,15 @@ catMaybes xs = L.foldl' f mempty xs
                      Just x -> a ++ [x]
 
 p2 theData = do
-  v <- p1 theData -- []
-  return $ do
-    v' <- v -- 
-    return $ do
-      v'' <- v'
+  --v <- (fmap join $ (fmap . fmap) sequenceA $ (fmap . fmap . fmap) sequenceA $ p1 theData) :: IO (Maybe [(Key, Value)]) -- v :: MayBe ...
+  v <- (fmap . fmap) catMaybes $ (fmap . fmap . fmap) sequenceA $ p1 theData
+  let x = do
+            v' <- v -- :: [(Key, Value)]
+            let f (k, v) = ((TL.encodeUtf8 . TL.pack) $ K.toString k) <> (TL.encodeUtf8 . TL.pack) "\n\n" <> encode v <> (TL.encodeUtf8 . TL.pack) "\n\n"
+            return $ BL.concat $ fmap f v'
+  BL.putStrLn $ case x of
+       Nothing -> (TL.encodeUtf8 . TL.pack) "Nothing to see"
+       Just y -> y
 -- fmap (BL.intersperse $ T.pack " ") $ (fmap . fmap) encode $ fmap catMaybes $ (fmap . fmap) join $ fmap sequenceA $ p1 getData1
 
 --data MatchResult = ...
@@ -317,3 +317,5 @@ Match...
 
 --match1 = Object (fromList [("body", Object (fromList [("body", v)]))])
 --f2 (Object a) = 
+--
+main = p2 getData
