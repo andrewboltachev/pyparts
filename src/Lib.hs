@@ -176,8 +176,8 @@ matchPattern (MatchIfThen baseMatch match failMsg) v =
   case matchPattern baseMatch v of
        NoMatch -> NoMatch
        MatchFailure f -> MatchFailure f
-       MatchSuccess _ -> case matchPattern match v of
-                            NoMatch -> MatchFailure failMsg
+       MatchSuccess s -> case matchPattern match v of
+                            NoMatch -> MatchFailure (failMsg ++ " " ++ show s)
                             MatchFailure f -> MatchFailure f
                             MatchSuccess s -> MatchSuccess s
 
@@ -189,6 +189,7 @@ matchPattern (MatchArraySome m) (Array a) = do
              MatchFailure r -> MatchFailure r
              NoMatch -> MatchSuccess (a1 ++ [(idx, e)], a2)
   (a1, a2) <- L.foldl' f (MatchSuccess (mempty, mempty)) $ P.zip [0..] (V.toList a)
+  (a1, a2) <- if P.length a2 > 0 then MatchSuccess (a1, a2) else NoMatch -- at lease 1
   return $ MatchArraySomeResult a1 a2
 
 matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
@@ -272,26 +273,31 @@ p1 theData = do
                                                         (fromString "type", MatchString $ T.pack "IndentedBlock"),
                                                         (fromString "body", MatchArraySome $ (MatchApply (MatchOp apply1)) $ (MatchObjectPartial (fromList [
                                                           (fromString "type", MatchString $ T.pack "SimpleStatementLine"),
-                                                          (fromString "body", MatchArrayOne (MatchObjectPartial (fromList [
-                                                              (fromString "type", MatchString $ T.pack "AnnAssign"),
-                                                              (fromString "target", (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Name"),
-                                                                                                                   (fromString "value", MatchLiteral)]))),
-                                                              (fromString "annotation",
-                                                               (MatchApply (MatchOp apply2)) $ (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Annotation"),
-                                                                                              (fromString "annotation",
-                                                                                               (MatchStrict "ann fail" $ MatchSimpleOr
-                                                                                               [
-                                                                                                (MatchObjectPartial (fromList [
-                                                                                                                                (fromString "type", MatchString $ T.pack "Subscript"),
-                                                                                                                                (fromString "value", MatchAny),
-                                                                                                                                (fromString "slice", MatchAny)
-                                                                                                                                ])),
-                                                                                                (MatchObjectPartial (fromList [
-                                                                                                                                (fromString "type", MatchString $ T.pack "Name"),
-                                                                                                                                (fromString "value", MatchLiteral)
-                                                                                                                                ]))
-                                                                                               ]))])))
-                                                            ])))
+                                                          (fromString "body", 
+                                                            (MatchIfThen
+                                                              (MatchArraySome (MatchObjectPartial (fromList [
+                                                                  (fromString "type", MatchString $ T.pack "AnnAssign")])))
+                                                              (MatchArrayOne (MatchObjectPartial (fromList [
+                                                                  (fromString "type", MatchString $ T.pack "AnnAssign") {-,
+                                                                  (fromString "target", (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Name"),
+                                                                                                                      (fromString "value", MatchLiteral)]))),
+                                                                  (fromString "annotation",
+                                                                  (MatchApply (MatchOp apply2)) $ (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Annotation"),
+                                                                                                  (fromString "annotation",
+                                                                                                  (MatchStrict "ann fail" $ MatchSimpleOr
+                                                                                                  [
+                                                                                                    (MatchObjectPartial (fromList [
+                                                                                                                                    (fromString "type", MatchString $ T.pack "Subscript"),
+                                                                                                                                    (fromString "value", MatchAny),
+                                                                                                                                    (fromString "slice", MatchAny)
+                                                                                                                                    ])),
+                                                                                                    (MatchObjectPartial (fromList [
+                                                                                                                                    (fromString "type", MatchString $ T.pack "Name"),
+                                                                                                                                    (fromString "value", MatchLiteral)
+                                                                                                                                    ]))
+                                                                                                  ]))])))-}
+                                                                ])))
+                                                            "annotation match fail"))
   
                                                             --(fromString "annotation", )
                                                         ])))
