@@ -341,12 +341,26 @@ catMaybes xs = L.foldl' f mempty xs
                      Nothing -> a
                      Just x -> a ++ [x]
 
+asString (String x) = Just x
+asString _ = Nothing
+
+h1 (Array v) = KM.fromList $ catMaybes $ fmap f (V.toList v)
+  where f x = do
+                x <- asKeyMap x
+                k <- KM.lookup (fromString "target") x
+                k <- asKeyMap k
+                k <- KM.lookup (fromString "value") k
+                k <- asString k
+                -- ...
+                v <- KM.lookup (fromString "annotation") x
+                return $ (fromText k, v)
+
 p2 theData = do
   --v <- (fmap join $ (fmap . fmap) sequenceA $ (fmap . fmap . fmap) sequenceA $ p1 theData) :: IO (Maybe [(Key, Value)]) -- v :: MayBe ...
   v <- (fmap . fmap) catMaybes $ (fmap . fmap . fmap) sequenceA $ p1 theData
   let x = do
             v' <- v -- :: [(Key, Value)]
-            let f (k, v) = ((TL.encodeUtf8 . TL.pack) $ K.toString k) <> (TL.encodeUtf8 . TL.pack) "\n\n" <> encode v <> (TL.encodeUtf8 . TL.pack) "\n\n"
+            let f (k, v) = ((TL.encodeUtf8 . TL.pack) $ K.toString k) <> (TL.encodeUtf8 . TL.pack) "\n\n" <> encode (h1 v) <> (TL.encodeUtf8 . TL.pack) "\n\n"
             return $ BL.concat $ fmap f v' --  $ BL.intersperse ((TL.encodeUtf8 . TL.pack) "\n")
   BL.putStrLn $ case x of
        Nothing -> (TL.encodeUtf8 . TL.pack) "Nothing to see"
