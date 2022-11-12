@@ -120,6 +120,13 @@ type MatchObject = KeyMap MatchPattern
 -- | A JSON \"array\" (sequence).
 type MatchArray = V.Vector MatchPattern -- TODO just use list?
 
+data MatchOp = MatchOp (MatchPattern -> Maybe MatchPattern)
+instance Show MatchOp where
+  show _ = "MatchOp"
+
+instance Eq MatchOp where
+  (==) _ _ = False
+
 data MatchPattern = MatchObject !MatchObject -- literal
                   -- | MatchArray !MatchArray -- literal
                   | MatchString !T.Text
@@ -129,7 +136,9 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchLiteral
                   | MatchAny
                   | MatchAnyResult !Value
+                  | MatchApply MatchOp MatchPattern
                   | MatchAnyResultU
+                  | MatchMustHave MatchPattern
                   | MatchSimpleOr [MatchPattern]
                   | MatchSimpleOrResult MatchPattern
                   | MatchObjectPartial !MatchObject -- specific
@@ -143,6 +152,9 @@ data MatchPattern = MatchObject !MatchObject -- literal
 
 -- pattern -> value -> result
 matchPattern :: MatchPattern -> Value -> Maybe MatchPattern
+matchPattern (MatchMustHave m) v = case matchPattern m v of
+                                             Just x -> Just x
+                                             Nothing -> error "must have"
 matchPattern (MatchObject m) (Object a) = if keys m /= keys a then Nothing else fmap (MatchObject . KM.fromList) $ L.foldl' f (Just []) (keys m)
   where f acc k = do
           acc' <- acc
@@ -177,6 +189,7 @@ matchPattern (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f Nothing
                      Nothing -> b
                      Just x -> Just x
 -- valueless
+matchPattern (MatchApply (MatchOp f) m) v = matchPattern m v >>= f
 matchPattern (MatchString m) (String a) = if m == a then Just MatchLiteral else Nothing
 matchPattern (MatchNumber m) (Number a) = if m == a then Just MatchLiteral else Nothing
 matchPattern (MatchBool m) (Bool a) = if m == a then Just MatchLiteral else Nothing
@@ -193,6 +206,8 @@ matchPattern _ _ = Nothing
 -- matchPattern (MatchNumber 11.0) (Number 11.0)
 -- matchPattern (MatchBool True) (Bool True)
 -- matchPattern MatchNull Null
+
+matchOp = MatchApply . MatchOp
 
 -- pattern -> result -> Either String Value
 applyPattern :: MatchPattern -> MatchPattern -> Either String Value
@@ -265,16 +280,19 @@ matchToValueMinimal MatchNull = Just Null
 matchToValueMinimal (MatchAnyResult a) = Just a
 matchToValueMinimal _ = Nothing
 
+apply1 (MatchObjectPartialResult _ r) = KM.lookup (K.fromString "body") r
+apply1 _ = Nothing
+
 p1 theData = do
   d <- theData
   let v = do
         d' <- d
         d'' <- asKeyMap d'
         let f vv = do
-              r <- matchPattern (MatchObjectPartial
+              r <- matchPattern ((MatchApply (MatchOp apply1)) $ MatchObjectPartial
                                 (fromList [
                                   (fromString "type", MatchString $ T.pack "ClassDef"),
-                                  (fromString "body", (MatchObjectPartial
+                                  (fromString "body", (MatchApply (MatchOp apply1)) $ (MatchObjectPartial
                                                       (fromList [
                                                         (fromString "type", MatchString $ T.pack "IndentedBlock"),
                                                         (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
@@ -286,7 +304,7 @@ p1 theData = do
                                                               (fromString "annotation",
                                                                (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Annotation"),
                                                                                               (fromString "annotation",
-                                                                                               (MatchSimpleOr
+                                                                                               (MatchMustHave $ MatchSimpleOr
                                                                                                [
                                                                                                 (MatchObjectPartial (fromList [
                                                                                                                                 (fromString "type", MatchString $ T.pack "Subscript"),
