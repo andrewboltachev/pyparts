@@ -299,7 +299,7 @@ p1 theData = do
                                                                                                       (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Subscript")]))
                                                                                                       (MatchObjectPartial (fromList [
                                                                                                                                       (fromString "type", MatchString $ T.pack "Subscript")
-                                                                                                                                      , (fromString "value1", MatchAny)
+                                                                                                                                      , (fromString "value", MatchAny)
                                                                                                                                       --,(fromString "slice", MatchAny)
                                                                                                                                       ]))
                                                                                                     "foo1"),
