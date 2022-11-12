@@ -283,6 +283,14 @@ matchToValueMinimal _ = Nothing
 apply1 (MatchObjectPartialResult _ r) = KM.lookup (K.fromString "body") r
 apply1 _ = Nothing
 
+apply2 (MatchObjectPartialResult _ r) = KM.lookup (K.fromString "annotation") r
+apply2 _ = Nothing
+
+apply3 (MatchArraySomeResult _ r) = do
+  (_, m) <- mHead r
+  return m
+apply3 _ = Nothing
+
 p1 theData = do
   d <- theData
   let v = do
@@ -295,14 +303,14 @@ p1 theData = do
                                   (fromString "body", (MatchApply (MatchOp apply1)) $ (MatchObjectPartial
                                                       (fromList [
                                                         (fromString "type", MatchString $ T.pack "IndentedBlock"),
-                                                        (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
+                                                        (fromString "body", MatchArraySome $ (MatchApply (MatchOp apply1)) $ (MatchObjectPartial (fromList [
                                                           (fromString "type", MatchString $ T.pack "SimpleStatementLine"),
-                                                          (fromString "body", MatchArraySome (MatchObjectPartial (fromList [
+                                                          (fromString "body", (MatchApply (MatchOp apply3)) $ MatchArraySome (MatchObjectPartial (fromList [
                                                               (fromString "type", MatchString $ T.pack "AnnAssign"),
                                                               (fromString "target", (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Name"),
                                                                                                                    (fromString "value", MatchLiteral)]))),
                                                               (fromString "annotation",
-                                                               (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Annotation"),
+                                                               (MatchApply (MatchOp apply2)) $ (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Annotation"),
                                                                                               (fromString "annotation",
                                                                                                (MatchMustHave $ MatchSimpleOr
                                                                                                [
