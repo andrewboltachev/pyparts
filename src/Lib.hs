@@ -177,7 +177,7 @@ matchPattern (MatchIfThen baseMatch match failMsg) v =
        NoMatch -> NoMatch
        MatchFailure f -> MatchFailure f
        MatchSuccess s -> case matchPattern match v of
-                            NoMatch -> MatchFailure (failMsg ++ " " ++ show s)
+                            NoMatch -> MatchFailure  failMsg --(failMsg ++ " " ++ show s)
                             MatchFailure f -> MatchFailure f
                             MatchSuccess s -> MatchSuccess s
 
@@ -196,6 +196,7 @@ matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
 matchPattern (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f (MatchFailure "or fail") ms
   where f a b = case matchPattern a v of
                      MatchSuccess x -> MatchSuccess x
+                     MatchFailure f -> MatchFailure f
                      _ -> b
 
 -- valueless
@@ -298,7 +299,7 @@ p1 theData = do
                                                                                                       (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Subscript")]))
                                                                                                       (MatchObjectPartial (fromList [
                                                                                                                                       (fromString "type", MatchString $ T.pack "Subscript")
-                                                                                                                                      --, (fromString "value", MatchAny)
+                                                                                                                                      , (fromString "value1", MatchAny)
                                                                                                                                       --,(fromString "slice", MatchAny)
                                                                                                                                       ]))
                                                                                                     "foo1"),
