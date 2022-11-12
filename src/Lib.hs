@@ -150,6 +150,27 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
                     deriving (Eq, Show)
 
+data MatchResult a = MatchSuccess a
+                 | MatchFailure String
+                 | NoMatch
+                 deriving (Eq, Show)
+
+instance Functor MatchResult where
+  fmap f (MatchSuccess m) = MatchSuccess (f m)
+  fmap f (MatchFailure x) = MatchFailure x
+
+instance Applicative MatchResult where
+  (<*>) (MatchSuccess f) (MatchSuccess m) = MatchSuccess (f m)
+  (<*>) _ (MatchFailure x) = (MatchFailure x)
+
+instance Monad MatchResult where
+  --join (MatchSuccess (MatchSuccess x)) = MatchSuccess x
+  --join (MatchFailure (MatchFailure x)) = MatchFailure x
+  --join NoMatch = NoMatch
+  (>>=) (MatchSuccess m) f = f m
+  (>>=) (MatchFailure m) _ = (MatchFailure m)
+  (>>=) NoMatch _ = NoMatch
+
 -- pattern -> value -> result
 matchPattern :: MatchPattern -> Value -> Maybe MatchPattern
 matchPattern (MatchMustHave m) v = case matchPattern m v of
@@ -366,8 +387,6 @@ p2 theData = do
        Nothing -> (TL.encodeUtf8 . TL.pack) "Nothing to see"
        Just y -> y
 -- fmap (BL.intersperse $ T.pack " ") $ (fmap . fmap) encode $ fmap catMaybes $ (fmap . fmap) join $ fmap sequenceA $ p1 getData1
-
---data MatchResult = ...
 
 {-
 MatchPartialMap
