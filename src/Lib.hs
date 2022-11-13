@@ -82,6 +82,7 @@ gatherFunnel acc (MatchArrayOneResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchSimpleOrResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchFunnelResult r) = r:acc
 gatherFunnel acc MatchLiteral = acc
+gatherFunnel acc (MatchAnyResult _) = acc
 gatherFunnel acc (MatchString _) = acc
 gatherFunnel acc (MatchNumber _) = acc
 gatherFunnel acc MatchNull = acc
@@ -335,7 +336,33 @@ grammar = MatchObjectPartial (fromList [
                                                                       -- lbracket, rbracket - only has whitespace
                                                                       (MatchObjectPartial (fromList [
                                                                         (fromString "value", (MatchObjectPartial (fromList [(fromString "value", MatchLiteral)]))),
-                                                                        (fromString "slice", MatchFunnel)
+                                                                        (fromString "slice",
+                                                                          -- ["comma","slice","type" = SubscriptElement]
+                                                                          -- comma:
+                                                                          --    {"type":"Comma","whitespace_after":{"type":"SimpleWhitespace","value":" "},"whitespace_before":{"type":"SimpleWhitespace","value":""}}
+                                                                          --    "MaybeSentinel.DEFAULT"
+                                                                         MatchArray $ MatchObjectPartial (fromList [(fromString "slice",
+                                                                          -- ["star"=null,"type"="Index","value","whitespace_after_star"=null]
+                                                                          MatchObjectPartial (fromList [
+                                                                            -- ...
+                                                                            --(fromString "type", MatchString $ T.pack "Index"),
+                                                                            -- ["lbracket","lpar","rbracket","rpar","slice","type","value","whitespace_after_value"]
+                                                                            -- ["lpar","rpar","type","value"]
+
+                                                                            (fromString "value",
+                                                                             (MatchSimpleOr
+                                                                             [
+                                                                              (MatchIfThen
+                                                                                (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "SimpleString")]))
+                                                                                (MatchObjectPartial (fromList [(fromString "value", MatchFunnel)]))
+                                                                                "foo..."
+                                                                              ),
+                                                                              MatchAny
+                                                                             ])
+                                                                            
+                                                                            )
+                                                                          ])
+                                                                         )]))
                                                                       ]))
                                                                       --(MatchObjectPartial (fromList [(fromString "value", MatchFunnel)]))
 
