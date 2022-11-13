@@ -53,6 +53,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchLiteral
                   | MatchAny
                   | MatchFunnel
+                  | MatchFunnelKeys
                   | MatchFunnelResult !Value
                   | MatchAnyResult !Value
                   | MatchApply MatchOp MatchPattern
@@ -76,6 +77,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
 --gatherFunnel :: [Value] -> MatchPattern -> [Value]
 gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
 gatherFunnel acc (MatchArraySomeResult _ o) = L.foldl' gatherFunnel acc (fmap snd o)
+gatherFunnel acc (MatchArrayResult o) = L.foldl' gatherFunnel acc o
 gatherFunnel acc (MatchArrayOneResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchSimpleOrResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchFunnelResult r) = r:acc
@@ -166,6 +168,9 @@ matchPattern (MatchArrayOne m) (Array a) = do
 
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
+
+matchPattern MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelResult $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
+matchPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
 
 matchPattern (MatchIfThen baseMatch match failMsg) v =
   case matchPattern baseMatch v of
@@ -316,11 +321,24 @@ grammar = MatchObjectPartial (fromList [
                                                                   [
                                                                     (MatchIfThen
                                                                       (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Subscript")]))
-                                                                      (MatchObjectPartial (fromList [
+                                                                      {-(MatchObjectPartial (fromList [
                                                                                                       (fromString "type", MatchString $ T.pack "Subscript")
-                                                                                                      , (fromString "value", MatchFunnel)
+                                                                                                      , (fromString "value",
+                                                                                                        (MatchObjectPartial (fromList [
+                                                                                                          (fromString "type", MatchString $ T.pack "Name")
+                                                                                                        , (fromString "value", MatchLiteral)
+                                                                                                        ]))
+                                                                                                      )
                                                                                                       --,(fromString "slice", MatchAny)
-                                                                                                      ]))
+                                                                                                      ]))-}
+                                                                      -- ["lbracket","lpar","rbracket","rpar","slice","type","value","whitespace_after_value"]
+                                                                      -- lbracket, rbracket - only has whitespace
+                                                                      (MatchObjectPartial (fromList [
+                                                                        (fromString "value", (MatchObjectPartial (fromList [(fromString "value", MatchLiteral)]))),
+                                                                        (fromString "slice", MatchFunnel)
+                                                                      ]))
+                                                                      --(MatchObjectPartial (fromList [(fromString "value", MatchFunnel)]))
+
                                                                     "foo1"),
                                                                     (MatchIfThen
                                                                       (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Name")]))
@@ -329,7 +347,8 @@ grammar = MatchObjectPartial (fromList [
                                                                                                     (fromString "value", MatchLiteral)
                                                                                                     ]))
                                                                     "foo2")
-                                                                  ]))])))
+                                                                  ])
+                                                                  )])))
                                 ])))
                             "annotation match fail"))
 
