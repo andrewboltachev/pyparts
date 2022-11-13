@@ -37,6 +37,7 @@ library
     , base >=4.7 && <5
     , bytestring
     , containers
+    , rainbow
     , scientific
     , text
     , utf8-string
@@ -57,6 +58,7 @@ executable pyparts-exe
     , bytestring
     , containers
     , pyparts
+    , rainbow
     , scientific
     , text
     , utf8-string
@@ -78,6 +80,7 @@ test-suite pyparts-test
     , bytestring
     , containers
     , pyparts
+    , rainbow
     , scientific
     , text
     , utf8-string
