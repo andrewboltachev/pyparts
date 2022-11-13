@@ -1,10 +1,13 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveFoldable #-}
+
 
 module Lib
     ( someFunc
     ) where
 
 import qualified Data.Vector.Generic
+import qualified Data.Set
 import Data.List                  as L
 import GHC.Generics
 import Data.Aeson
@@ -69,6 +72,19 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
                     deriving (Eq, Show)
+
+--gatherFunnel :: [Value] -> MatchPattern -> [Value]
+gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
+gatherFunnel acc (MatchArraySomeResult _ o) = L.foldl' gatherFunnel acc (fmap snd o)
+gatherFunnel acc (MatchArrayOneResult o) = gatherFunnel acc o
+gatherFunnel acc (MatchSimpleOrResult o) = gatherFunnel acc o
+gatherFunnel acc (MatchFunnelResult r) = r:acc
+gatherFunnel acc MatchLiteral = acc
+gatherFunnel acc (MatchString _) = acc
+gatherFunnel acc (MatchNumber _) = acc
+gatherFunnel acc MatchNull = acc
+gatherFunnel acc x = error (show x)
+--gatherFunnel acc _ = acc
 
 data MatchResult a = MatchSuccess a
                  | MatchFailure String
@@ -275,6 +291,7 @@ grammar = MatchObjectPartial (fromList [
     (fromString "type", MatchString $ T.pack "ClassDef"),
     (fromString "body", (MatchObjectPartial
                       (fromList [
+                        --(fromString "type", MatchString $ T.pack "IndentedBlock"),
                         (fromString "type", MatchString $ T.pack "IndentedBlock"),
                         (fromString "body",
                          MatchArraySome (MatchObjectPartial (fromList [
@@ -364,6 +381,11 @@ asJust (Just x) = x
 h2 (MatchSuccess s) = P.concat $ (fmap (\x -> x ++ "\n")) $ h3 $ asJust (h1 s)
 h2 x = show x
 
+catSuccesses xs = L.foldl' f mempty xs
+  where f a b = case b of
+                     MatchSuccess x -> a ++ [x]
+                     _ -> a
+
 -- helpers end
 
 
@@ -376,15 +398,19 @@ p1 theData = do
         d' <- d
         -- d'' :: Keymap Value
         d'' <- asKeyMap d'
-        let f v = h2 $ do
+        let f v = do
               r' <- matchPattern grammar v
               -- r' :: MatchResult MatchPattern
               r <- return $ resetUnsignificant r'
               -- r' :: MatchResult MatchPattern
               r <- matchToValueMinimal' r
-              return r
-        let j (k, v) = (K.toString k) ++ "\n" ++ v ++ "\n\n"
-        return $ P.concat $ fmap j $ (fmap . fmap) f (KM.toList d'')
+              return (gatherFunnel [] r', r)
+        --let j (k, (_, v)) = (K.toString k) ++ "\n" ++ "\n" ++ "\n" ++ v ++ "\n\n"
+        let j (k, v) = (K.toString k) ++ "\n" ++ h2 v ++ "\n" ++ "\n"
+        let s1 = (fmap . fmap) f (KM.toList d'')
+        let s2 = (fmap . fmap . fmap) snd s1
+        let s3 = P.concat $ L.intersperse "\n" $ fmap (TL.unpack . TL.decodeUtf8 . encode) $ (Data.Set.toList) $ (Data.Set.fromList) $ P.concat $ fmap fst $ catSuccesses $ fmap snd s1
+        return $ s3 ++ (P.concat $ fmap j s2)
   P.putStrLn $ case v of
        Nothing -> "Nothing to see"
        Just a -> a
