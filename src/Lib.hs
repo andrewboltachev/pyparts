@@ -410,7 +410,7 @@ p1 theData = do
         let s1 = (fmap . fmap) f (KM.toList d'')
         let s2 = (fmap . fmap . fmap) snd s1
         let s3 = P.concat $ L.intersperse "\n" $ fmap (TL.unpack . TL.decodeUtf8 . encode) $ (Data.Set.toList) $ (Data.Set.fromList) $ P.concat $ fmap fst $ catSuccesses $ fmap snd s1
-        return $ s3 ++ "\n\n" ++ (P.concat $ fmap j s2)
+        return $ (P.concat $ fmap j s2) ++ "\n\n" ++ s3
   P.putStrLn $ case v of
        Nothing -> "Nothing to see"
        Just a -> a
