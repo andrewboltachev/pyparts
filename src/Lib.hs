@@ -354,10 +354,20 @@ grammar = MatchObjectPartial (fromList [
                                                                              [
                                                                               (MatchIfThen
                                                                                 (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "SimpleString")]))
-                                                                                (MatchObjectPartial (fromList [(fromString "value", MatchFunnel)]))
+                                                                                (MatchObjectPartial (fromList [(fromString "value", MatchLiteral)]))
                                                                                 "foo..."
                                                                               ),
-                                                                              MatchAny
+                                                                              (MatchIfThen
+                                                                                (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Name")]))
+                                                                                (MatchObjectPartial (fromList [(fromString "value", MatchLiteral)]))
+                                                                                "foo..."
+                                                                              ),
+                                                                              (MatchIfThen
+                                                                                (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Subscript")]))
+                                                                                MatchAny -- TODO recursive
+                                                                                "foo..."
+                                                                              )
+                                                                              --(MatchObjectPartial (fromList [(fromString "type", MatchFunnel)]))
                                                                              ])
                                                                             
                                                                             )
