@@ -519,16 +519,3 @@ p1 theData = do
   P.putStrLn $ case v of
        Nothing -> "Nothing to see"
        Just a -> a
-
-{-
-p2 theData = do
-  -- IO (Maybe [(Key, MatchResult Value)])
-  v <- p1 theData
-  let x = do
-            v' <- v -- :: [(Key, Value)]
-            let f (k, v) = (K.toString k) <> "\n\n" <> (h2 v) <> "\n\n"
-            return $ P.concat $ fmap f v' --  $ BL.intersperse ((TL.encodeUtf8 . TL.pack) "\n")
-  P.putStrLn $ case x of
-       Nothing -> "Nothing to see"
-       Just y -> y
-       -}
