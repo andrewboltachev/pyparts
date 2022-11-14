@@ -385,7 +385,7 @@ grammar = MatchObjectPartial (fromList [
                                                                                 "foo..."
                                                                               ),
                                                                               (MatchIfThen
-                                                                                (MatchObjectPartial (fromList [(fromString "type", MatchLiteral), (fromString "type", MatchString $ T.pack "Subscript")]))
+                                                                                (MatchObjectPartial (fromList [(fromString "type", MatchString $ T.pack "Subscript")]))
 
 
 
@@ -395,6 +395,7 @@ grammar = MatchObjectPartial (fromList [
                                                                             -- ["lbracket","lpar","rbracket","rpar","slice","type","value","whitespace_after_value"]
                                                                             -- ["lpar","rpar","type","value"]
 
+                                                                            (fromString "type", MatchLiteral),
                                                                             (fromString "value",
                                                                              (MatchSimpleOr
                                                                              [
