@@ -171,7 +171,7 @@ matchPattern (MatchArray m) (Array a) = do
           acc' <- acc
           case matchPattern m e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
-             MatchFailure r -> MatchFailure r
+             MatchFailure r -> MatchFailure ("array" ++ r)
              NoMatch -> MatchSuccess acc'
   acc <- L.foldl' f (MatchSuccess mempty) vv
   acc <- if P.length acc /= P.length vv then NoMatch else MatchSuccess acc
@@ -183,7 +183,7 @@ matchPattern (MatchArrayOne m) (Array a) = do
           acc' <- acc
           case matchPattern m e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
-             MatchFailure r -> MatchFailure r
+             MatchFailure r -> MatchFailure ("arrayone" ++ r)
              NoMatch -> MatchSuccess acc'
   acc <- L.foldl' f (MatchSuccess mempty) vv
   acc <- if P.length acc /= 1 then NoMatch else MatchSuccess acc
@@ -200,8 +200,8 @@ matchPattern (MatchIfThen baseMatch match failMsg) v =
        NoMatch -> NoMatch
        MatchFailure f -> MatchFailure f
        MatchSuccess s -> case matchPattern match v of
-                            NoMatch -> MatchFailure  failMsg --(failMsg ++ " " ++ show s)
-                            MatchFailure f -> MatchFailure f
+                            NoMatch -> MatchFailure  ("fail" ++ failMsg) --(failMsg ++ " " ++ show s)
+                            MatchFailure f -> MatchFailure ("fail2" ++ f)
                             MatchSuccess s -> MatchSuccess s
 
 matchPattern (MatchArraySome m) (Array a) = do
@@ -209,7 +209,7 @@ matchPattern (MatchArraySome m) (Array a) = do
           (a1, a2) <- acc
           case matchPattern m e of
              MatchSuccess r -> (MatchSuccess (a1, a2 ++ [(idx, r)]))
-             MatchFailure r -> MatchFailure r
+             MatchFailure r -> MatchFailure ("some" ++ r)
              NoMatch -> MatchSuccess (a1 ++ [(idx, e)], a2)
   (a1, a2) <- L.foldl' f (MatchSuccess (mempty, mempty)) $ P.zip [0..] (V.toList a)
   (a1, a2) <- if P.length a2 > 0 then MatchSuccess (a1, a2) else NoMatch -- at lease 1
@@ -288,9 +288,10 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
                Nothing -> acc'
                (Just x) -> V.snoc acc' x
 matchToValueMinimal MatchLiteral = Nothing
+matchToValueMinimal (MatchFunnelResult v) = Just v
 matchToValueMinimal x = error $ show x
 
-matchToValueMinimal' x = (m2mp $ MatchFailure $ show x) $ (matchToValueMinimal x)
+matchToValueMinimal' x = (m2mp $ MatchFailure $ "here" ++ show x) $ (matchToValueMinimal x)
 
 resetUnsignificant (MatchObjectPartialResult _ a) = MatchObjectPartialResultU (fmap resetUnsignificant a)
 resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . fmap) resetUnsignificant a)
@@ -309,8 +310,7 @@ getData = do
   fileData <- BL.readFile "/home/andrey/Work/hs/loinc-questionnaire/data/42.json"
   return $ decode fileData
 
-grammar = MatchObjectPartial (fromList [
-            ])
+grammar = MatchFunnel
 
 -- helpers begin
 asJust (Just x) = x
@@ -330,17 +330,18 @@ p1 theData = do
   let v = do
         -- d' :: Value
         d' <- d
-        -- d'' :: Keymap Value
-        d'' <- asKeyMap d'
         let f v = do
               r' <- matchPattern grammar v
               -- r' :: MatchResult MatchPattern
               r <- return $ resetUnsignificant r'
               -- r' :: MatchResult MatchPattern
               r <- matchToValueMinimal' r
-              return (gatherFunnel [] r', r)
-        --let j (k, (_, v)) = (K.toString k) ++ "\n" ++ "\n" ++ "\n" ++ v ++ "\n\n"
-        return $ show $ f d'
+              return $ "Result\n\n" ++ show r ++ "\n\n\n" ++ "Funnel" ++ show (gatherFunnel [] r')
+              --return $ (r, gatherFunnel [] r')
+        return $ f d'
   P.putStrLn $ case v of
        Nothing -> "Nothing to see"
-       Just a -> a
+       Just a -> case a of
+                      NoMatch -> "NoMatch"
+                      MatchFailure s -> "MatchFailure " ++ s
+                      MatchSuccess s -> "Success!!!\n\n\n" ++ s
