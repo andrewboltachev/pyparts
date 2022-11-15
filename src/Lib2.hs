@@ -322,6 +322,9 @@ catSuccesses xs = L.foldl' f mempty xs
 
 -- helpers end
 
+hh a = P.concat $ fmap f a
+  where f x = (TL.unpack . TL.decodeUtf8 . encode) x ++ "\n"
+
 
 p1 :: IO (Maybe Value) -> IO ()
 p1 theData = do
@@ -336,7 +339,7 @@ p1 theData = do
               r <- return $ resetUnsignificant r'
               -- r' :: MatchResult MatchPattern
               r <- matchToValueMinimal' r
-              return $ "Result\n\n" ++ show r ++ "\n\n\n" ++ "Funnel" ++ show (gatherFunnel [] r')
+              return $ "Result\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode) r ++ "\n\n\n" ++ "Funnel\n\n" ++ hh (gatherFunnel [] r')
               --return $ (r, gatherFunnel [] r')
         return $ f d'
   P.putStrLn $ case v of
