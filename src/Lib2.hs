@@ -310,7 +310,19 @@ getData = do
   fileData <- BL.readFile "/home/andrey/Work/hs/loinc-questionnaire/data/42.json"
   return $ decode fileData
 
-grammar = MatchFunnel
+-- ["entry","id","link","meta","total","type"]
+grammar = MatchObjectPartial (fromList [
+    (fromString "resourceType", MatchString $ T.pack $ "Bundle"),
+    (fromString "id", MatchLiteral),
+    -- ["fullUrl","resource","search"]
+    (fromString "entry",
+     MatchArray $ MatchObjectPartial (fromList [
+        (fromString "resource",
+          MatchObjectPartial (fromList [
+              (fromString "item", MatchArray $ MatchObjectPartial (fromList [(fromString "item", MatchArray $ MatchObjectPartial (fromList [(fromString "text", MatchFunnel)]))])
+                )
+          ]))]))
+  ])
 
 -- helpers begin
 asJust (Just x) = x
