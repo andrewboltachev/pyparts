@@ -26,6 +26,7 @@ source-repository head
 library
   exposed-modules:
       Lib
+      Lib2
   other-modules:
       Paths_pyparts
   hs-source-dirs:

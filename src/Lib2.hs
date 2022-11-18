@@ -76,7 +76,9 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchAny
                   | MatchFunnel
                   | MatchFunnelKeys
+                  | MatchFunnelKeysU
                   | MatchFunnelResult !Value
+                  | MatchFunnelResultM !Value
                   | MatchAnyResult !Value
                   | MatchApply MatchOp MatchPattern
                   | MatchAnyResultU
@@ -103,6 +105,9 @@ gatherFunnel acc (MatchArrayResult o) = L.foldl' gatherFunnel acc o
 gatherFunnel acc (MatchArrayOneResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchSimpleOrResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchFunnelResult r) = r:acc
+gatherFunnel acc (MatchFunnelResultM r) = case asArray r of
+                                               Nothing -> error ("aaa: " ++ show acc)
+                                               Just a -> L.nub $ a ++ acc
 gatherFunnel acc MatchLiteral = acc
 gatherFunnel acc (MatchAnyResult _) = acc
 gatherFunnel acc (MatchString _) = acc
@@ -194,6 +199,9 @@ matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
 matchPattern MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelResult $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
 matchPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
+
+matchPattern MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelResultM $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
+matchPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
 
 matchPattern (MatchIfThen baseMatch match failMsg) v =
   case matchPattern baseMatch v of
@@ -289,6 +297,7 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
                (Just x) -> V.snoc acc' x
 matchToValueMinimal MatchLiteral = Nothing
 matchToValueMinimal (MatchFunnelResult v) = Just v
+matchToValueMinimal (MatchFunnelResultM v) = Just v
 matchToValueMinimal x = error $ show x
 
 matchToValueMinimal' x = (m2mp $ MatchFailure $ "here" ++ show x) $ (matchToValueMinimal x)
@@ -307,22 +316,31 @@ someFunc = P.putStrLn "someFunc"
 
 getData :: IO (Maybe Value)
 getData = do
-  fileData <- BL.readFile "/home/andrey/Work/hs/loinc-questionnaire/data/42.json"
+  fileData <- BL.readFile "/home/andrey/Work/rt/so.json"
   return $ decode fileData
+{-- "answer_count"
+"content_license"
+"creation_date"
+"is_answered"
+"last_activity_date"
+"last_edit_date"
+"link"
+"owner"
+"question_id"
+"score"
+"tags"
+"title"
+"view_count"
+"accepted_answer_id"
+"closed_date"
+"closed_reason" -}
+
 
 -- ["entry","id","link","meta","total","type"]
-grammar = MatchObjectPartial (fromList [
-    (fromString "resourceType", MatchString $ T.pack $ "Bundle"),
-    (fromString "id", MatchLiteral),
-    -- ["fullUrl","resource","search"]
-    (fromString "entry",
-     MatchArray $ MatchObjectPartial (fromList [
-        (fromString "resource",
-          MatchObjectPartial (fromList [
-              (fromString "item", MatchArray $ MatchObjectPartial (fromList [(fromString "item", MatchArray $ MatchObjectPartial (fromList [(fromString "text", MatchFunnel)]))])
-                )
-          ]))]))
-  ])
+-- {"items": ...}
+grammar = (MatchObjectPartial (fromList [(fromString "items", MatchArray $ (MatchObjectPartial (fromList [(fromString "is_answered", MatchFunnel)])))]))
+
+--(MatchObjectPartial (fromList [(fromString "items", MatchArray $ (MatchObjectPartial (fromList [(fromString "answer_count", MatchFunnel)])))]))
 
 -- helpers begin
 asJust (Just x) = x
