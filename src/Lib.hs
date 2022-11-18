@@ -76,7 +76,9 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchAny
                   | MatchFunnel
                   | MatchFunnelKeys
+                  | MatchFunnelKeysU
                   | MatchFunnelResult !Value
+                  | MatchFunnelResultM !Value
                   | MatchAnyResult !Value
                   | MatchApply MatchOp MatchPattern
                   | MatchAnyResultU
@@ -528,8 +530,6 @@ p1 theData = do
   P.putStrLn $ case v of
        Nothing -> "Nothing to see"
        Just a -> a
-
-p3
 
 hh a = P.concat $ fmap f a
   where f x = (TL.unpack . TL.decodeUtf8 . encode) x ++ "\n"
