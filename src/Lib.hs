@@ -103,6 +103,9 @@ gatherFunnel acc (MatchArrayResult o) = L.foldl' gatherFunnel acc o
 gatherFunnel acc (MatchArrayOneResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchSimpleOrResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchFunnelResult r) = r:acc
+gatherFunnel acc (MatchFunnelResultM r) = case asArray r of
+                                               Nothing -> error ("aaa: " ++ show acc)
+                                               Just a -> L.nub $ a ++ acc
 gatherFunnel acc MatchLiteral = acc
 gatherFunnel acc (MatchAnyResult _) = acc
 gatherFunnel acc (MatchString _) = acc
@@ -194,6 +197,9 @@ matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
 matchPattern MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelResult $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
 matchPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
+
+matchPattern MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelResultM $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
+matchPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
 
 matchPattern (MatchIfThen baseMatch match failMsg) v =
   case matchPattern baseMatch v of
@@ -288,6 +294,8 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
                Nothing -> acc'
                (Just x) -> V.snoc acc' x
 matchToValueMinimal MatchLiteral = Nothing
+matchToValueMinimal (MatchFunnelResult v) = Just v
+matchToValueMinimal (MatchFunnelResultM v) = Just v
 matchToValueMinimal x = error $ show x
 
 matchToValueMinimal' x = (m2mp $ MatchFailure $ show x) $ (matchToValueMinimal x)
@@ -520,3 +528,32 @@ p1 theData = do
   P.putStrLn $ case v of
        Nothing -> "Nothing to see"
        Just a -> a
+
+p3
+
+hh a = P.concat $ fmap f a
+  where f x = (TL.unpack . TL.decodeUtf8 . encode) x ++ "\n"
+
+
+p3 :: IO (Maybe Value) -> IO ()
+p3 theData = do
+  -- d :: Maybe Value
+  d <- theData
+  let v = do
+        -- d' :: Value
+        d' <- d
+        let f v = do
+              r' <- matchPattern grammar v
+              -- r' :: MatchResult MatchPattern
+              r <- return $ resetUnsignificant r'
+              -- r' :: MatchResult MatchPattern
+              r <- matchToValueMinimal' r
+              return $ "Result\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode) r ++ "\n\n\n" ++ "Funnel\n\n" ++ hh (gatherFunnel [] r')
+              --return $ (r, gatherFunnel [] r')
+        return $ f d'
+  P.putStrLn $ case v of
+       Nothing -> "Nothing to see"
+       Just a -> case a of
+                      NoMatch -> "NoMatch"
+                      MatchFailure s -> "MatchFailure " ++ s
+                      MatchSuccess s -> "Success!!!\n\n\n" ++ s
