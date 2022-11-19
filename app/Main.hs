@@ -49,7 +49,7 @@ jsonMatcher1 = do
       mp <- pythonMatchPattern grammar
       r <- case matchPattern mp code of
                _ -> Left "matchPattern error"
-      return (Object e) --(Array $ V.fromList [Null, Null, Null])
+      return (Object e)
   let f = case a of
                Left _ -> status (Status {statusCode = 400, statusMessage = "request error"})
                Right _ -> id

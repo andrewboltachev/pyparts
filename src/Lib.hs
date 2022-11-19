@@ -71,6 +71,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchString !T.Text
                   | MatchStrict String !MatchPattern
                   | MatchAny
+                  | MatchIgnore
                   | MatchFunnel
                   | MatchFunnelKeys
                   | MatchFunnelKeysU
@@ -91,6 +92,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchFunnelResult !Value
                   | MatchFunnelResultM !Value
                   | MatchAnyResult !Value
+                  | MatchIgnoreResult
                   | MatchAnyResultU
                   | MatchSimpleOrResult MatchPattern
                   | MatchObjectPartialResult Value !MatchObject -- specific
@@ -99,6 +101,8 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayResult [MatchPattern]
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
+                  -- collapses
+                  | MatchCollapseOne !MatchPattern
                     deriving (Eq, Show)
 
 --gatherFunnel :: [Value] -> MatchPattern -> [Value]
@@ -113,6 +117,7 @@ gatherFunnel acc (MatchFunnelResultM r) = case asArray r of
                                                Just a -> L.nub $ a ++ acc
 gatherFunnel acc MatchLiteral = acc
 gatherFunnel acc (MatchAnyResult _) = acc
+gatherFunnel acc MatchIgnoreResult = acc
 gatherFunnel acc (MatchString _) = acc
 gatherFunnel acc (MatchNumber _) = acc
 gatherFunnel acc MatchNull = acc
@@ -141,6 +146,14 @@ instance Monad MatchResult where
   (>>=) (MatchSuccess m) f = f m
   (>>=) (MatchFailure m) _ = (MatchFailure m)
   (>>=) NoMatch _ = NoMatch
+
+matchCollapse :: MatchPattern -> Maybe MatchPattern
+matchCollapse (MatchCollapseOne (MatchObjectPartialResult r a)) =
+  case P.length (KM.elems a) of
+       1 -> Just $ (KM.elems a) !! 0
+       _ -> Nothing
+matchCollapse (MatchCollapseOne _) = Nothing
+matchCollapse a = Just a
 
 -- pattern -> value -> result
 matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
@@ -227,6 +240,7 @@ matchPattern (MatchArraySome m) (Array a) = do
   return $ MatchArraySomeResult a1 a2
 
 matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
+matchPattern MatchIgnore a = MatchSuccess MatchIgnoreResult
 matchPattern (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f (MatchFailure "or fail") ms
   where f a b = case matchPattern a v of
                      MatchSuccess x -> MatchSuccess x
@@ -245,6 +259,7 @@ matchPattern MatchLiteral (Number a) = MatchSuccess $ MatchNumber a
 matchPattern MatchLiteral (Bool a) = MatchSuccess $ MatchBool a
 matchPattern MatchLiteral Null = MatchSuccess $ MatchNull
 -- default case
+matchPattern (MatchCollapseOne m) v = matchPattern m v
 matchPattern _ _ = NoMatch
 
 -- matchPattern (MatchString $ T.pack "abcd") (String $ T.pack "abcd")
@@ -288,6 +303,7 @@ matchToValueMinimal (MatchNumber m) = Just (Number m)
 matchToValueMinimal (MatchBool m) = Just (Bool m)
 matchToValueMinimal MatchNull = Just Null
 matchToValueMinimal (MatchAnyResult a) = Just a
+matchToValueMinimal MatchIgnoreResult = Nothing -- TODO
 --matchToValueMinimal (MatchArrayResult a) = (Array $ V.fromList) $ catMaybes $ fmap matchToValueMinimal a
 matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' f (Just (V.empty :: V.Vector Value)) arr
   where
@@ -301,6 +317,9 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
 matchToValueMinimal MatchLiteral = Nothing
 matchToValueMinimal (MatchFunnelResult v) = Just v
 matchToValueMinimal (MatchFunnelResultM v) = Just v
+matchToValueMinimal (MatchArrayOneResult a) = do
+  v <- matchToValueMinimal a
+  return $ Array $ V.fromList [v]
 matchToValueMinimal x = error $ show x
 
 matchToValueMinimal' x = (m2mp $ MatchFailure $ show x) $ (matchToValueMinimal x)
@@ -325,6 +344,11 @@ getData1 = do
 getData :: IO (Maybe Value)
 getData = do
   fileData <- BL.readFile "/home/andrey/Work/lc/pyparts.json"
+  return $ decode fileData
+
+--getD :: IO (Maybe Value)
+getD a = do
+  fileData <- BL.readFile a
   return $ decode fileData
 
 grammar = MatchObjectPartial (fromList [
@@ -538,15 +562,61 @@ hh a = P.concat $ fmap f a
   where f x = (TL.unpack . TL.decodeUtf8 . encode) x ++ "\n"
 
 
-p3 :: IO (Maybe Value) -> IO ()
-p3 theData = do
+grammar'1 = MatchIfThen (MatchObjectPartial (fromList [
+    (fromString "body", MatchFunnelKeys)
+  ])) (MatchObjectPartial (fromList [(fromString "orelse", MatchNull)])) "orelse fail"
+
+
+-- x ["body","orelse"!,"test"]
+-- x.test ["args","func","type"]
+
+grammar' = MatchCollapseOne $ MatchObjectPartial (fromList [
+    (fromString "type", MatchString $ T.pack "If"), -- top
+    (fromString "orelse", MatchNull), -- bottom
+    (fromString "test",
+      MatchObjectPartial (fromList [ -- top
+        (fromString "type", MatchString $ T.pack "Call"),
+        (fromString "func", MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "Name"),
+          (fromString "value", MatchString $ T.pack "__simpleor")
+        ])),
+        (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+      ])
+    ),
+    (fromString "body",
+      MatchObjectPartial (fromList [ -- top
+        (fromString "type", MatchString $ T.pack "IndentedBlock"),
+        (fromString "body", MatchArray $ MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "If"),
+          (fromString "test",
+            MatchObjectPartial (fromList [ -- top
+              (fromString "type", MatchString $ T.pack "Call"),
+              (fromString "func", MatchObjectPartial (fromList [
+                (fromString "type", MatchString $ T.pack "Name"),
+                (fromString "value", MatchString $ T.pack "__option")
+              ])),
+              (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+            ])
+          ),
+          (fromString "body",
+            MatchObjectPartial (fromList [
+              (fromString "type", MatchString $ T.pack "IndentedBlock"),
+              (fromString "body", MatchArrayOne $ MatchAny)]))
+        ]))
+      ])
+    )
+  ])
+
+
+--p3 :: IO (Maybe Value) -> IO ()
+p3 a = do
   -- d :: Maybe Value
-  d <- theData
+  d <- getD a
   let v = do
         -- d' :: Value
         d' <- d
         let f v = do
-              r' <- matchPattern grammar v
+              r' <- matchPattern grammar' v
               -- r' :: MatchResult MatchPattern
               r <- return $ resetUnsignificant r'
               -- r' :: MatchResult MatchPattern
