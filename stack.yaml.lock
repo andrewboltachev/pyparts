@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: twain-2.1.0.0@sha256:9b434a5290791ab370845ded0d2167377cdc1478a592b87c5f5a9d499d069ba3,1864
+    pantry-tree:
+      sha256: 09cd5490f751e8740f294483d02987a2a387b7dfd4b0db0b0d66c9cd391a9d48
+      size: 500
+  original:
+    hackage: twain-2.1.0.0@sha256:9b434a5290791ab370845ded0d2167377cdc1478a592b87c5f5a9d499d069ba3,1864
 snapshots:
 - completed:
     sha256: e5f56f619132209b826084cacd6374d7f0344cc88a9d1d305878190e4204ae1f

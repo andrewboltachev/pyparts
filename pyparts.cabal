@@ -37,11 +37,14 @@ library
     , base >=4.7 && <5
     , bytestring
     , containers
+    , data-fix
     , rainbow
     , scientific
     , text
+    , twain
     , utf8-string
     , vector
+    , warp
   default-language: Haskell2010
 
 executable pyparts-exe
@@ -57,12 +60,15 @@ executable pyparts-exe
     , base >=4.7 && <5
     , bytestring
     , containers
+    , data-fix
     , pyparts
     , rainbow
     , scientific
     , text
+    , twain
     , utf8-string
     , vector
+    , warp
   default-language: Haskell2010
 
 test-suite pyparts-test
@@ -79,10 +85,13 @@ test-suite pyparts-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , data-fix
     , pyparts
     , rainbow
     , scientific
     , text
+    , twain
     , utf8-string
     , vector
+    , warp
   default-language: Haskell2010

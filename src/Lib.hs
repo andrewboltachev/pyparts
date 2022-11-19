@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 
 module Lib
@@ -27,6 +28,7 @@ import qualified Data.Vector as V
 import Prelude                    as P
 import Control.Monad (join)
 import qualified Data.ByteString.UTF8       as BLU
+import Data.Fix
 
 -- helpers
 
@@ -65,35 +67,38 @@ instance Show MatchOp where
 instance Eq MatchOp where
   (==) _ _ = False
 
+                  -- queries
 data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArray !MatchPattern -- literal
                   | MatchString !T.Text
                   | MatchStrict String !MatchPattern
-                  | MatchNumber !Sci.Scientific
-                  | MatchBool !Bool
-                  | MatchNull
-                  | MatchLiteral
                   | MatchAny
                   | MatchFunnel
                   | MatchFunnelKeys
                   | MatchFunnelKeysU
+                  | MatchSimpleOr [MatchPattern]
+                  | MatchObjectPartial !MatchObject -- specific
+                  | MatchArraySome !MatchPattern -- specific
+                  | MatchArrayOne MatchPattern
+                  | MatchIfThen MatchPattern MatchPattern String
+                  -- special queries
+                  | MatchApply MatchOp MatchPattern
+                  | MatchMustHave MatchPattern
+                  -- both
+                  | MatchNumber !Sci.Scientific
+                  | MatchBool !Bool
+                  | MatchNull
+                  | MatchLiteral
+                  -- results
                   | MatchFunnelResult !Value
                   | MatchFunnelResultM !Value
                   | MatchAnyResult !Value
-                  | MatchApply MatchOp MatchPattern
                   | MatchAnyResultU
-                  | MatchMustHave MatchPattern
-                  | MatchSimpleOr [MatchPattern]
                   | MatchSimpleOrResult MatchPattern
-                  | MatchObjectPartial !MatchObject -- specific
                   | MatchObjectPartialResult Value !MatchObject -- specific
                   | MatchObjectPartialResultU !MatchObject -- specific
-                  -- | MatchArrayAll !MatchPattern -- specific
-                  | MatchArraySome !MatchPattern -- specific
                   | MatchArraySomeResult [(Int, Value)] [(Int, MatchPattern)] -- specific
                   | MatchArrayResult [MatchPattern]
-                  | MatchArrayOne MatchPattern
-                  | MatchIfThen MatchPattern MatchPattern String
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
                     deriving (Eq, Show)
@@ -557,3 +562,10 @@ p3 theData = do
                       NoMatch -> "NoMatch"
                       MatchFailure s -> "MatchFailure " ++ s
                       MatchSuccess s -> "Success!!!\n\n\n" ++ s
+
+
+-- cata stuff
+data ListF a b = Nil | Cons a b deriving (Eq, Show, Functor)
+type List a = Fix (ListF a)
+
+l1 = Cons 1 $ Cons 2 $ Cons 3 Nil

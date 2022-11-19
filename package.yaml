@@ -30,6 +30,9 @@ dependencies:
 - scientific
 - utf8-string
 - rainbow
+- data-fix
+- twain
+- warp
 
 ghc-options:
 - -Wall
