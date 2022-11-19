@@ -54,7 +54,7 @@ jsonMatcher1 = do
                Left _ -> status (Status {statusCode = 400, statusMessage = "request error"})
                Right _ -> id
   send $ f $ Web.Twain.json $ case a of
-       Left e -> (String . T.pack) ("Error: " ++ e)
+       Left e -> Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
        Right x -> x
 
 missing :: ResponderM a
