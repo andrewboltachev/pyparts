@@ -101,8 +101,6 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayResult [MatchPattern]
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
-                  -- collapses
-                  | MatchCollapseOne !MatchPattern
                     deriving (Eq, Show)
 
 --gatherFunnel :: [Value] -> MatchPattern -> [Value]
@@ -146,14 +144,6 @@ instance Monad MatchResult where
   (>>=) (MatchSuccess m) f = f m
   (>>=) (MatchFailure m) _ = (MatchFailure m)
   (>>=) NoMatch _ = NoMatch
-
-matchCollapse :: MatchPattern -> Maybe MatchPattern
-matchCollapse (MatchCollapseOne (MatchObjectPartialResult r a)) =
-  case P.length (KM.elems a) of
-       1 -> Just $ (KM.elems a) !! 0
-       _ -> Nothing
-matchCollapse (MatchCollapseOne _) = Nothing
-matchCollapse a = Just a
 
 -- pattern -> value -> result
 matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
@@ -259,7 +249,6 @@ matchPattern MatchLiteral (Number a) = MatchSuccess $ MatchNumber a
 matchPattern MatchLiteral (Bool a) = MatchSuccess $ MatchBool a
 matchPattern MatchLiteral Null = MatchSuccess $ MatchNull
 -- default case
-matchPattern (MatchCollapseOne m) v = matchPattern m v
 matchPattern _ _ = NoMatch
 
 -- matchPattern (MatchString $ T.pack "abcd") (String $ T.pack "abcd")
@@ -570,7 +559,7 @@ grammar'1 = MatchIfThen (MatchObjectPartial (fromList [
 -- x ["body","orelse"!,"test"]
 -- x.test ["args","func","type"]
 
-grammar' = MatchCollapseOne $ MatchObjectPartial (fromList [
+grammar' = MatchObjectPartial (fromList [
     (fromString "type", MatchString $ T.pack "If"), -- top
     (fromString "orelse", MatchNull), -- bottom
     (fromString "test",
