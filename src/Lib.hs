@@ -3,9 +3,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 
-module Lib
-    ( someFunc
-    ) where
+module Lib where
 
 import qualified Data.Vector.Generic
 import qualified Data.Set
@@ -569,3 +567,6 @@ data ListF a b = Nil | Cons a b deriving (Eq, Show, Functor)
 type List a = Fix (ListF a)
 
 l1 = Cons 1 $ Cons 2 $ Cons 3 Nil
+
+pythonMatchPattern :: Value -> Either String MatchPattern
+pythonMatchPattern _ = Left "not implemented"
