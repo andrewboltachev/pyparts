@@ -320,7 +320,7 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
           return $ case matchToValueMinimal v of
                Nothing -> acc'
                (Just x) -> V.snoc acc' x
-matchToValueMinimal MatchLiteral = Nothing
+matchToValueMinimal MatchLiteral = Just Null -- TODO
 matchToValueMinimal (MatchFunnelResult v) = Just v
 matchToValueMinimal (MatchFunnelResultM v) = Just v
 matchToValueMinimal (MatchArrayOneResult a) = matchToValueMinimal a {-do
@@ -328,7 +328,7 @@ matchToValueMinimal (MatchArrayOneResult a) = matchToValueMinimal a {-do
   return $ Array $ V.fromList [v]-}
 matchToValueMinimal x = error $ show x
 
-matchToValueMinimal' x = (m2mp $ MatchFailure $ show x) $ (matchToValueMinimal x)
+matchToValueMinimal' x = (m2mp $ MatchFailure $ "lll" ++ show x) $ (matchToValueMinimal x)
 
 resetUnsignificant (MatchObjectPartialResult _ a) = MatchObjectPartialResultU (fmap resetUnsignificant a)
 resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . fmap) resetUnsignificant a)
@@ -656,6 +656,22 @@ star_grammar = MatchObjectPartial (fromList [
 
 star_collapse = (sBody >=> sBody) -- :: MatchResult Value
 
+any_grammar = MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "If"),
+          (fromString "test",
+            MatchObjectPartial (fromList [ -- top
+              (fromString "type", MatchString $ T.pack "Call"),
+              (fromString "func", MatchObjectPartial (fromList [
+                (fromString "type", MatchString $ T.pack "Name"),
+                (fromString "value", MatchString $ T.pack "__any")
+              ])),
+              (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+            ])
+          )
+        ])
+
+any_collapse x = return x
+
 matchAndCollapse :: MatchPattern -> (Value -> MatchResult Value) -> Value -> MatchResult ([Value], Value)
 matchAndCollapse grammar collapse value = do
   r' <- matchPattern grammar value
@@ -730,4 +746,11 @@ pythonMatchPattern (Object a) = let x = Object a in
        MatchFailure s -> Left s
        MatchSuccess (_, Array v) -> fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
        MatchSuccess _ -> Left "wrong grammar"
-       NoMatch -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a
+       NoMatch -> case matchAndCollapse any_grammar any_collapse x of
+         MatchFailure s -> Left s
+         MatchSuccess (_, _) -> Right MatchAny
+         NoMatch -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a
+pythonMatchPattern (String s) = Right $ MatchString s
+pythonMatchPattern (Number s) = Right $ MatchNumber s
+pythonMatchPattern (Bool s) = Right $ MatchBool s
+pythonMatchPattern Null = Right $ MatchNull

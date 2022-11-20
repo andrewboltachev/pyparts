@@ -42,9 +42,13 @@ jsonMatcher1 = do
       code <- (m2e "JSON root element must have code") $ KM.lookup (K.fromString "data") e
       grammar <- (m2e "JSON root element must have grammar") $ KM.lookup (K.fromString "grammar") e
       mp <- pythonMatchPattern grammar
-      r <- case matchPattern mp code of
-               _ -> Left "matchPattern error"
-      return (Object e)
+      r <- case matchAndCollapse mp return code of
+               MatchFailure s -> Left ("MatchFailure: " ++ s)
+               NoMatch -> Left "NoMatch"
+               MatchSuccess (f, r) -> Right $ (KM.fromList [
+                (K.fromString "funnel", (Array . V.fromList) f),
+                (K.fromString "result", r)])
+      return (Object r)
   let f = case a of
                Left _ -> status (Status {statusCode = 400, statusMessage = "request error"})
                Right _ -> id
