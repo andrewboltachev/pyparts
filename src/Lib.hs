@@ -728,24 +728,6 @@ pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (
 pythonMatchPattern (Object a) = let x = Object a in
   case matchAndCollapse or_grammar or_collapse x of
        MatchFailure s -> Left s
-       MatchSuccess (_, Array v) -> fmap MatchSimpleOr (L.foldl' f (Right mempty) (V.toList v))
-        where f acc e = do
-                acc' <- acc
-                e' <- pythonMatchPattern e
-                return $ acc' ++ [e']
+       MatchSuccess (_, Array v) -> fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
        MatchSuccess _ -> Left "wrong grammar"
        NoMatch -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a
-
-
-
-
-
-
-
-
-{-fmap (MatchObjectPartial . MatchObject) $ L.foldl' f (Right mempty) ((KM.toList . KM.filterWithKey ff) a)
-        where ff k _ = not $ (K.toString k) `P.elem` pythonUnsignificantKeys
-              f acc (k, v) = do
-                acc' <- acc
-                v' <- pythonMatchPattern v
-                return $ KM.insert k v -}
