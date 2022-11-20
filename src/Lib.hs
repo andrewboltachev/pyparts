@@ -713,9 +713,10 @@ pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (
 pythonMatchPattern (Object a) = let x = Object a in
   case matchAndCollapse or_grammar or_collapse x of
        MatchFailure s -> Left s
-       MatchSuccess (_, v) -> do
-          --a <- (m2e "Not an array") $ asArray v
-          let f a b = a
-          return $ MatchSimpleOr [] -- (L.foldl' f (Right mempty) (V.toList v))
+       MatchSuccess (_, Array v) -> fmap MatchSimpleOr (L.foldl' f (Right mempty) (V.toList v))
+        where f acc e = do
+                acc' <- acc
+                e' <- pythonMatchPattern e
+                return $ acc' ++ [e']
        MatchSuccess _ -> Left "wrong grammar"
        _ -> Left "noo"
