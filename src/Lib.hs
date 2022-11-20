@@ -24,7 +24,7 @@ import Data.Aeson.Key             as K
 import qualified Data.Scientific as Sci
 import qualified Data.Vector as V
 import Prelude                    as P
-import Control.Monad (join)
+import Control.Monad
 import qualified Data.ByteString.UTF8       as BLU
 import Data.Fix
 
@@ -135,6 +135,7 @@ instance Functor MatchResult where
 instance Applicative MatchResult where
   (<*>) (MatchSuccess f) (MatchSuccess m) = MatchSuccess (f m)
   (<*>) _ (MatchFailure x) = (MatchFailure x)
+  (<*>) (MatchFailure x) _ = (MatchFailure x)
   pure x = MatchSuccess x
 
 instance Monad MatchResult where
@@ -306,9 +307,9 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
 matchToValueMinimal MatchLiteral = Nothing
 matchToValueMinimal (MatchFunnelResult v) = Just v
 matchToValueMinimal (MatchFunnelResultM v) = Just v
-matchToValueMinimal (MatchArrayOneResult a) = do
+matchToValueMinimal (MatchArrayOneResult a) = matchToValueMinimal a {-do
   v <- matchToValueMinimal a
-  return $ Array $ V.fromList [v]
+  return $ Array $ V.fromList [v]-}
 matchToValueMinimal x = error $ show x
 
 matchToValueMinimal' x = (m2mp $ MatchFailure $ show x) $ (matchToValueMinimal x)
@@ -590,12 +591,28 @@ grammar' = MatchObjectPartial (fromList [
           (fromString "body",
             MatchObjectPartial (fromList [
               (fromString "type", MatchString $ T.pack "IndentedBlock"),
-              (fromString "body", MatchArrayOne $ MatchAny)]))
+              (fromString "body", MatchArrayOne $ MatchAny)
+            ]))
         ]))
       ])
     )
   ])
 
+selectKey k (Object a) = KM.lookup k a
+selectKey _ _ = Nothing
+
+collapse' = selectKey (fromString "body")
+
+doCollapse f v = case f v of
+                     Nothing -> MatchFailure "collapse problem"
+                     Just x -> MatchSuccess x
+
+sList f (Array a) = case P.traverse f a of
+                     MatchFailure x -> MatchFailure x
+                     MatchSuccess x -> MatchSuccess x
+sList _ s = error (show s)
+
+sBody = doCollapse (selectKey (fromString "body"))
 
 --p3 :: IO (Maybe Value) -> IO ()
 p3 a = do
@@ -610,6 +627,7 @@ p3 a = do
               r <- return $ resetUnsignificant r'
               -- r' :: MatchResult MatchPattern
               r <- matchToValueMinimal' r
+              r <- (sBody >=> sBody >=> (sList (sBody >=> sBody))) r
               return $ "Result\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode) r ++ "\n\n\n" ++ "Funnel\n\n" ++ hh (gatherFunnel [] r')
               --return $ (r, gatherFunnel [] r')
         return $ f d'
