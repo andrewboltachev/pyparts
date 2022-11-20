@@ -79,6 +79,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchObjectPartial !MatchObject -- specific
                   | MatchArraySome !MatchPattern -- specific
                   | MatchArrayOne MatchPattern
+                  | MatchArrayExact [MatchPattern] -- specific
                   | MatchIfThen MatchPattern MatchPattern String
                   -- special queries
                   | MatchApply MatchOp MatchPattern
@@ -201,6 +202,16 @@ matchPattern (MatchArrayOne m) (Array a) = do
   acc <- if P.length acc /= 1 then NoMatch else MatchSuccess acc
   return $ MatchArrayOneResult (P.head acc)
 
+matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then NoMatch else do
+  let vv = (V.toList a)
+      f acc (p, e) = do
+          acc' <- acc
+          case matchPattern p e of
+             MatchSuccess r -> MatchSuccess (acc' ++ [r])
+             MatchFailure r -> MatchFailure r
+             NoMatch -> MatchSuccess acc'
+  acc <- L.foldl' f (MatchSuccess mempty) (P.zip m vv)
+  return $ MatchArrayResult acc
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
@@ -341,7 +352,7 @@ getD a = do
   fileData <- BL.readFile a
   return $ decode fileData
 
-grammar = MatchObjectPartial (fromList [
+main_grammar = MatchObjectPartial (fromList [
     (fromString "type", MatchString $ T.pack "ClassDef"),
     (fromString "body", (MatchObjectPartial
                       (fromList [
@@ -532,7 +543,7 @@ p1 theData = do
         -- d'' :: Keymap Value
         d'' <- asKeyMap d'
         let f v = do
-              r' <- matchPattern grammar v
+              r' <- matchPattern main_grammar v
               -- r' :: MatchResult MatchPattern
               r <- return $ resetUnsignificant r'
               -- r' :: MatchResult MatchPattern
@@ -560,7 +571,25 @@ grammar'1 = MatchIfThen (MatchObjectPartial (fromList [
 -- x ["body","orelse"!,"test"]
 -- x.test ["args","func","type"]
 
-grammar' = MatchObjectPartial (fromList [
+--  collapse utils begin
+selectKey k (Object a) = KM.lookup k a
+selectKey _ _ = Nothing
+
+collapse' = selectKey (fromString "body")
+
+doCollapse f v = case f v of
+                     Nothing -> MatchFailure "collapse problem"
+                     Just x -> MatchSuccess x
+
+sList f (Array a) = case P.traverse f a of
+                     MatchFailure x -> MatchFailure x
+                     MatchSuccess x -> MatchSuccess x
+sList _ s = error (show s)
+
+sBody = doCollapse (selectKey (fromString "body"))
+-- collapse utils end
+
+or_grammar = MatchObjectPartial (fromList [
     (fromString "type", MatchString $ T.pack "If"), -- top
     (fromString "orelse", MatchNull), -- bottom
     (fromString "test",
@@ -598,36 +627,44 @@ grammar' = MatchObjectPartial (fromList [
     )
   ])
 
-selectKey k (Object a) = KM.lookup k a
-selectKey _ _ = Nothing
+or_collapse = (sBody >=> sBody >=> (sList (sBody >=> sBody)))
 
-collapse' = selectKey (fromString "body")
 
-doCollapse f v = case f v of
-                     Nothing -> MatchFailure "collapse problem"
-                     Just x -> MatchSuccess x
+star_grammar = MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "If"),
+          (fromString "test",
+            MatchObjectPartial (fromList [ -- top
+              (fromString "type", MatchString $ T.pack "Call"),
+              (fromString "func", MatchObjectPartial (fromList [
+                (fromString "type", MatchString $ T.pack "Name"),
+                (fromString "value", MatchString $ T.pack "__star")
+              ])),
+              (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+            ])
+          ),
+          (fromString "body",
+            MatchObjectPartial (fromList [
+              (fromString "type", MatchString $ T.pack "IndentedBlock"),
+              (fromString "body", MatchArrayOne $ MatchAny)
+            ]))
+        ])
 
-sList f (Array a) = case P.traverse f a of
-                     MatchFailure x -> MatchFailure x
-                     MatchSuccess x -> MatchSuccess x
-sList _ s = error (show s)
-
-sBody = doCollapse (selectKey (fromString "body"))
+star_collapse = (sBody >=> sBody) -- :: MatchResult Value
 
 --p3 :: IO (Maybe Value) -> IO ()
-p3 a = do
+p3 a grammar collapse = do
   -- d :: Maybe Value
   d <- getD a
   let v = do
         -- d' :: Value
         d' <- d
         let f v = do
-              r' <- matchPattern grammar' v
+              r' <- matchPattern grammar v
               -- r' :: MatchResult MatchPattern
               r <- return $ resetUnsignificant r'
               -- r' :: MatchResult MatchPattern
               r <- matchToValueMinimal' r
-              r <- (sBody >=> sBody >=> (sList (sBody >=> sBody))) r
+              r <- collapse r
               return $ "Result\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode) r ++ "\n\n\n" ++ "Funnel\n\n" ++ hh (gatherFunnel [] r')
               --return $ (r, gatherFunnel [] r')
         return $ f d'
@@ -645,5 +682,22 @@ type List a = Fix (ListF a)
 
 l1 = Cons 1 $ Cons 2 $ Cons 3 Nil
 
+{-tryVariants xs = P.foldr f (Left "tryVariants fail") xs
+  where f a b =
+          case a of
+               Left x -> b
+               Right x -> Right x-}
+
 pythonMatchPattern :: Value -> Either String MatchPattern
-pythonMatchPattern _ = Left "not implemented"
+pythonMatchPattern (Object a) = Left "not implemented"
+pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (V.toList a))
+  where f acc e = do
+          acc' <- acc
+          e' <- pythonMatchPattern e
+          return $ acc' ++ [e']
+pythonMatchPattern (Object a) = let x = Object a in
+  case matchPattern or_grammar x of
+       MatchFailure s -> Left s
+       MatchSuccess (MatchArrayResult x) -> Right $ MatchSimpleOr x
+       MatchSuccess _ -> Left "wrong grammar"
+       _ -> Left "noo"
