@@ -30,6 +30,11 @@ import Data.Fix
 
 -- helpers
 
+m2e :: e -> Maybe a -> Either e a
+m2e e m = case m of
+               Nothing -> Left e
+               Just x -> Right x
+
 safeHead :: [a] -> Maybe a
 safeHead (x:_) = Just x
 safeHead _ = Nothing
@@ -583,7 +588,7 @@ doCollapse f v = case f v of
 
 sList f (Array a) = case P.traverse f a of
                      MatchFailure x -> MatchFailure x
-                     MatchSuccess x -> MatchSuccess x
+                     MatchSuccess x -> MatchSuccess $ Array x
 sList _ s = error (show s)
 
 sBody = doCollapse (selectKey (fromString "body"))
@@ -651,6 +656,16 @@ star_grammar = MatchObjectPartial (fromList [
 
 star_collapse = (sBody >=> sBody) -- :: MatchResult Value
 
+matchAndCollapse :: MatchPattern -> (Value -> MatchResult Value) -> Value -> MatchResult ([Value], Value)
+matchAndCollapse grammar collapse value = do
+  r' <- matchPattern grammar value
+  -- r' :: MatchResult MatchPattern
+  r <- return $ resetUnsignificant r'
+  -- r' :: MatchResult MatchPattern
+  r <- matchToValueMinimal' r
+  r'' <- collapse r
+  return (gatherFunnel [] r', r'')
+
 --p3 :: IO (Maybe Value) -> IO ()
 p3 a grammar collapse = do
   -- d :: Maybe Value
@@ -696,8 +711,11 @@ pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (
           e' <- pythonMatchPattern e
           return $ acc' ++ [e']
 pythonMatchPattern (Object a) = let x = Object a in
-  case matchPattern or_grammar x of
+  case matchAndCollapse or_grammar or_collapse x of
        MatchFailure s -> Left s
-       MatchSuccess (MatchArrayResult x) -> Right $ MatchSimpleOr x
+       MatchSuccess (_, v) -> do
+          --a <- (m2e "Not an array") $ asArray v
+          let f a b = a
+          return $ MatchSimpleOr [] -- (L.foldl' f (Right mempty) (V.toList v))
        MatchSuccess _ -> Left "wrong grammar"
        _ -> Left "noo"

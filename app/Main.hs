@@ -34,11 +34,6 @@ echo = do
   name <- param "name"
   send $ html $ "Hello, " <> name
 
-m2e :: e -> Maybe a -> Either e a
-m2e e m = case m of
-               Nothing -> Left e
-               Just x -> Right x
-
 jsonMatcher1 :: ResponderM a
 jsonMatcher1 = do
   b <- (fromBody :: ResponderM Value)
