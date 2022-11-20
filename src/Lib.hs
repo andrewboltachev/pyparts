@@ -703,6 +703,21 @@ l1 = Cons 1 $ Cons 2 $ Cons 3 Nil
                Left x -> b
                Right x -> Right x-}
 
+pythonUnsignificantKeys = [
+  "lpar",
+  "rpar",
+  "first_line",
+  "empty_lines",
+  "indent",
+  "newline",
+  "lpar",
+  "rpar",
+  "colon",
+  "header",
+  "footer",
+  "leading_lines",
+  "lines_after_decorators"]
+
 pythonMatchPattern :: Value -> Either String MatchPattern
 pythonMatchPattern (Object a) = Left "not implemented"
 pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (V.toList a))
@@ -719,4 +734,18 @@ pythonMatchPattern (Object a) = let x = Object a in
                 e' <- pythonMatchPattern e
                 return $ acc' ++ [e']
        MatchSuccess _ -> Left "wrong grammar"
-       _ -> Left "noo"
+       NoMatch -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a
+
+
+
+
+
+
+
+
+{-fmap (MatchObjectPartial . MatchObject) $ L.foldl' f (Right mempty) ((KM.toList . KM.filterWithKey ff) a)
+        where ff k _ = not $ (K.toString k) `P.elem` pythonUnsignificantKeys
+              f acc (k, v) = do
+                acc' <- acc
+                v' <- pythonMatchPattern v
+                return $ KM.insert k v -}
