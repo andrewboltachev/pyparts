@@ -792,3 +792,7 @@ g2 = MatchArrayExact [
 
 v2 = Array [Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("type",String "Expr"),("value",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Integer"),("value",String "1")]))])]
 -}
+
+
+so_grammar = MatchObjectPartial (fromList [("items", MatchArray $ MatchObjectPartial (fromList [("tags", MatchFunnel)]))])
+so_collapse x = return x
