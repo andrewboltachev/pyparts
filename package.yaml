@@ -33,6 +33,7 @@ dependencies:
 - data-fix
 - twain
 - warp
+- ghc
 
 ghc-options:
 - -Wall

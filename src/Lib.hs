@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 
 
@@ -63,12 +62,21 @@ type MatchObject = KeyMap MatchPattern
 -- | A JSON \"array\" (sequence).
 type MatchArray = V.Vector MatchPattern -- TODO just use list?
 
-data MatchOp = MatchOp (MatchPattern -> MatchResult MatchPattern)
+{-data MatchOp = MatchOp (MatchPattern -> MatchResult MatchPattern)
 instance Show MatchOp where
   show _ = "MatchOp"
 
 instance Eq MatchOp where
   (==) _ _ = False
+
+instance Generic MatchOp where
+  --
+
+instance ToJSON MatchOp where
+  --
+
+instance FromJSON MatchOp
+    -- No need to provide a parseJSON implementation.-}
 
                   -- queries
 data MatchPattern = MatchObject !MatchObject -- literal
@@ -87,7 +95,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayExact [MatchPattern] -- specific
                   | MatchIfThen MatchPattern MatchPattern String
                   -- special queries
-                  | MatchApply MatchOp MatchPattern
+                  -- | MatchApply MatchOp MatchPattern
                   | MatchMustHave MatchPattern
                   -- both
                   | MatchNumber !Sci.Scientific
@@ -107,7 +115,17 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayResult [MatchPattern]
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
-                    deriving (Eq, Show)
+                    deriving (Generic, Eq, Show)
+
+instance ToJSON MatchPattern where
+    -- No need to provide a toJSON implementation.
+
+    -- For efficiency, we write a simple toEncoding implementation, as
+    -- the default version uses toJSON.
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON MatchPattern
+    -- No need to provide a parseJSON implementation.
 
 --gatherFunnel :: [Value] -> MatchPattern -> [Value]
 gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
@@ -207,7 +225,7 @@ matchPattern (MatchArrayOne m) (Array a) = do
   acc <- if P.length acc /= 1 then NoMatch else MatchSuccess acc
   return $ MatchArrayOneResult (P.head acc)
 
-matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then NoMatch else do
+matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then MatchFailure "array exact match" else do
   let vv = (V.toList a)
       f acc (p, e) = do
           acc' <- acc
@@ -255,7 +273,7 @@ matchPattern (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f (MatchF
                      _ -> b
 
 -- valueless
-matchPattern (MatchApply (MatchOp f) m) v = matchPattern m v >>= f
+--matchPattern (MatchApply (MatchOp f) m) v = matchPattern m v >>= f
 matchPattern (MatchString m) (String a) = if m == a then MatchSuccess MatchLiteral else NoMatch
 matchPattern (MatchNumber m) (Number a) = if m == a then MatchSuccess MatchLiteral else NoMatch
 matchPattern (MatchBool m) (Bool a) = if m == a then MatchSuccess MatchLiteral else NoMatch
@@ -273,7 +291,7 @@ matchPattern _ _ = NoMatch
 -- matchPattern (MatchBool True) (Bool True)
 -- matchPattern MatchNull Null
 
-matchOp = MatchApply . MatchOp
+--matchOp = MatchApply . MatchOp
 
 matchToValueMinimal :: MatchPattern -> Maybe Value
 matchToValueMinimal (MatchObjectPartialResult _ m) = fmap Object $ L.foldl' f (Just mempty) (keys m) -- ifNotEmpty =<< 
@@ -328,7 +346,7 @@ matchToValueMinimal (MatchArrayOneResult a) = matchToValueMinimal a {-do
   return $ Array $ V.fromList [v]-}
 matchToValueMinimal x = error $ show x
 
-matchToValueMinimal' x = (m2mp $ MatchFailure $ "lll" ++ show x) $ (matchToValueMinimal x)
+matchToValueMinimal' x = (m2mp $ MatchFailure $ "matchToValueMinimal error " ++ show x) $ (matchToValueMinimal x)
 
 resetUnsignificant (MatchObjectPartialResult _ a) = MatchObjectPartialResultU (fmap resetUnsignificant a)
 resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . fmap) resetUnsignificant a)
@@ -732,10 +750,12 @@ pythonUnsignificantKeys = [
   "header",
   "footer",
   "leading_lines",
-  "lines_after_decorators"]
+  "lines_after_decorators",
+  "trailing_whitespace",
+  "whitespace_before_test",
+  "whitespace_after_test"]
 
 pythonMatchPattern :: Value -> Either String MatchPattern
-pythonMatchPattern (Object a) = Left "not implemented"
 pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (V.toList a))
   where f acc e = do
           acc' <- acc
@@ -749,7 +769,8 @@ pythonMatchPattern (Object a) = let x = Object a in
        NoMatch -> case matchAndCollapse any_grammar any_collapse x of
          MatchFailure s -> Left s
          MatchSuccess (_, _) -> Right MatchAny
-         NoMatch -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a
+         NoMatch -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a'
+                      where a' = KM.filterWithKey (\k _ -> not ((toString k) `P.elem` pythonUnsignificantKeys)) a
 pythonMatchPattern (String s) = Right $ MatchString s
 pythonMatchPattern (Number s) = Right $ MatchNumber s
 pythonMatchPattern (Bool s) = Right $ MatchBool s

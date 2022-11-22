@@ -38,6 +38,7 @@ library
     , bytestring
     , containers
     , data-fix
+    , ghc
     , rainbow
     , scientific
     , text
@@ -61,6 +62,7 @@ executable pyparts-exe
     , bytestring
     , containers
     , data-fix
+    , ghc
     , pyparts
     , rainbow
     , scientific
@@ -86,6 +88,7 @@ test-suite pyparts-test
     , bytestring
     , containers
     , data-fix
+    , ghc
     , pyparts
     , rainbow
     , scientific
