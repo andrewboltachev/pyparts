@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 
 module Lib where
@@ -233,7 +234,7 @@ matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then Ma
           case matchPattern p e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
-             NoMatch -> MatchSuccess acc'
+             NoMatch -> NoMatch
   acc <- L.foldl' f (MatchSuccess mempty) (P.zip m vv)
   return $ MatchArrayResult acc
 
@@ -754,6 +755,8 @@ pythonUnsignificantKeys = [
   "leading_lines",
   "lines_after_decorators",
   "trailing_whitespace",
+  "whitespace_before_equal",
+  "whitespace_after_equal",
   "whitespace_before_test",
   "whitespace_after_test"]
 
@@ -779,10 +782,13 @@ pythonMatchPattern (Bool s) = Right $ MatchBool s
 pythonMatchPattern Null = Right $ MatchNull
 
 
-g1 = MatchArrayExact [
-  MatchObjectPartial (fromList [("body",MatchArrayExact [MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("targets",MatchArrayExact [MatchObjectPartial (fromList [("target",MatchObjectPartial (fromList [("type",MatchString "Name"),("value",MatchString "x")])),("type",MatchString "AssignTarget"),("whitespace_after_equal",MatchObjectPartial (fromList [("type",MatchString "SimpleWhitespace"),("value",MatchString " ")])),("whitespace_before_equal",MatchObjectPartial (fromList [("type",MatchString "SimpleWhitespace"),("value",MatchString " ")]))])]),("type",MatchString "Assign"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "1")]))])]),("type",MatchString "SimpleStatementLine")]),
-  MatchObjectPartial (fromList [("body",MatchArrayExact [MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("targets",MatchArrayExact [MatchObjectPartial (fromList [("target",MatchObjectPartial (fromList [("type",MatchString "Name"),("value",MatchString "x")])),("type",MatchString "AssignTarget"),("whitespace_after_equal",MatchObjectPartial (fromList [("type",MatchString "SimpleWhitespace"),("value",MatchString " ")])),("whitespace_before_equal",MatchObjectPartial (fromList [("type",MatchString "SimpleWhitespace"),("value",MatchString " ")]))])]),("type",MatchString "Assign"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "3")]))])]),("type",MatchString "SimpleStatementLine")])
- ]
+{-g1 = MatchArrayExact [MatchObjectPartial (fromList [("body",MatchArrayExact [MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("targets",MatchArrayExact [MatchObjectPartial (fromList [("target",MatchObjectPartial (fromList [("type",MatchString "Name"),("value",MatchString "x")])),("type",MatchString "AssignTarget")])]),("type",MatchString "Assign"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "1")]))])]),("type",MatchString "SimpleStatementLine")]),MatchObjectPartial (fromList [("body",MatchArrayExact [MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("targets",MatchArrayExact [MatchObjectPartial (fromList [("target",MatchObjectPartial (fromList [("type",MatchString "Name"),("value",MatchString "x")])),("type",MatchString "AssignTarget")])]),("type",MatchString "Assign"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "3")]))])]),("type",MatchString "SimpleStatementLine")])]
 
 v1 = Array [Object (fromList [("body",Array [Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("targets",Array [Object (fromList [("target",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Name"),("value",String "x")])),("type",String "AssignTarget"),("whitespace_after_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")])),("whitespace_before_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")]))])]),("type",String "Assign"),("value",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Integer"),("value",String "1")]))])]),("leading_lines",Array []),("trailing_whitespace",Object (fromList [("comment",Null),("newline",Object (fromList [("type",String "Newline"),("value",Null)])),("type",String "TrailingWhitespace"),("whitespace",Object (fromList [("type",String "SimpleWhitespace"),("value",String "")]))])),("type",String "SimpleStatementLine")]),Object (fromList [("body",Array [Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("targets",Array [Object (fromList [("target",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Name"),("value",String "x")])),("type",String "AssignTarget"),("whitespace_after_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")])),("whitespace_before_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")]))])]),("type",String "Assign"),("value",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Integer"),("value",String "2")]))])]),("leading_lines",Array []),("trailing_whitespace",Object (fromList [("comment",Null),("newline",Object (fromList [("type",String "Newline"),("value",Null)])),("type",String "TrailingWhitespace"),("whitespace",Object (fromList [("type",String "SimpleWhitespace"),("value",String "")]))])),("type",String "SimpleStatementLine")])]
 
+g2 = MatchArrayExact [
+      MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("type",MatchString "Expr"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "3")]))]
+      )]
+
+v2 = Array [Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("type",String "Expr"),("value",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Integer"),("value",String "1")]))])]
+-}
