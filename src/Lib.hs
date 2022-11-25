@@ -322,7 +322,7 @@ matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then Ma
   return $ MatchArrayResult acc
 
 matchPattern (MatchArrayContextFree m) (Array a) = do
-  -- ...
+  let r1 = contextFreeMatch (Seq m)
   return $ MatchArrayContextFreeResult acc
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
