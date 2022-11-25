@@ -29,66 +29,93 @@ import Control.Monad
 import qualified Data.ByteString.UTF8       as BLU
 import Data.Fix
 
+data MatchResult a = MatchSuccess a
+                 | MatchFailure String
+                 | NoMatch String
+                 deriving (Eq, Show)
+
+instance Functor MatchResult where
+  fmap f (MatchSuccess m) = MatchSuccess (f m)
+  fmap _ (MatchFailure x) = MatchFailure x
+  fmap _ (NoMatch x) = NoMatch x
+
+instance Applicative MatchResult where
+  (<*>) (MatchSuccess f) (MatchSuccess m) = MatchSuccess (f m)
+  (<*>) _ (MatchFailure x) = (MatchFailure x)
+  (<*>) (MatchFailure x) _ = (MatchFailure x)
+  pure x = MatchSuccess x
+
+instance Monad MatchResult where
+  --join (MatchSuccess (MatchSuccess x)) = MatchSuccess x
+  --join (MatchFailure (MatchFailure x)) = MatchFailure x
+  --join NoMatch = NoMatch
+  (>>=) (MatchSuccess m) f = f m
+  (>>=) (MatchFailure m) _ = (MatchFailure m)
+  (>>=) (NoMatch m) _ = (NoMatch m)
+
 -- CF matcher
 
 data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
-                        | StarNode [(ContextFreeGrammar a)]
-                        | PlusNode [(ContextFreeGrammar a)]
-                        | OrNode String (ContextFreeGrammar a)
-                        | OptionalNodeValue (ContextFreeGrammar a)
-                        | OptionalNodeEmpty
-                        | InputChar a
-                        | Char a
-                        | Seq [(ContextFreeGrammar a)]
-                        | Or [(String, (ContextFreeGrammar a))]
-                        | Star (ContextFreeGrammar a)
-                        | Plus (ContextFreeGrammar a)
-                        | Optional (ContextFreeGrammar a)
-                          deriving (Generic, Eq, Show)
+                          | StarNode [(ContextFreeGrammar a)]
+                          | PlusNode [(ContextFreeGrammar a)]
+                          | OrNode String (ContextFreeGrammar a)
+                          | OptionalNodeValue (ContextFreeGrammar a)
+                          | OptionalNodeEmpty
+                          | CharNode a -- i.e. result node
+                          | Char a
+                          | Seq [(ContextFreeGrammar a)]
+                          | Or [(String, (ContextFreeGrammar a))]
+                          | Star (ContextFreeGrammar a)
+                          | Plus (ContextFreeGrammar a)
+                          | Optional (ContextFreeGrammar a)
+                            deriving (Generic, Eq, Show)
 
 instance ToJSON a => ToJSON (ContextFreeGrammar a) where
     toEncoding = genericToEncoding defaultOptions
 
 instance FromJSON a => FromJSON (ContextFreeGrammar a)
 
-contextFreeMatch' :: (Eq a, Show a) => ContextFreeGrammar a -> [a] -> Either String ([a], ContextFreeGrammar a)
-contextFreeMatch' (Char _) [] = Left "can't read char"
-contextFreeMatch' (Char a) (x:xs) = if a /= x then
-                                             Left ("char mismatch: expected " ++ show a ++ ", but found " ++ show x)
-                                             else Right (xs, InputChar a)
-contextFreeMatch' (Seq as) xs = (fmap . fmap) SeqNode $ L.foldl' f (Right (xs, mempty)) as
+contextFreeMatch' :: (Eq a, Show a, Show b) => ContextFreeGrammar a -> [b] -> (a -> b -> MatchResult a) -> MatchResult ([b], ContextFreeGrammar a)
+contextFreeMatch' (Char _) [] matchFn = NoMatch "can't read char"
+contextFreeMatch' (Char a) (x:xs) matchFn =
+  case matchFn a x of
+       NoMatch s -> NoMatch ("no char match: " ++ s)
+       MatchFailure s -> MatchFailure s
+       MatchSuccess a -> MatchSuccess (xs, CharNode a)
+
+contextFreeMatch' (Seq as) xs matchFn = (fmap . fmap) SeqNode $ L.foldl' f (MatchSuccess (xs, mempty)) as
   where f acc' a = do
           (xs, result) <- acc'
-          (xs', result') <- contextFreeMatch' a xs
+          (xs', result') <- contextFreeMatch' a xs matchFn
           return (xs', result ++ [result'])
 
-contextFreeMatch' (Or as) xs = L.foldr f (Left "or mismatch") as
+contextFreeMatch' (Or as) xs matchFn = L.foldr f (NoMatch "or mismatch") as
   where f (opt, a) b = do
-          case contextFreeMatch' a xs of
-               Left _ -> b
-               Right (xs', r) -> Right (xs', OrNode opt r)
+          case contextFreeMatch' a xs matchFn of
+               NoMatch _ -> b
+               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode opt r)
 
-contextFreeMatch' (Star a) xs = (fmap . fmap) StarNode $ L.foldl' f (Right (xs, mempty)) xs
+contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) StarNode $ L.foldl' f (MatchSuccess (xs, mempty)) xs
   where f acc' b = do
           acc@(xs, result) <- acc'
-          case contextFreeMatch' a xs of
-               Left _ -> Right acc
-               Right (xs', result') -> Right (xs', result ++ [result'])
+          case contextFreeMatch' a xs matchFn of
+               NoMatch _ -> MatchSuccess acc
+               MatchSuccess (xs', result') -> MatchSuccess (xs', result ++ [result'])
 
-contextFreeMatch' (Plus a) xs = do
-  (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs
+contextFreeMatch' (Plus a) xs matchFn = do
+  (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs matchFn
   rs' <- case subresult of
-              (SeqNode [r, (StarNode rs)]) -> Right (r:rs)
-              _ -> Left "impossible"
+              (SeqNode [r, (StarNode rs)]) -> MatchSuccess (r:rs)
+              _ -> NoMatch "impossible"
   return (xs', (PlusNode rs'))
   
 
-contextFreeMatch' (Optional a) xs = do
-  return $ case contextFreeMatch' a xs of
-       Left _ -> (xs, OptionalNodeEmpty)
-       Right (xs', subresult) -> (xs', OptionalNodeValue subresult)
+contextFreeMatch' (Optional a) xs matchFn = do
+  return $ case contextFreeMatch' a xs matchFn of
+       NoMatch _ -> (xs, OptionalNodeEmpty)
+       MatchSuccess (xs', subresult) -> (xs', OptionalNodeValue subresult)
 
-contextFreeMatch' a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+contextFreeMatch' a xs matchFn = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
 
 --contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
 {-
@@ -103,12 +130,13 @@ ghci> contextFreeMatch (Seq [Char 1, Optional (Char 2), Char 3, Char 4]) [1,2,3,
 Right ([],SeqNode [InputChar 1,OptionalNodeValue (InputChar 2),InputChar 3,InputChar 4])
 -}
 
-contextFreeMatch :: (Eq a, Show a) => (ContextFreeGrammar a) -> [a] -> Either String (ContextFreeGrammar a)
-contextFreeMatch a xs = do
-  (rest, result) <- contextFreeMatch' a xs
+--contextFreeMatch :: (Eq a, Show a) => (ContextFreeGrammar a) -> [a] -> (a -> b -> MatchResult a) -> MatchResult (ContextFreeGrammar a)
+
+contextFreeMatch a xs matchFn = do
+  (rest, result) <- contextFreeMatch' a xs matchFn
   case P.length rest == 0 of
-       False -> Left ("rest left: " ++ show rest)
-       True -> Right result
+       False -> NoMatch ("rest left: " ++ show rest)
+       True -> MatchSuccess result
 
 -- helpers
 
@@ -176,7 +204,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArraySome !MatchPattern -- specific
                   | MatchArrayOne MatchPattern
                   | MatchArrayExact [MatchPattern] -- specific
-                  | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
+                  -- | MatchArrayContextFree (ContextFreeGrammar MatchPattern Value)
                   | MatchIfThen MatchPattern MatchPattern String
                   -- special queries
                   -- | MatchApply MatchOp MatchPattern
@@ -199,7 +227,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayResult [MatchPattern]
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
-                  | MatchArrayContextFreeResult (ContextFreeGrammar MatchPattern)
+                  -- | MatchArrayContextFreeResult (ContextFreeGrammar MatchPattern Value)
                     deriving (Generic, Eq, Show)
 
 instance ToJSON MatchPattern where
@@ -230,30 +258,6 @@ gatherFunnel acc (MatchNumber _) = acc
 gatherFunnel acc MatchNull = acc
 gatherFunnel acc x = error (show x)
 --gatherFunnel acc _ = acc
-
-data MatchResult a = MatchSuccess a
-                 | MatchFailure String
-                 | NoMatch String
-                 deriving (Eq, Show)
-
-instance Functor MatchResult where
-  fmap f (MatchSuccess m) = MatchSuccess (f m)
-  fmap _ (MatchFailure x) = MatchFailure x
-  fmap _ (NoMatch x) = NoMatch x
-
-instance Applicative MatchResult where
-  (<*>) (MatchSuccess f) (MatchSuccess m) = MatchSuccess (f m)
-  (<*>) _ (MatchFailure x) = (MatchFailure x)
-  (<*>) (MatchFailure x) _ = (MatchFailure x)
-  pure x = MatchSuccess x
-
-instance Monad MatchResult where
-  --join (MatchSuccess (MatchSuccess x)) = MatchSuccess x
-  --join (MatchFailure (MatchFailure x)) = MatchFailure x
-  --join NoMatch = NoMatch
-  (>>=) (MatchSuccess m) f = f m
-  (>>=) (MatchFailure m) _ = (MatchFailure m)
-  (>>=) (NoMatch m) _ = (NoMatch m)
 
 -- pattern -> value -> result
 matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
@@ -321,9 +325,11 @@ matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then Ma
   acc <- L.foldl' f (MatchSuccess mempty) (P.zip m vv)
   return $ MatchArrayResult acc
 
-matchPattern (MatchArrayContextFree m) (Array a) = do
-  let r1 = contextFreeMatch (Seq m)
-  return $ MatchArrayContextFreeResult acc
+{-matchPattern (MatchArrayContextFree m) (Array a) = do
+  case contextFreeMatch m (V.toList a) of
+       NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
+       MatchFailure s -> MatchFailure s
+       MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)-}
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
