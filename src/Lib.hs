@@ -780,19 +780,28 @@ pythonMatchPattern (String s) = Right $ MatchString s
 pythonMatchPattern (Number s) = Right $ MatchNumber s
 pythonMatchPattern (Bool s) = Right $ MatchBool s
 pythonMatchPattern Null = Right $ MatchNull
-
-
-{-g1 = MatchArrayExact [MatchObjectPartial (fromList [("body",MatchArrayExact [MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("targets",MatchArrayExact [MatchObjectPartial (fromList [("target",MatchObjectPartial (fromList [("type",MatchString "Name"),("value",MatchString "x")])),("type",MatchString "AssignTarget")])]),("type",MatchString "Assign"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "1")]))])]),("type",MatchString "SimpleStatementLine")]),MatchObjectPartial (fromList [("body",MatchArrayExact [MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("targets",MatchArrayExact [MatchObjectPartial (fromList [("target",MatchObjectPartial (fromList [("type",MatchString "Name"),("value",MatchString "x")])),("type",MatchString "AssignTarget")])]),("type",MatchString "Assign"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "3")]))])]),("type",MatchString "SimpleStatementLine")])]
-
-v1 = Array [Object (fromList [("body",Array [Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("targets",Array [Object (fromList [("target",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Name"),("value",String "x")])),("type",String "AssignTarget"),("whitespace_after_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")])),("whitespace_before_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")]))])]),("type",String "Assign"),("value",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Integer"),("value",String "1")]))])]),("leading_lines",Array []),("trailing_whitespace",Object (fromList [("comment",Null),("newline",Object (fromList [("type",String "Newline"),("value",Null)])),("type",String "TrailingWhitespace"),("whitespace",Object (fromList [("type",String "SimpleWhitespace"),("value",String "")]))])),("type",String "SimpleStatementLine")]),Object (fromList [("body",Array [Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("targets",Array [Object (fromList [("target",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Name"),("value",String "x")])),("type",String "AssignTarget"),("whitespace_after_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")])),("whitespace_before_equal",Object (fromList [("type",String "SimpleWhitespace"),("value",String " ")]))])]),("type",String "Assign"),("value",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Integer"),("value",String "2")]))])]),("leading_lines",Array []),("trailing_whitespace",Object (fromList [("comment",Null),("newline",Object (fromList [("type",String "Newline"),("value",Null)])),("type",String "TrailingWhitespace"),("whitespace",Object (fromList [("type",String "SimpleWhitespace"),("value",String "")]))])),("type",String "SimpleStatementLine")])]
-
-g2 = MatchArrayExact [
-      MatchObjectPartial (fromList [("semicolon",MatchString "MaybeSentinel.DEFAULT"),("type",MatchString "Expr"),("value",MatchObjectPartial (fromList [("type",MatchString "Integer"),("value",MatchString "3")]))]
-      )]
-
-v2 = Array [Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("type",String "Expr"),("value",Object (fromList [("lpar",Array []),("rpar",Array []),("type",String "Integer"),("value",String "1")]))])]
--}
-
-
 so_grammar = MatchObjectPartial (fromList [("items", MatchArray $ MatchObjectPartial (fromList [("tags", MatchFunnel)]))])
 so_collapse x = return x
+
+
+data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
+                        | InputChar a
+                        | Char a
+                        | Seq [(ContextFreeGrammar a)]
+                        | Or [(String, (ContextFreeGrammar a))]
+                        | Star (ContextFreeGrammar a)
+                        | Plus (ContextFreeGrammar a)
+                        | Optional (ContextFreeGrammar a)
+                          deriving (Eq, Show)
+
+contextFreeMatch :: (Eq a, Show a) => ContextFreeGrammar a -> [a] -> Either String ([a], ContextFreeGrammar a)
+contextFreeMatch (Char _) [] = Left "can't read char"
+contextFreeMatch (Char a) (x:xs) = if a /= x then
+                                             Left ("char mismatch: expected " ++ show a ++ ", but found " ++ show x)
+                                             else Right (xs, InputChar a)
+contextFreeMatch (Seq as) xs = (fmap . fmap) SeqNode $ L.foldl' f (Right (xs, mempty)) as
+  where f acc' a = do
+          (xs, result) <- acc'
+          (xs', result') <- contextFreeMatch a xs
+          return (xs', result ++ [result'])
+--contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
