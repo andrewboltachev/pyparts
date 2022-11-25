@@ -780,6 +780,9 @@ pythonMatchPattern (String s) = Right $ MatchString s
 pythonMatchPattern (Number s) = Right $ MatchNumber s
 pythonMatchPattern (Bool s) = Right $ MatchBool s
 pythonMatchPattern Null = Right $ MatchNull
+
+
+
 so_grammar = MatchObjectPartial (fromList [("items", MatchArray $ MatchObjectPartial (fromList [("tags", MatchFunnel)]))])
 so_collapse x = return x
 
