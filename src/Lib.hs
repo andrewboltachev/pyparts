@@ -29,6 +29,87 @@ import Control.Monad
 import qualified Data.ByteString.UTF8       as BLU
 import Data.Fix
 
+-- CF matcher
+
+data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
+                        | StarNode [(ContextFreeGrammar a)]
+                        | PlusNode [(ContextFreeGrammar a)]
+                        | OrNode String (ContextFreeGrammar a)
+                        | OptionalNodeValue (ContextFreeGrammar a)
+                        | OptionalNodeEmpty
+                        | InputChar a
+                        | Char a
+                        | Seq [(ContextFreeGrammar a)]
+                        | Or [(String, (ContextFreeGrammar a))]
+                        | Star (ContextFreeGrammar a)
+                        | Plus (ContextFreeGrammar a)
+                        | Optional (ContextFreeGrammar a)
+                          deriving (Generic, Eq, Show)
+
+instance ToJSON a => ToJSON (ContextFreeGrammar a) where
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON a => FromJSON (ContextFreeGrammar a)
+
+contextFreeMatch' :: (Eq a, Show a) => ContextFreeGrammar a -> [a] -> Either String ([a], ContextFreeGrammar a)
+contextFreeMatch' (Char _) [] = Left "can't read char"
+contextFreeMatch' (Char a) (x:xs) = if a /= x then
+                                             Left ("char mismatch: expected " ++ show a ++ ", but found " ++ show x)
+                                             else Right (xs, InputChar a)
+contextFreeMatch' (Seq as) xs = (fmap . fmap) SeqNode $ L.foldl' f (Right (xs, mempty)) as
+  where f acc' a = do
+          (xs, result) <- acc'
+          (xs', result') <- contextFreeMatch' a xs
+          return (xs', result ++ [result'])
+
+contextFreeMatch' (Or as) xs = L.foldr f (Left "or mismatch") as
+  where f (opt, a) b = do
+          case contextFreeMatch' a xs of
+               Left _ -> b
+               Right (xs', r) -> Right (xs', OrNode opt r)
+
+contextFreeMatch' (Star a) xs = (fmap . fmap) StarNode $ L.foldl' f (Right (xs, mempty)) xs
+  where f acc' b = do
+          acc@(xs, result) <- acc'
+          case contextFreeMatch' a xs of
+               Left _ -> Right acc
+               Right (xs', result') -> Right (xs', result ++ [result'])
+
+contextFreeMatch' (Plus a) xs = do
+  (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs
+  rs' <- case subresult of
+              (SeqNode [r, (StarNode rs)]) -> Right (r:rs)
+              _ -> Left "impossible"
+  return (xs', (PlusNode rs'))
+  
+
+contextFreeMatch' (Optional a) xs = do
+  return $ case contextFreeMatch' a xs of
+       Left _ -> (xs, OptionalNodeEmpty)
+       Right (xs', subresult) -> (xs', OptionalNodeValue subresult)
+
+contextFreeMatch' a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+
+--contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
+{-
+ghci> contextFreeMatch (Seq [Char 1, Optional (Char 2), Char 3, Char 4]) [1,2,3,4]
+
+<interactive>:106:1: warning: [-Wtype-defaults]
+    • Defaulting the following constraints to type ‘Integer’
+        (Show a0) arising from a use of ‘print’ at <interactive>:106:1-76
+        (Eq a0) arising from a use of ‘it’ at <interactive>:106:1-76
+        (Num a0) arising from a use of ‘it’ at <interactive>:106:1-76
+    • In a stmt of an interactive GHCi command: print it
+Right ([],SeqNode [InputChar 1,OptionalNodeValue (InputChar 2),InputChar 3,InputChar 4])
+-}
+
+contextFreeMatch :: (Eq a, Show a) => (ContextFreeGrammar a) -> [a] -> Either String (ContextFreeGrammar a)
+contextFreeMatch a xs = do
+  (rest, result) <- contextFreeMatch' a xs
+  case P.length rest == 0 of
+       False -> Left ("rest left: " ++ show rest)
+       True -> Right result
+
 -- helpers
 
 m2e :: e -> Maybe a -> Either e a
@@ -95,6 +176,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArraySome !MatchPattern -- specific
                   | MatchArrayOne MatchPattern
                   | MatchArrayExact [MatchPattern] -- specific
+                  | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
                   | MatchIfThen MatchPattern MatchPattern String
                   -- special queries
                   -- | MatchApply MatchOp MatchPattern
@@ -117,6 +199,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayResult [MatchPattern]
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
+                  | MatchArrayContextFreeResult (ContextFreeGrammar MatchPattern)
                     deriving (Generic, Eq, Show)
 
 instance ToJSON MatchPattern where
@@ -150,13 +233,13 @@ gatherFunnel acc x = error (show x)
 
 data MatchResult a = MatchSuccess a
                  | MatchFailure String
-                 | NoMatch
+                 | NoMatch String
                  deriving (Eq, Show)
 
 instance Functor MatchResult where
   fmap f (MatchSuccess m) = MatchSuccess (f m)
   fmap _ (MatchFailure x) = MatchFailure x
-  fmap _ NoMatch = NoMatch
+  fmap _ (NoMatch x) = NoMatch x
 
 instance Applicative MatchResult where
   (<*>) (MatchSuccess f) (MatchSuccess m) = MatchSuccess (f m)
@@ -170,7 +253,7 @@ instance Monad MatchResult where
   --join NoMatch = NoMatch
   (>>=) (MatchSuccess m) f = f m
   (>>=) (MatchFailure m) _ = (MatchFailure m)
-  (>>=) NoMatch _ = NoMatch
+  (>>=) (NoMatch m) _ = (NoMatch m)
 
 -- pattern -> value -> result
 matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
@@ -184,13 +267,13 @@ m2mp m v = case v of
               Nothing -> m
 
 matchPattern (MatchStrict s m) v = case matchPattern m v of
-                                      NoMatch -> MatchFailure s
+                                      NoMatch x -> MatchFailure s
                                       x -> x
 matchPattern (MatchObject m) (Object a) = if keys m /= keys a then (MatchFailure "MatchObject keys mismatch") else fmap (MatchObject . KM.fromList) $ L.foldl' f (MatchSuccess []) (keys m)
   where f acc k = do
           acc' <- acc
-          m' <- (m2mp NoMatch) $ KM.lookup k m
-          a' <- (m2mp NoMatch) $ KM.lookup k a
+          m' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k m
+          a' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k a
           p <- matchPattern m' a'
           return $ acc' ++ [(k, p)]
 
@@ -198,8 +281,8 @@ matchPattern (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult 
   where leftOver = Object $ KM.difference a m
         f acc k = do
           acc' <- acc
-          m' <- (m2mp NoMatch) $ KM.lookup k m
-          a' <- (m2mp NoMatch) $ KM.lookup k a
+          m' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k m
+          a' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k a
           p <- matchPattern m' a'
           return $ KM.insert k p acc'
 
@@ -210,9 +293,9 @@ matchPattern (MatchArray m) (Array a) = do
           case matchPattern m e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
-             NoMatch -> MatchSuccess acc'
+             NoMatch _ -> MatchSuccess acc'
   acc <- L.foldl' f (MatchSuccess mempty) vv
-  acc <- if P.length acc /= P.length vv then NoMatch else MatchSuccess acc
+  acc <- if P.length acc /= P.length vv then NoMatch "array length mismatch" else MatchSuccess acc
   return $ MatchArrayResult acc
 
 matchPattern (MatchArrayOne m) (Array a) = do
@@ -222,9 +305,9 @@ matchPattern (MatchArrayOne m) (Array a) = do
           case matchPattern m e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
-             NoMatch -> MatchSuccess acc'
+             NoMatch _ -> MatchSuccess acc'
   acc <- L.foldl' f (MatchSuccess mempty) vv
-  acc <- if P.length acc /= 1 then NoMatch else MatchSuccess acc
+  acc <- if P.length acc /= 1 then NoMatch "array length isn't 1" else MatchSuccess acc
   return $ MatchArrayOneResult (P.head acc)
 
 matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then MatchFailure "array exact match" else do
@@ -234,9 +317,12 @@ matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then Ma
           case matchPattern p e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
-             NoMatch -> NoMatch
+             NoMatch r -> NoMatch r
   acc <- L.foldl' f (MatchSuccess mempty) (P.zip m vv)
   return $ MatchArrayResult acc
+
+--matchPattern (MatchArrayContextFree m) (Array a) = do
+--  return $ MatchArrayContextFreeResult acc
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
@@ -248,10 +334,10 @@ matchPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeys met not a KeyMap
 
 matchPattern (MatchIfThen baseMatch match failMsg) v =
   case matchPattern baseMatch v of
-       NoMatch -> NoMatch
+       NoMatch x -> NoMatch x
        MatchFailure f -> MatchFailure f
        MatchSuccess s -> case matchPattern match v of
-                            NoMatch -> MatchFailure  failMsg --(failMsg ++ " " ++ show s)
+                            NoMatch x -> MatchFailure (failMsg ++ show x)
                             MatchFailure f -> MatchFailure f
                             MatchSuccess s -> MatchSuccess s
 
@@ -261,9 +347,9 @@ matchPattern (MatchArraySome m) (Array a) = do
           case matchPattern m e of
              MatchSuccess r -> (MatchSuccess (a1, a2 ++ [(idx, r)]))
              MatchFailure r -> MatchFailure r
-             NoMatch -> MatchSuccess (a1 ++ [(idx, e)], a2)
+             NoMatch _ -> MatchSuccess (a1 ++ [(idx, e)], a2)
   (a1, a2) <- L.foldl' f (MatchSuccess (mempty, mempty)) $ P.zip [0..] (V.toList a)
-  (a1, a2) <- if P.length a2 > 0 then MatchSuccess (a1, a2) else NoMatch -- at lease 1
+  (a1, a2) <- if P.length a2 > 0 then MatchSuccess (a1, a2) else NoMatch "array mustn't be empty"
   return $ MatchArraySomeResult a1 a2
 
 matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
@@ -276,9 +362,9 @@ matchPattern (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f (MatchF
 
 -- valueless
 --matchPattern (MatchApply (MatchOp f) m) v = matchPattern m v >>= f
-matchPattern (MatchString m) (String a) = if m == a then MatchSuccess MatchLiteral else NoMatch
-matchPattern (MatchNumber m) (Number a) = if m == a then MatchSuccess MatchLiteral else NoMatch
-matchPattern (MatchBool m) (Bool a) = if m == a then MatchSuccess MatchLiteral else NoMatch
+matchPattern (MatchString m) (String a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern (MatchNumber m) (Number a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern (MatchBool m) (Bool a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
 matchPattern MatchNull Null = MatchSuccess MatchLiteral
 -- valued
 matchPattern MatchLiteral (String a) = MatchSuccess $ MatchString a
@@ -286,7 +372,7 @@ matchPattern MatchLiteral (Number a) = MatchSuccess $ MatchNumber a
 matchPattern MatchLiteral (Bool a) = MatchSuccess $ MatchBool a
 matchPattern MatchLiteral Null = MatchSuccess $ MatchNull
 -- default case
-matchPattern _ _ = NoMatch
+matchPattern _ _ = NoMatch "bottom reached"
 
 -- matchPattern (MatchString $ T.pack "abcd") (String $ T.pack "abcd")
 -- matchPattern (MatchNumber 11.0) (Number 11.0)
@@ -722,7 +808,7 @@ p3 a grammar collapse = do
   P.putStrLn $ case v of
        Nothing -> "Nothing to see"
        Just a -> case a of
-                      NoMatch -> "NoMatch"
+                      NoMatch x -> "NoMatch " ++ x
                       MatchFailure s -> "MatchFailure " ++ s
                       MatchSuccess s -> "Success!!!\n\n\n" ++ s
 
@@ -771,10 +857,10 @@ pythonMatchPattern (Object a) = let x = Object a in
        MatchFailure s -> Left s
        MatchSuccess (_, Array v) -> fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
        MatchSuccess _ -> Left "wrong grammar"
-       NoMatch -> case matchAndCollapse any_grammar any_collapse x of
+       NoMatch _ -> case matchAndCollapse any_grammar any_collapse x of
          MatchFailure s -> Left s
          MatchSuccess (_, _) -> Right MatchAny
-         NoMatch -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a'
+         NoMatch _ -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a'
                       where a' = KM.filterWithKey (\k _ -> not ((toString k) `P.elem` pythonUnsignificantKeys)) a
 pythonMatchPattern (String s) = Right $ MatchString s
 pythonMatchPattern (Number s) = Right $ MatchNumber s
@@ -785,83 +871,3 @@ pythonMatchPattern Null = Right $ MatchNull
 
 so_grammar = MatchObjectPartial (fromList [("items", MatchArray $ MatchObjectPartial (fromList [("tags", MatchFunnel)]))])
 so_collapse x = return x
-
-
-data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
-                        | StarNode [(ContextFreeGrammar a)]
-                        | PlusNode [(ContextFreeGrammar a)]
-                        | OrNode String (ContextFreeGrammar a)
-                        | OptionalNodeValue (ContextFreeGrammar a)
-                        | OptionalNodeEmpty
-                        | InputChar a
-                        | Char a
-                        | Seq [(ContextFreeGrammar a)]
-                        | Or [(String, (ContextFreeGrammar a))]
-                        | Star (ContextFreeGrammar a)
-                        | Plus (ContextFreeGrammar a)
-                        | Optional (ContextFreeGrammar a)
-                          deriving (Generic, Eq, Show)
-
-instance ToJSON a => ToJSON (ContextFreeGrammar a) where
-    toEncoding = genericToEncoding defaultOptions
-
-instance FromJSON a => FromJSON (ContextFreeGrammar a)
-
-contextFreeMatch' :: (Eq a, Show a) => ContextFreeGrammar a -> [a] -> Either String ([a], ContextFreeGrammar a)
-contextFreeMatch' (Char _) [] = Left "can't read char"
-contextFreeMatch' (Char a) (x:xs) = if a /= x then
-                                             Left ("char mismatch: expected " ++ show a ++ ", but found " ++ show x)
-                                             else Right (xs, InputChar a)
-contextFreeMatch' (Seq as) xs = (fmap . fmap) SeqNode $ L.foldl' f (Right (xs, mempty)) as
-  where f acc' a = do
-          (xs, result) <- acc'
-          (xs', result') <- contextFreeMatch' a xs
-          return (xs', result ++ [result'])
-
-contextFreeMatch' (Or as) xs = L.foldr f (Left "or mismatch") as
-  where f (opt, a) b = do
-          case contextFreeMatch' a xs of
-               Left _ -> b
-               Right (xs', r) -> Right (xs', OrNode opt r)
-
-contextFreeMatch' (Star a) xs = (fmap . fmap) StarNode $ L.foldl' f (Right (xs, mempty)) xs
-  where f acc' b = do
-          acc@(xs, result) <- acc'
-          case contextFreeMatch' a xs of
-               Left _ -> Right acc
-               Right (xs', result') -> Right (xs', result ++ [result'])
-
-contextFreeMatch' (Plus a) xs = do
-  (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs
-  rs' <- case subresult of
-              (SeqNode [r, (StarNode rs)]) -> Right (r:rs)
-              _ -> Left "impossible"
-  return (xs', (PlusNode rs'))
-  
-
-contextFreeMatch' (Optional a) xs = do
-  return $ case contextFreeMatch' a xs of
-       Left _ -> (xs, OptionalNodeEmpty)
-       Right (xs', subresult) -> (xs', OptionalNodeValue subresult)
-
-contextFreeMatch' a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
-
---contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
-{-
-ghci> contextFreeMatch (Seq [Char 1, Optional (Char 2), Char 3, Char 4]) [1,2,3,4]
-
-<interactive>:106:1: warning: [-Wtype-defaults]
-    • Defaulting the following constraints to type ‘Integer’
-        (Show a0) arising from a use of ‘print’ at <interactive>:106:1-76
-        (Eq a0) arising from a use of ‘it’ at <interactive>:106:1-76
-        (Num a0) arising from a use of ‘it’ at <interactive>:106:1-76
-    • In a stmt of an interactive GHCi command: print it
-Right ([],SeqNode [InputChar 1,OptionalNodeValue (InputChar 2),InputChar 3,InputChar 4])
--}
-
-contextFreeMatch :: (Eq a, Show a) => (ContextFreeGrammar a) -> [a] -> Either String (ContextFreeGrammar a)
-contextFreeMatch a xs = do
-  (rest, result) <- contextFreeMatch' a xs
-  case P.length rest == 0 of
-       False -> Left ("rest left: " ++ show rest)
-       True -> Right result
