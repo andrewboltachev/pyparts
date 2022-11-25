@@ -788,6 +788,9 @@ so_collapse x = return x
 
 
 data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
+                        | StarNode [(ContextFreeGrammar a)]
+                        | PlusNode [(ContextFreeGrammar a)]
+                        | OrNode String (ContextFreeGrammar a)
                         | InputChar a
                         | Char a
                         | Seq [(ContextFreeGrammar a)]
@@ -795,7 +798,12 @@ data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
                         | Star (ContextFreeGrammar a)
                         | Plus (ContextFreeGrammar a)
                         | Optional (ContextFreeGrammar a)
-                          deriving (Eq, Show)
+                          deriving (Generic, Eq, Show)
+
+instance ToJSON a => ToJSON (ContextFreeGrammar a) where
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON a => FromJSON (ContextFreeGrammar a)
 
 contextFreeMatch :: (Eq a, Show a) => ContextFreeGrammar a -> [a] -> Either String ([a], ContextFreeGrammar a)
 contextFreeMatch (Char _) [] = Left "can't read char"
@@ -807,4 +815,18 @@ contextFreeMatch (Seq as) xs = (fmap . fmap) SeqNode $ L.foldl' f (Right (xs, me
           (xs, result) <- acc'
           (xs', result') <- contextFreeMatch a xs
           return (xs', result ++ [result'])
+
+contextFreeMatch (Or as) xs = L.foldr f (Left "or mismatch") as
+  where f (opt, a) b = do
+          case contextFreeMatch a xs of
+               Left _ -> b
+               Right (xs', r) -> Right (xs', OrNode opt r)
+
+contextFreeMatch (Star a) xs = (fmap . fmap) StarNode $ L.foldl' f (Right (xs, mempty)) xs
+  where f acc' b = do
+          acc@(xs, result) <- acc'
+          case contextFreeMatch a xs of
+               Left _ -> Right acc
+               Right (xs', result') -> Right (xs', result ++ [result'])
+
 --contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
