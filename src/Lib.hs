@@ -791,6 +791,8 @@ data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
                         | StarNode [(ContextFreeGrammar a)]
                         | PlusNode [(ContextFreeGrammar a)]
                         | OrNode String (ContextFreeGrammar a)
+                        | OptionalNodeValue (ContextFreeGrammar a)
+                        | OptionalNodeEmpty
                         | InputChar a
                         | Char a
                         | Seq [(ContextFreeGrammar a)]
@@ -836,5 +838,10 @@ contextFreeMatch (Plus a) xs = do
               _ -> Left "impossible"
   return (xs', (PlusNode rs'))
   
+
+contextFreeMatch (Optional a) xs = do
+  return $ case contextFreeMatch a xs of
+       Left _ -> (xs, OptionalNodeEmpty)
+       Right (xs', subresult) -> (xs', OptionalNodeValue subresult)
 
 --contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
