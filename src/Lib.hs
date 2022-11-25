@@ -321,8 +321,9 @@ matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then Ma
   acc <- L.foldl' f (MatchSuccess mempty) (P.zip m vv)
   return $ MatchArrayResult acc
 
---matchPattern (MatchArrayContextFree m) (Array a) = do
---  return $ MatchArrayContextFreeResult acc
+matchPattern (MatchArrayContextFree m) (Array a) = do
+  -- ...
+  return $ MatchArrayContextFreeResult acc
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
