@@ -807,41 +807,61 @@ instance ToJSON a => ToJSON (ContextFreeGrammar a) where
 
 instance FromJSON a => FromJSON (ContextFreeGrammar a)
 
-contextFreeMatch :: (Eq a, Show a) => ContextFreeGrammar a -> [a] -> Either String ([a], ContextFreeGrammar a)
-contextFreeMatch (Char _) [] = Left "can't read char"
-contextFreeMatch (Char a) (x:xs) = if a /= x then
+contextFreeMatch' :: (Eq a, Show a) => ContextFreeGrammar a -> [a] -> Either String ([a], ContextFreeGrammar a)
+contextFreeMatch' (Char _) [] = Left "can't read char"
+contextFreeMatch' (Char a) (x:xs) = if a /= x then
                                              Left ("char mismatch: expected " ++ show a ++ ", but found " ++ show x)
                                              else Right (xs, InputChar a)
-contextFreeMatch (Seq as) xs = (fmap . fmap) SeqNode $ L.foldl' f (Right (xs, mempty)) as
+contextFreeMatch' (Seq as) xs = (fmap . fmap) SeqNode $ L.foldl' f (Right (xs, mempty)) as
   where f acc' a = do
           (xs, result) <- acc'
-          (xs', result') <- contextFreeMatch a xs
+          (xs', result') <- contextFreeMatch' a xs
           return (xs', result ++ [result'])
 
-contextFreeMatch (Or as) xs = L.foldr f (Left "or mismatch") as
+contextFreeMatch' (Or as) xs = L.foldr f (Left "or mismatch") as
   where f (opt, a) b = do
-          case contextFreeMatch a xs of
+          case contextFreeMatch' a xs of
                Left _ -> b
                Right (xs', r) -> Right (xs', OrNode opt r)
 
-contextFreeMatch (Star a) xs = (fmap . fmap) StarNode $ L.foldl' f (Right (xs, mempty)) xs
+contextFreeMatch' (Star a) xs = (fmap . fmap) StarNode $ L.foldl' f (Right (xs, mempty)) xs
   where f acc' b = do
           acc@(xs, result) <- acc'
-          case contextFreeMatch a xs of
+          case contextFreeMatch' a xs of
                Left _ -> Right acc
                Right (xs', result') -> Right (xs', result ++ [result'])
 
-contextFreeMatch (Plus a) xs = do
-  (xs', subresult) <- contextFreeMatch (Seq [a, Star a]) xs
+contextFreeMatch' (Plus a) xs = do
+  (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs
   rs' <- case subresult of
               (SeqNode [r, (StarNode rs)]) -> Right (r:rs)
               _ -> Left "impossible"
   return (xs', (PlusNode rs'))
   
 
-contextFreeMatch (Optional a) xs = do
-  return $ case contextFreeMatch a xs of
+contextFreeMatch' (Optional a) xs = do
+  return $ case contextFreeMatch' a xs of
        Left _ -> (xs, OptionalNodeEmpty)
        Right (xs', subresult) -> (xs', OptionalNodeValue subresult)
 
+contextFreeMatch' a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+
 --contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
+{-
+ghci> contextFreeMatch (Seq [Char 1, Optional (Char 2), Char 3, Char 4]) [1,2,3,4]
+
+<interactive>:106:1: warning: [-Wtype-defaults]
+    • Defaulting the following constraints to type ‘Integer’
+        (Show a0) arising from a use of ‘print’ at <interactive>:106:1-76
+        (Eq a0) arising from a use of ‘it’ at <interactive>:106:1-76
+        (Num a0) arising from a use of ‘it’ at <interactive>:106:1-76
+    • In a stmt of an interactive GHCi command: print it
+Right ([],SeqNode [InputChar 1,OptionalNodeValue (InputChar 2),InputChar 3,InputChar 4])
+-}
+
+contextFreeMatch :: (Eq a, Show a) => (ContextFreeGrammar a) -> [a] -> Either String (ContextFreeGrammar a)
+contextFreeMatch a xs = do
+  (rest, result) <- contextFreeMatch' a xs
+  case P.length rest == 0 of
+       False -> Left ("rest left: " ++ show rest)
+       True -> Right result
