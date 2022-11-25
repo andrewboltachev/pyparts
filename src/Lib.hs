@@ -829,4 +829,12 @@ contextFreeMatch (Star a) xs = (fmap . fmap) StarNode $ L.foldl' f (Right (xs, m
                Left _ -> Right acc
                Right (xs', result') -> Right (xs', result ++ [result'])
 
+contextFreeMatch (Plus a) xs = do
+  (xs', subresult) <- contextFreeMatch (Seq [a, Star a]) xs
+  rs' <- case subresult of
+              (SeqNode [r, (StarNode rs)]) -> Right (r:rs)
+              _ -> Left "impossible"
+  return (xs', (PlusNode rs'))
+  
+
 --contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
