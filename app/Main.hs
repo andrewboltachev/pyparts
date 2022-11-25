@@ -46,7 +46,7 @@ jsonMatcher1 = do
           -- _ <- error $ show $ mp
           r <- case matchAndCollapse mp return code of
                   MatchFailure s -> Left ("MatchFailure: " ++ s)
-                  NoMatch -> Left "NoMatch"
+                  NoMatch x -> Left ("NoMatch: " ++ x)
                   MatchSuccess (f, r) -> Right $ (KM.fromList [
                     -- (K.fromString "tree", toJSON $ MatchObjectPartialResult (Object (KM.fromList [])) (KM.fromList [])),
                     (K.fromString "grammar", toJSON $ mp),
