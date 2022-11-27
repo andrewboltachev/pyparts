@@ -204,7 +204,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArraySome !MatchPattern -- specific
                   | MatchArrayOne MatchPattern
                   | MatchArrayExact [MatchPattern] -- specific
-                  -- | MatchArrayContextFree (ContextFreeGrammar MatchPattern Value)
+                  | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
                   | MatchIfThen MatchPattern MatchPattern String
                   -- special queries
                   -- | MatchApply MatchOp MatchPattern
@@ -227,7 +227,7 @@ data MatchPattern = MatchObject !MatchObject -- literal
                   | MatchArrayResult [MatchPattern]
                   | MatchArrayOneResult MatchPattern
                   | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
-                  -- | MatchArrayContextFreeResult (ContextFreeGrammar MatchPattern Value)
+                  | MatchArrayContextFreeResult (ContextFreeGrammar MatchPattern)
                     deriving (Generic, Eq, Show)
 
 instance ToJSON MatchPattern where
@@ -325,11 +325,20 @@ matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then Ma
   acc <- L.foldl' f (MatchSuccess mempty) (P.zip m vv)
   return $ MatchArrayResult acc
 
-{-matchPattern (MatchArrayContextFree m) (Array a) = do
-  case contextFreeMatch m (V.toList a) of
+{-
+contextFreeMatch
+  :: (Eq a1, Show a1, Show a2) =>
+     ContextFreeGrammar a1
+     -> [a2]
+     -> (a1 -> a2 -> MatchResult a1)
+     -> MatchResult (ContextFreeGrammar a1)
+-}
+
+matchPattern (MatchArrayContextFree m) (Array a) =
+  case contextFreeMatch m (V.toList a) matchPattern of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
-       MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)-}
+       MatchSuccess x ->  MatchSuccess (MatchArrayContextFreeResult x)
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
@@ -927,14 +936,14 @@ pythonUnsignificantKeys = [
 simple_or_success (Array v) = fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
 simple_or_success _ = Left "wrong grammar"
 
-pythonMatchContextFreePattern (Array a) = Right $ fmap f (V.toList a)
-  where f x = undefined
+pythonMatchContextFreePattern :: Value -> Either String MatchPattern
+pythonMatchContextFreePattern (Array a) =  Left "foo" -- P.traverse f (V.toList a) where f x = Left "foo"
 pythonMatchContextFreePattern _ = Left "pattern error"
 
 pythonMapMatches = [
-  (simple_or_grammar, simple_or_collapse, simple_or_success),
-  (any_grammar, any_collapse, const $ Right MatchAny) --,
-  -- (ib_grammar, sBody, pythonMatchContextFreePattern . snd)
+    (simple_or_grammar, simple_or_collapse, simple_or_success)
+  , (any_grammar, any_collapse, const $ Right MatchAny)
+  --, (ib_grammar, sBody, (pythonMatchContextFreePattern . snd))
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String MatchPattern)]
 
 pythonMatchPattern :: Value -> Either String MatchPattern
