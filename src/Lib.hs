@@ -936,14 +936,57 @@ pythonUnsignificantKeys = [
 simple_or_success (Array v) = fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
 simple_or_success _ = Left "wrong grammar"
 
-pythonMatchContextFreePattern :: Value -> Either String MatchPattern
-pythonMatchContextFreePattern (Array a) =  Left "foo" -- P.traverse f (V.toList a) where f x = Left "foo"
+optional_grammar = MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "If"),
+          (fromString "test",
+            MatchObjectPartial (fromList [ -- top
+              (fromString "type", MatchString $ T.pack "Call"),
+              (fromString "func", MatchObjectPartial (fromList [
+                (fromString "type", MatchString $ T.pack "Name"),
+                (fromString "value", MatchString $ T.pack "__maybe")
+              ])),
+              (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+            ])
+          ),
+          (fromString "body",
+            MatchObjectPartial (fromList [
+              (fromString "type", MatchString $ T.pack "IndentedBlock"),
+              (fromString "body", MatchArrayOne $ MatchAny)
+            ]))
+        ])
+
+optional_collapse = (sBody >=> sBody) -- :: MatchResult Value
+
+optional_success = pythonMatchContextFreePattern
+
+
+pythonElementMatches = [
+  (optional_grammar, optional_collapse, optional_success)
+  ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String (ContextFreeGrammar MatchPattern))]
+
+pythonMatchContextFreePattern :: Value -> Either String (ContextFreeGrammar MatchPattern)
+pythonMatchContextFreePattern (Array a) = fmap Seq $ L.foldl' f (Left mempty) (V.toList a)
+  where f acc' e = do
+            acc <- acc'
+            --e' <- ((m2e "not a keymap") asKeyMap) e
+            let x1 = L.foldr g defaultElementMatch pythonElementMatches
+                  where defaultElementMatch = fmap Char (pythonMatchPattern e)
+                        g (grammar, collapseFn, successFn) b =
+                          case matchAndCollapse grammar collapseFn e of
+                              MatchFailure s -> Left s
+                              MatchSuccess (_, s) -> successFn s
+                              MatchSuccess _ -> Left "wrong grammar"
+                              NoMatch _ -> b
+            e' <- x1
+            return $ acc ++ [e']
+
+
 pythonMatchContextFreePattern _ = Left "pattern error"
 
 pythonMapMatches = [
     (simple_or_grammar, simple_or_collapse, simple_or_success)
   , (any_grammar, any_collapse, const $ Right MatchAny)
-  --, (ib_grammar, sBody, (pythonMatchContextFreePattern . snd))
+  , (ib_grammar, sBody, (\x -> (fmap MatchArrayContextFree (pythonMatchContextFreePattern x))))
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String MatchPattern)]
 
 pythonMatchPattern :: Value -> Either String MatchPattern
