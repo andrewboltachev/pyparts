@@ -707,7 +707,7 @@ sList _ s = error (show s)
 sBody = doCollapse (selectKey (fromString "body"))
 -- collapse utils end
 
-or_grammar = MatchObjectPartial (fromList [
+simple_or_grammar = MatchObjectPartial (fromList [
     (fromString "type", MatchString $ T.pack "If"), -- top
     (fromString "orelse", MatchNull), -- bottom
     (fromString "test",
@@ -745,6 +745,76 @@ or_grammar = MatchObjectPartial (fromList [
     )
   ])
 
+simple_or_collapse = (sBody >=> sBody >=> (sList (sBody >=> sBody)))
+
+
+or_grammar = MatchObjectPartial (fromList [
+    (fromString "type", MatchString $ T.pack "If"), -- top
+    (fromString "orelse", MatchNull), -- bottom
+    (fromString "test",
+      MatchObjectPartial (fromList [ -- top
+        (fromString "type", MatchString $ T.pack "Call"),
+        (fromString "func", MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "Name"),
+          (fromString "value", MatchString $ T.pack "__or")
+        ])),
+        (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+      ])
+    ),
+    (fromString "body",
+      MatchObjectPartial (fromList [ -- top
+        (fromString "type", MatchString $ T.pack "IndentedBlock"),
+        (fromString "body", MatchArray $ MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "If"),
+          (fromString "test",
+            MatchObjectPartial (fromList [ -- top
+              (fromString "type", MatchString $ T.pack "Call"),
+              (fromString "func", MatchObjectPartial (fromList [
+                (fromString "type", MatchString $ T.pack "Name"),
+                (fromString "value", MatchString $ T.pack "__option")
+              ])),
+              -- ["comma","equal","keyword","star","type","value","whitespace_after_arg","whitespace_after_star"]
+              (fromString "args", MatchArrayOne $
+                MatchObjectPartial (fromList [ -- top
+                  (fromString "type", MatchString $ T.pack "Arg"),
+                  (fromString "value", MatchObjectPartial (fromList [
+                    (fromString "value", MatchLiteral)
+                  ]))
+                ])
+              )
+            ])
+          ),
+          (fromString "body",
+            MatchObjectPartial (fromList [
+              (fromString "type", MatchString $ T.pack "IndentedBlock"),
+              (fromString "body", MatchArray $ MatchAny)
+            ]))
+        ]))
+      ])
+    )
+  ])
+
+{-
+MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "If"),
+          (fromString "test",
+            MatchObjectPartial (fromList [ -- top
+              (fromString "type", MatchString $ T.pack "Call"),
+              (fromString "func", MatchObjectPartial (fromList [
+                (fromString "type", MatchString $ T.pack "Name"),
+                (fromString "value", MatchString $ T.pack "__option")
+              ])),
+              (fromString "args", MatchArrayOne $ MatchLiteral)
+            ])
+          ),
+          (fromString "body",
+            MatchObjectPartial (fromList [
+              (fromString "type", MatchString $ T.pack "IndentedBlock"),
+              (fromString "body", MatchArray $ MatchAny)
+            ]))
+        ])
+-}
+
 or_collapse = (sBody >=> sBody >=> (sList (sBody >=> sBody)))
 
 
@@ -768,6 +838,13 @@ star_grammar = MatchObjectPartial (fromList [
         ])
 
 star_collapse = (sBody >=> sBody) -- :: MatchResult Value
+
+ib_grammar = MatchObjectPartial (fromList [
+          (fromString "type", MatchString $ T.pack "IndentedBlock"),
+          (fromString "body",
+            MatchArray $ MatchAny
+          )
+        ])
 
 any_grammar = MatchObjectPartial (fromList [
           (fromString "type", MatchString $ T.pack "If"),
@@ -853,22 +930,36 @@ pythonUnsignificantKeys = [
   "whitespace_before_test",
   "whitespace_after_test"]
 
+simple_or_success (Array v) = fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
+simple_or_success _ = Left "wrong grammar"
+
+pythonMatchContextFreePattern (Array a) = Right $ fmap f (V.toList a)
+  where f x = undefined
+pythonMatchContextFreePattern _ = Left "pattern error"
+
+pythonMapMatches = [
+  (simple_or_grammar, simple_or_collapse, simple_or_success),
+  (any_grammar, any_collapse, const $ Right MatchAny) --,
+  -- (ib_grammar, sBody, pythonMatchContextFreePattern . snd)
+  ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String MatchPattern)]
+
 pythonMatchPattern :: Value -> Either String MatchPattern
 pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (V.toList a))
   where f acc e = do
           acc' <- acc
           e' <- pythonMatchPattern e
           return $ acc' ++ [e']
-pythonMatchPattern (Object a) = let x = Object a in
-  case matchAndCollapse or_grammar or_collapse x of
-       MatchFailure s -> Left s
-       MatchSuccess (_, Array v) -> fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
-       MatchSuccess _ -> Left "wrong grammar"
-       NoMatch _ -> case matchAndCollapse any_grammar any_collapse x of
-         MatchFailure s -> Left s
-         MatchSuccess (_, _) -> Right MatchAny
-         NoMatch _ -> fmap MatchObjectPartial $ P.traverse pythonMatchPattern a'
-                      where a' = KM.filterWithKey (\k _ -> not ((toString k) `P.elem` pythonUnsignificantKeys)) a
+
+pythonMatchPattern (Object a) = L.foldr f defaultMapMatch pythonMapMatches
+  where x = Object a
+        defaultMapMatch = fmap MatchObjectPartial $ P.traverse pythonMatchPattern a'
+                            where a' = KM.filterWithKey (\k _ -> not ((toString k) `P.elem` pythonUnsignificantKeys)) a
+        f (grammar, collapseFn, successFn) b = case matchAndCollapse grammar collapseFn x of
+                                                    MatchFailure s -> Left s
+                                                    MatchSuccess (_, s) -> successFn s
+                                                    MatchSuccess _ -> Left "wrong grammar"
+                                                    NoMatch _ -> b
+
 pythonMatchPattern (String s) = Right $ MatchString s
 pythonMatchPattern (Number s) = Right $ MatchNumber s
 pythonMatchPattern (Bool s) = Right $ MatchBool s
