@@ -903,12 +903,6 @@ type List a = Fix (ListF a)
 
 l1 = Cons 1 $ Cons 2 $ Cons 3 Nil
 
-{-tryVariants xs = P.foldr f (Left "tryVariants fail") xs
-  where f a b =
-          case a of
-               Left x -> b
-               Right x -> Right x-}
-
 pythonUnsignificantKeys :: [String]
 pythonUnsignificantKeys = [
   "lpar",
