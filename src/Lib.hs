@@ -277,7 +277,7 @@ matchPattern (MatchObject m) (Object a) = if keys m /= keys a then (MatchFailure
   where f acc k = do
           acc' <- acc
           m' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k m
-          a' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k a
+          a' <- (m2mp $ NoMatch ("object key mismatch:\n\n" ++ show k ++ "\n\n" ++ show m ++ "\n\n" ++ show a)) $ KM.lookup k a
           p <- matchPattern m' a'
           return $ acc' ++ [(k, p)]
 
@@ -286,7 +286,7 @@ matchPattern (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult 
         f acc k = do
           acc' <- acc
           m' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k m
-          a' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k a
+          a' <- (m2mp $ NoMatch ("object key mismatch:\n\n" ++ show k ++ "\n\n" ++ show m ++ "\n\n" ++ show a)) $ KM.lookup k a
           p <- matchPattern m' a'
           return $ KM.insert k p acc'
 
@@ -334,11 +334,24 @@ contextFreeMatch
      -> MatchResult (ContextFreeGrammar a1)
 -}
 
-matchPattern (MatchArrayContextFree m) (Array a) =
+matchPattern (MatchArrayContextFree m) (Array a) = do
   case contextFreeMatch m (V.toList a) matchPattern of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
-       MatchSuccess x ->  MatchSuccess (MatchArrayContextFreeResult x)
+       MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
+
+matchPattern (MatchArrayContextFree m) (Object a) = do
+  let a1 = case KM.lookup (fromString "body") a of
+              Nothing -> MatchFailure "cf extra fail"
+              Just v -> MatchSuccess v
+  v <- a1
+  v' <- case asArray v of Nothing -> MatchFailure "cf extra fail 2"; Just v -> MatchSuccess v
+  let a2 = case contextFreeMatch m v' matchPattern of
+             NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
+             MatchFailure s -> MatchFailure s
+             MatchSuccess x ->  MatchSuccess (MatchArrayContextFreeResult x)
+  a2
+
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
@@ -388,7 +401,7 @@ matchPattern MatchLiteral (Number a) = MatchSuccess $ MatchNumber a
 matchPattern MatchLiteral (Bool a) = MatchSuccess $ MatchBool a
 matchPattern MatchLiteral Null = MatchSuccess $ MatchNull
 -- default case
-matchPattern _ _ = NoMatch "bottom reached"
+matchPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
 -- matchPattern (MatchString $ T.pack "abcd") (String $ T.pack "abcd")
 -- matchPattern (MatchNumber 11.0) (Number 11.0)
@@ -927,11 +940,69 @@ pythonUnsignificantKeys = [
   "footer",
   "leading_lines",
   "lines_after_decorators",
-  "trailing_whitespace",
-  "whitespace_before_equal",
+  "leading_whitespace",
+	"previous_whitespace_state",
+	"trailing_whitespace",
+  "whitespace",
+	"whitespace_after",
+  "whitespace_after_arg",
+	"whitespace_after_as",
+  "whitespace_after_assert",
+	"whitespace_after_at",
+  "whitespace_after_await",
+	"whitespace_after_case",
+  "whitespace_after_class",
+	"whitespace_after_cls",
+  "whitespace_after_colon",
+	"whitespace_after_def",
+  "whitespace_after_del",
+	"whitespace_after_else",
   "whitespace_after_equal",
+	"whitespace_after_except",
+  "whitespace_after_expression",
+	"whitespace_after_for",
+  "whitespace_after_from",
+	"whitespace_after_func",
+  "whitespace_after_global",
+	"whitespace_after_if",
+  "whitespace_after_import",
+	"whitespace_after_in",
+  "whitespace_after_indicator",
+	"whitespace_after_kwds",
+  "whitespace_after_lambda",
+	"whitespace_after_match",
+  "whitespace_after_name",
+	"whitespace_after_nonlocal",
+  "whitespace_after_param",
+	"whitespace_after_raise",
+  "whitespace_after_return",
+	"whitespace_after_star",
+  "whitespace_after_test",
+	"whitespace_after_value",
+  "whitespace_after_walrus",
+	"whitespace_after_while",
+  "whitespace_after_with",
+	"whitespace_after_yield",
+  "whitespace_before",
+	"whitespace_before_args",
+  "whitespace_before_as",
+	"whitespace_before_colon",
+  "whitespace_before_else",
+	"whitespace_before_equal",
+  "whitespace_before_expression",
+	"whitespace_before_from",
+  "whitespace_before_if",
+	"whitespace_before_import",
+  "whitespace_before_in",
+	"whitespace_before_indicator",
+  "whitespace_before_name",
+	"whitespace_before_params",
+  "whitespace_before_patterns",
+	"whitespace_before_rest",
   "whitespace_before_test",
-  "whitespace_after_test"]
+	"whitespace_before_value",
+  "whitespace_before_walrus",
+  "whitespace_between"]
 
 simple_or_success (Array v) = fmap MatchSimpleOr $ P.traverse pythonMatchPattern (V.toList v)
 simple_or_success _ = Left "wrong grammar"
@@ -965,7 +1036,7 @@ pythonElementMatches = [
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String (ContextFreeGrammar MatchPattern))]
 
 pythonMatchContextFreePattern :: Value -> Either String (ContextFreeGrammar MatchPattern)
-pythonMatchContextFreePattern (Array a) = fmap Seq $ L.foldl' f (Left mempty) (V.toList a)
+pythonMatchContextFreePattern (Array a) = fmap Seq $ L.foldl' f (Right mempty) (V.toList a)
   where f acc' e = do
             acc <- acc'
             --e' <- ((m2e "not a keymap") asKeyMap) e
