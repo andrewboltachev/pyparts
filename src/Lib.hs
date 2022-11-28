@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -68,7 +69,7 @@ data ContextFreeGrammar a = SeqNode [(ContextFreeGrammar a)]
                           | Star (ContextFreeGrammar a)
                           | Plus (ContextFreeGrammar a)
                           | Optional (ContextFreeGrammar a)
-                            deriving (Generic, Eq, Show)
+                            deriving (Generic, Eq, Show, Foldable)
 
 instance ToJSON a => ToJSON (ContextFreeGrammar a) where
     toEncoding = genericToEncoding defaultOptions
@@ -244,6 +245,7 @@ instance FromJSON MatchPattern
 gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
 gatherFunnel acc (MatchArraySomeResult _ o) = L.foldl' gatherFunnel acc (fmap snd o)
 gatherFunnel acc (MatchArrayResult o) = L.foldl' gatherFunnel acc o
+gatherFunnel acc (MatchArrayContextFreeResult a) = L.foldl' gatherFunnel acc a
 gatherFunnel acc (MatchArrayOneResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchSimpleOrResult o) = gatherFunnel acc o
 gatherFunnel acc (MatchFunnelResult r) = r:acc
@@ -340,6 +342,8 @@ matchPattern (MatchArrayContextFree m) (Array a) = do
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
 
+matchPattern (MatchArrayContextFree m) (Object a) = MatchFailure ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
+
 matchPattern (MatchArrayContextFree m) (Object a) = do
   let a1 = case KM.lookup (fromString "body") a of
               Nothing -> MatchFailure "cf extra fail"
@@ -351,7 +355,6 @@ matchPattern (MatchArrayContextFree m) (Object a) = do
              MatchFailure s -> MatchFailure s
              MatchSuccess x ->  MatchSuccess (MatchArrayContextFreeResult x)
   a2
-
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
@@ -458,6 +461,14 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
 matchToValueMinimal MatchLiteral = Just Null -- TODO
 matchToValueMinimal (MatchFunnelResult v) = Just v
 matchToValueMinimal (MatchFunnelResultM v) = Just v
+matchToValueMinimal (MatchArrayContextFreeResult a) = do
+  case a of
+       SeqNode a -> fmap (Array . V.fromList) $ P.traverse (matchToValueMinimal . MatchArrayContextFreeResult) a
+       StarNode a -> fmap (Array . V.fromList) $ P.traverse (matchToValueMinimal . MatchArrayContextFreeResult) a
+       PlusNode a -> fmap (Array . V.fromList) $ P.traverse (matchToValueMinimal . MatchArrayContextFreeResult) a
+       OrNode _ a -> (matchToValueMinimal . MatchArrayContextFreeResult) a
+       CharNode a -> matchToValueMinimal a
+       x -> error $ "no option: " ++ show x
 matchToValueMinimal (MatchArrayOneResult a) = matchToValueMinimal a {-do
   v <- matchToValueMinimal a
   return $ Array $ V.fromList [v]-}
@@ -1054,10 +1065,15 @@ pythonMatchContextFreePattern (Array a) = fmap Seq $ L.foldl' f (Right mempty) (
 
 pythonMatchContextFreePattern _ = Left "pattern error"
 
+ib_success :: Value -> Either String MatchPattern
+ib_success v = do
+  cfg <- pythonMatchContextFreePattern v
+  return $ MatchObjectPartial $ fromList [(fromString "body", MatchArrayContextFree cfg)]
+
 pythonMapMatches = [
     (simple_or_grammar, simple_or_collapse, simple_or_success)
   , (any_grammar, any_collapse, const $ Right MatchAny)
-  , (ib_grammar, sBody, (\x -> (fmap MatchArrayContextFree (pythonMatchContextFreePattern x))))
+  , (ib_grammar, sBody, ib_success)
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String MatchPattern)]
 
 pythonMatchPattern :: Value -> Either String MatchPattern
