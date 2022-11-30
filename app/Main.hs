@@ -60,7 +60,9 @@ jsonMatcher1 = do
             (K.fromString "error", (String . T.pack) ("Error: " ++ e)),
             (K.fromString "result", Null),
             (K.fromString "grammar", toJSON $ mp),
-            (K.fromString "funnel", Null)
+            (K.fromString "funnel", Null),
+            (K.fromString "t1", String $ T.pack $ show mp),
+            (K.fromString "t2", String $ T.pack $ show code)
             ])
            Right r -> Right r
   let f = case a of

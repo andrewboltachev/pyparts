@@ -29,6 +29,7 @@ import Prelude                    as P
 import Control.Monad
 import qualified Data.ByteString.UTF8       as BLU
 import Data.Fix
+import qualified Control.Monad.Trans.Writer.Lazy as W
 
 data MatchResult a = MatchSuccess a
                  | MatchFailure String
@@ -47,9 +48,6 @@ instance Applicative MatchResult where
   pure x = MatchSuccess x
 
 instance Monad MatchResult where
-  --join (MatchSuccess (MatchSuccess x)) = MatchSuccess x
-  --join (MatchFailure (MatchFailure x)) = MatchFailure x
-  --join NoMatch = NoMatch
   (>>=) (MatchSuccess m) f = f m
   (>>=) (MatchFailure m) _ = (MatchFailure m)
   (>>=) (NoMatch m) _ = (NoMatch m)
@@ -262,7 +260,7 @@ gatherFunnel acc x = error (show x)
 --gatherFunnel acc _ = acc
 
 -- pattern -> value -> result
-matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
+matchPattern' :: (MatchPattern -> Value -> MatchResult MatchPattern) -> MatchPattern -> Value -> MatchResult MatchPattern
 --matchPattern (MatchMustHave m) v = case matchPattern m v of
 --                                             Just x -> Just x
 --                                             Nothing -> error "must have"
@@ -272,31 +270,31 @@ m2mp m v = case v of
               Just x -> MatchSuccess x
               Nothing -> m
 
-matchPattern (MatchStrict s m) v = case matchPattern m v of
+matchPattern' itself (MatchStrict s m) v = case matchPattern' itself m v of
                                       NoMatch x -> MatchFailure s
                                       x -> x
-matchPattern (MatchObject m) (Object a) = if keys m /= keys a then (MatchFailure "MatchObject keys mismatch") else fmap (MatchObject . KM.fromList) $ L.foldl' f (MatchSuccess []) (keys m)
+matchPattern' itself (MatchObject m) (Object a) = if keys m /= keys a then (MatchFailure "MatchObject keys mismatch") else fmap (MatchObject . KM.fromList) $ L.foldl' f (MatchSuccess []) (keys m)
   where f acc k = do
           acc' <- acc
           m' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k m
           a' <- (m2mp $ NoMatch ("object key mismatch:\n\n" ++ show k ++ "\n\n" ++ show m ++ "\n\n" ++ show a)) $ KM.lookup k a
-          p <- matchPattern m' a'
+          p <- matchPattern' itself m' a'
           return $ acc' ++ [(k, p)]
 
-matchPattern (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult leftOver) $ L.foldl' f (MatchSuccess mempty) (keys m)
+matchPattern' itself (MatchObjectPartial m) (Object a) = fmap (MatchObjectPartialResult leftOver) $ L.foldl' f (MatchSuccess mempty) (keys m)
   where leftOver = Object $ KM.difference a m
         f acc k = do
           acc' <- acc
           m' <- (m2mp $ NoMatch "object key mismatch") $ KM.lookup k m
           a' <- (m2mp $ NoMatch ("object key mismatch:\n\n" ++ show k ++ "\n\n" ++ show m ++ "\n\n" ++ show a)) $ KM.lookup k a
-          p <- matchPattern m' a'
+          p <- matchPattern' itself m' a'
           return $ KM.insert k p acc'
 
-matchPattern (MatchArray m) (Array a) = do
+matchPattern' itself (MatchArray m) (Array a) = do
   let vv = (V.toList a)
       f acc e = do
           acc' <- acc
-          case matchPattern m e of
+          case matchPattern' itself m e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
              NoMatch _ -> MatchSuccess acc'
@@ -304,11 +302,11 @@ matchPattern (MatchArray m) (Array a) = do
   acc <- if P.length acc /= P.length vv then NoMatch "array length mismatch" else MatchSuccess acc
   return $ MatchArrayResult acc
 
-matchPattern (MatchArrayOne m) (Array a) = do
+matchPattern' itself (MatchArrayOne m) (Array a) = do
   let vv = (V.toList a)
       f acc e = do
           acc' <- acc
-          case matchPattern m e of
+          case matchPattern' itself m e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
              NoMatch _ -> MatchSuccess acc'
@@ -316,11 +314,11 @@ matchPattern (MatchArrayOne m) (Array a) = do
   acc <- if P.length acc /= 1 then NoMatch "array length isn't 1" else MatchSuccess acc
   return $ MatchArrayOneResult (P.head acc)
 
-matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then MatchFailure "array exact match" else do
+matchPattern' itself (MatchArrayExact m) (Array a) = if P.length m /= V.length a then MatchFailure "array exact match" else do
   let vv = (V.toList a)
       f acc (p, e) = do
           acc' <- acc
-          case matchPattern p e of
+          case matchPattern' itself p e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
              NoMatch r -> NoMatch r
@@ -336,47 +334,47 @@ contextFreeMatch
      -> MatchResult (ContextFreeGrammar a1)
 -}
 
-matchPattern (MatchArrayContextFree m) (Array a) = do
-  case contextFreeMatch m (V.toList a) matchPattern of
+matchPattern' itself (MatchArrayContextFree m) (Array a) = do
+  case contextFreeMatch m (V.toList a) (matchPattern' itself) of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
 
-matchPattern (MatchArrayContextFree m) (Object a) = MatchFailure ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
+matchPattern' itself (MatchArrayContextFree m) (Object a) = MatchFailure ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
 
-matchPattern (MatchArrayContextFree m) (Object a) = do
+matchPattern' itself (MatchArrayContextFree m) (Object a) = do
   let a1 = case KM.lookup (fromString "body") a of
               Nothing -> MatchFailure "cf extra fail"
               Just v -> MatchSuccess v
   v <- a1
   v' <- case asArray v of Nothing -> MatchFailure "cf extra fail 2"; Just v -> MatchSuccess v
-  let a2 = case contextFreeMatch m v' matchPattern of
+  let a2 = case contextFreeMatch m v' (matchPattern' itself) of
              NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
              MatchFailure s -> MatchFailure s
              MatchSuccess x ->  MatchSuccess (MatchArrayContextFreeResult x)
   a2
 
-matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
+matchPattern' itself MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
-matchPattern MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelResult $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
-matchPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
+matchPattern' itself MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelResult $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
+matchPattern' itself MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
 
-matchPattern MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelResultM $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
-matchPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
+matchPattern' itself MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelResultM $ Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys v
+matchPattern' itself MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeys met not a KeyMap"
 
-matchPattern (MatchIfThen baseMatch match failMsg) v =
-  case matchPattern baseMatch v of
+matchPattern' itself (MatchIfThen baseMatch match failMsg) v =
+  case matchPattern' itself baseMatch v of
        NoMatch x -> NoMatch x
        MatchFailure f -> MatchFailure f
-       MatchSuccess s -> case matchPattern match v of
+       MatchSuccess s -> case (matchPattern' itself match v) of
                             NoMatch x -> MatchFailure (failMsg ++ show x)
                             MatchFailure f -> MatchFailure f
                             MatchSuccess s -> MatchSuccess s
 
-matchPattern (MatchArraySome m) (Array a) = do
+matchPattern' itself (MatchArraySome m) (Array a) = do
   let f acc (idx, e) = do
           (a1, a2) <- acc
-          case matchPattern m e of
+          case matchPattern' itself m e of
              MatchSuccess r -> (MatchSuccess (a1, a2 ++ [(idx, r)]))
              MatchFailure r -> MatchFailure r
              NoMatch _ -> MatchSuccess (a1 ++ [(idx, e)], a2)
@@ -384,34 +382,42 @@ matchPattern (MatchArraySome m) (Array a) = do
   (a1, a2) <- if P.length a2 > 0 then MatchSuccess (a1, a2) else NoMatch "array mustn't be empty"
   return $ MatchArraySomeResult a1 a2
 
-matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
-matchPattern MatchIgnore a = MatchSuccess MatchIgnoreResult
-matchPattern (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f (MatchFailure "or fail") ms
-  where f a b = case matchPattern a v of
+matchPattern' itself MatchAny a = MatchSuccess $ MatchAnyResult a
+matchPattern' itself MatchIgnore a = MatchSuccess MatchIgnoreResult
+matchPattern' itself (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f (NoMatch "or fail") ms
+  where f a b = case matchPattern' itself a v of
                      MatchSuccess x -> MatchSuccess x
                      MatchFailure f -> MatchFailure f
                      _ -> b
 
 -- valueless
---matchPattern (MatchApply (MatchOp f) m) v = matchPattern m v >>= f
-matchPattern (MatchString m) (String a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern (MatchNumber m) (Number a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern (MatchBool m) (Bool a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern MatchNull Null = MatchSuccess MatchLiteral
+--matchPattern' itself (MatchApply (MatchOp f) m) v = matchPattern' itself m v >>= f
+matchPattern' itself (MatchString m) (String a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern' itself (MatchNumber m) (Number a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern' itself (MatchBool m) (Bool a) = if m == a then MatchSuccess MatchLiteral else NoMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern' itself MatchNull Null = MatchSuccess MatchLiteral
 -- valued
-matchPattern MatchLiteral (String a) = MatchSuccess $ MatchString a
-matchPattern MatchLiteral (Number a) = MatchSuccess $ MatchNumber a
-matchPattern MatchLiteral (Bool a) = MatchSuccess $ MatchBool a
-matchPattern MatchLiteral Null = MatchSuccess $ MatchNull
+matchPattern' itself MatchLiteral (String a) = MatchSuccess $ MatchString a
+matchPattern' itself MatchLiteral (Number a) = MatchSuccess $ MatchNumber a
+matchPattern' itself MatchLiteral (Bool a) = MatchSuccess $ MatchBool a
+matchPattern' itself MatchLiteral Null = MatchSuccess $ MatchNull
 -- default case
-matchPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
+matchPattern' itself m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
--- matchPattern (MatchString $ T.pack "abcd") (String $ T.pack "abcd")
--- matchPattern (MatchNumber 11.0) (Number 11.0)
--- matchPattern (MatchBool True) (Bool True)
--- matchPattern MatchNull Null
+-- matchPattern' itself (MatchString $ T.pack "abcd") (String $ T.pack "abcd")
+-- matchPattern' itself (MatchNumber 11.0) (Number 11.0)
+-- matchPattern' itself (MatchBool True) (Bool True)
+-- matchPattern' itself MatchNull Null
 
 --matchOp = MatchApply . MatchOp
+matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
+matchPattern m v = matchPattern' matchPattern m v
+
+matchPatternPlus :: MatchPattern -> Value -> W.Writer [(MatchPattern, Value, MatchResult MatchPattern)] (MatchResult MatchPattern)
+matchPatternPlus m v = do
+  let x = matchPattern' matchPattern m v
+  W.tell [(m, v, x)]
+  return x
 
 matchToValueMinimal :: MatchPattern -> Maybe Value
 matchToValueMinimal (MatchObjectPartialResult _ m) = fmap Object $ L.foldl' f (Just mempty) (keys m) -- ifNotEmpty =<< 
@@ -458,7 +464,7 @@ matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' 
           return $ case matchToValueMinimal v of
                Nothing -> acc'
                (Just x) -> V.snoc acc' x
-matchToValueMinimal MatchLiteral = Just Null -- TODO
+matchToValueMinimal MatchLiteral = Just $ String "sovpal aga" -- TODO
 matchToValueMinimal (MatchFunnelResult v) = Just v
 matchToValueMinimal (MatchFunnelResultM v) = Just v
 matchToValueMinimal (MatchArrayContextFreeResult a) = do
@@ -859,21 +865,20 @@ star_grammar = MatchObjectPartial (fromList [
               (fromString "func", MatchObjectPartial (fromList [
                 (fromString "type", MatchString $ T.pack "Name"),
                 (fromString "value", MatchString $ T.pack "__star")
-              ])),
-              (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+              ]))
+              --, (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
             ])
           ),
-          (fromString "body",
-            MatchObjectPartial (fromList [
-              (fromString "type", MatchString $ T.pack "IndentedBlock"),
-              (fromString "body", MatchArrayOne $ MatchAny)
-            ]))
+          (fromString "body", MatchAny) 
         ])
 
 star_collapse = (sBody >=> sBody) -- :: MatchResult Value
 
-ib_grammar = MatchObjectPartial (fromList [
-          (fromString "type", MatchString $ T.pack "IndentedBlock"),
+ib_or_module_grammar = MatchObjectPartial (fromList [
+          (fromString "type", MatchSimpleOr [
+                          MatchString $ T.pack "IndentedBlock",
+                          MatchString $ T.pack "Module"
+                        ]),
           (fromString "body",
             MatchArray $ MatchAny
           )
@@ -1032,8 +1037,8 @@ optional_grammar = MatchObjectPartial (fromList [
           ),
           (fromString "body",
             MatchObjectPartial (fromList [
-              (fromString "type", MatchString $ T.pack "IndentedBlock"),
-              (fromString "body", MatchArrayOne $ MatchAny)
+              (fromString "type", MatchString $ T.pack "IndentedBlock")
+              --, (fromString "body", MatchArrayOne $ MatchAny)
             ]))
         ])
 
@@ -1043,7 +1048,8 @@ optional_success = pythonMatchContextFreePattern
 
 
 pythonElementMatches = [
-  (optional_grammar, optional_collapse, optional_success)
+  -- (optional_grammar, optional_collapse, optional_success),
+  (star_grammar, sBody >=> sBody, (\x -> fmap Star (pythonMatchContextFreePattern x)))
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String (ContextFreeGrammar MatchPattern))]
 
 pythonMatchContextFreePattern :: Value -> Either String (ContextFreeGrammar MatchPattern)
@@ -1063,17 +1069,17 @@ pythonMatchContextFreePattern (Array a) = fmap Seq $ L.foldl' f (Right mempty) (
             return $ acc ++ [e']
 
 
-pythonMatchContextFreePattern _ = Left "pattern error"
+pythonMatchContextFreePattern x = Left ("pattern error: " ++ show x)
 
-ib_success :: Value -> Either String MatchPattern
-ib_success v = do
+ib_or_module_success :: Value -> Either String MatchPattern
+ib_or_module_success v = do
   cfg <- pythonMatchContextFreePattern v
   return $ MatchObjectPartial $ fromList [(fromString "body", MatchArrayContextFree cfg)]
 
 pythonMapMatches = [
     (simple_or_grammar, simple_or_collapse, simple_or_success)
   , (any_grammar, any_collapse, const $ Right MatchAny)
-  , (ib_grammar, sBody, ib_success)
+  , (ib_or_module_grammar, sBody, ib_or_module_success)
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String MatchPattern)]
 
 pythonMatchPattern :: Value -> Either String MatchPattern

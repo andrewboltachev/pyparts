@@ -38,10 +38,10 @@ library
     , bytestring
     , containers
     , data-fix
-    , ghc
     , rainbow
     , scientific
     , text
+    , transformers
     , twain
     , utf8-string
     , vector
@@ -62,11 +62,11 @@ executable pyparts-exe
     , bytestring
     , containers
     , data-fix
-    , ghc
     , pyparts
     , rainbow
     , scientific
     , text
+    , transformers
     , twain
     , utf8-string
     , vector
@@ -88,11 +88,11 @@ test-suite pyparts-test
     , bytestring
     , containers
     , data-fix
-    , ghc
     , pyparts
     , rainbow
     , scientific
     , text
+    , transformers
     , twain
     , utf8-string
     , vector
