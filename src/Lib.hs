@@ -1048,7 +1048,7 @@ optional_success = pythonMatchContextFreePattern
 
 
 pythonElementMatches = [
-  -- (optional_grammar, optional_collapse, optional_success),
+  (optional_grammar, optional_collapse, (\x -> fmap Optional (pythonMatchContextFreePattern x))),
   (star_grammar, sBody >=> sBody, (\x -> fmap Star (pythonMatchContextFreePattern x)))
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String (ContextFreeGrammar MatchPattern))]
 
