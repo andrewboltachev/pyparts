@@ -472,6 +472,8 @@ matchToValueMinimal (MatchArrayContextFreeResult a) = do
        SeqNode a -> fmap (Array . V.fromList) $ P.traverse (matchToValueMinimal . MatchArrayContextFreeResult) a
        StarNode a -> fmap (Array . V.fromList) $ P.traverse (matchToValueMinimal . MatchArrayContextFreeResult) a
        PlusNode a -> fmap (Array . V.fromList) $ P.traverse (matchToValueMinimal . MatchArrayContextFreeResult) a
+       OptionalNodeValue a -> (matchToValueMinimal . MatchArrayContextFreeResult) a
+       OptionalNodeEmpty -> Just Null
        OrNode _ a -> (matchToValueMinimal . MatchArrayContextFreeResult) a
        CharNode a -> matchToValueMinimal a
        x -> error $ "no option: " ++ show x
@@ -910,6 +912,9 @@ matchAndCollapse grammar collapse value = do
   r'' <- collapse r
   return (gatherFunnel [] r', r'')
 
+matchWithFunnel :: MatchPattern -> Value -> MatchResult ([Value], Value)
+matchWithFunnel grammar value = matchAndCollapse grammar return value
+
 --p3 :: IO (Maybe Value) -> IO ()
 p3 a grammar collapse = do
   -- d :: Maybe Value
@@ -1031,15 +1036,11 @@ optional_grammar = MatchObjectPartial (fromList [
               (fromString "func", MatchObjectPartial (fromList [
                 (fromString "type", MatchString $ T.pack "Name"),
                 (fromString "value", MatchString $ T.pack "__maybe")
-              ])),
-              (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
+              ]))
+              --, (fromString "args", MatchArrayOne $ MatchIgnore) -- TODO
             ])
           ),
-          (fromString "body",
-            MatchObjectPartial (fromList [
-              (fromString "type", MatchString $ T.pack "IndentedBlock")
-              --, (fromString "body", MatchArrayOne $ MatchAny)
-            ]))
+          (fromString "body", MatchAny)
         ])
 
 optional_collapse = (sBody >=> sBody) -- :: MatchResult Value
@@ -1048,7 +1049,7 @@ optional_success = pythonMatchContextFreePattern
 
 
 pythonElementMatches = [
-  (optional_grammar, optional_collapse, (\x -> fmap Optional (pythonMatchContextFreePattern x))),
+  (optional_grammar, sBody >=> sBody, (\x -> fmap Optional (pythonMatchContextFreePattern x))),
   (star_grammar, sBody >=> sBody, (\x -> fmap Star (pythonMatchContextFreePattern x)))
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String (ContextFreeGrammar MatchPattern))]
 
