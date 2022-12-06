@@ -241,6 +241,7 @@ instance FromJSON MatchPattern
 
 --gatherFunnel :: [Value] -> MatchPattern -> [Value]
 gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
+gatherFunnel acc (MatchObject o) = L.foldl' gatherFunnel acc (KM.elems o) -- FIXME
 gatherFunnel acc (MatchArraySomeResult _ o) = L.foldl' gatherFunnel acc (fmap snd o)
 gatherFunnel acc (MatchArrayResult o) = L.foldl' gatherFunnel acc o
 gatherFunnel acc (MatchArrayContextFreeResult a) = L.foldl' gatherFunnel acc a
@@ -420,6 +421,15 @@ matchPatternPlus m v = do
   return x
 
 matchToValueMinimal :: MatchPattern -> Maybe Value
+matchToValueMinimal (MatchObject m) = fmap Object $ L.foldl' f (Just mempty) (keys m) -- ifNotEmpty =<< 
+  where
+    ifNotEmpty m = if KM.null m then Nothing else Just m
+    f acc k = do
+          acc' <- acc
+          v <- KM.lookup k m
+          return $ case matchToValueMinimal v of
+               Nothing -> acc'
+               (Just x) -> KM.insert k x acc'
 matchToValueMinimal (MatchObjectPartialResult _ m) = fmap Object $ L.foldl' f (Just mempty) (keys m) -- ifNotEmpty =<< 
   where
     ifNotEmpty m = if KM.null m then Nothing else Just m
