@@ -38,7 +38,6 @@ library
     , bytestring
     , containers
     , data-fix
-    , rainbow
     , scientific
     , text
     , transformers
@@ -63,7 +62,6 @@ executable pyparts-exe
     , containers
     , data-fix
     , pyparts
-    , rainbow
     , scientific
     , text
     , transformers
@@ -89,7 +87,6 @@ test-suite pyparts-test
     , containers
     , data-fix
     , pyparts
-    , rainbow
     , scientific
     , text
     , transformers
