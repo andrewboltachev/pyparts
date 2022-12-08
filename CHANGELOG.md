@@ -1,4 +1,4 @@
-# Changelog for `pyparts`
+# Changelog for `matcher`
 
 All notable changes to this project will be documented in this file.
 

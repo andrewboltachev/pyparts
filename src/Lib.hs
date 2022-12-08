@@ -493,12 +493,12 @@ someFunc = P.putStrLn "someFunc"
 
 getData1 :: IO (Maybe Value)
 getData1 = do
-  fileData <- BL.readFile "/home/andrey/Work/lc/pyparts1.json"
+  fileData <- BL.readFile "/home/andrey/Work/lc/matcher1.json"
   return $ decode fileData
 
 getData :: IO (Maybe Value)
 getData = do
-  fileData <- BL.readFile "/home/andrey/Work/lc/pyparts.json"
+  fileData <- BL.readFile "/home/andrey/Work/lc/matcher.json"
   return $ decode fileData
 
 --getD :: IO (Maybe Value)

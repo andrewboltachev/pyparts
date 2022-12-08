@@ -4,11 +4,11 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 
-name:           pyparts
+name:           matcher
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/pyparts#readme>
-homepage:       https://github.com/githubuser/pyparts#readme
-bug-reports:    https://github.com/githubuser/pyparts/issues
+description:    Please see the README on GitHub at <https://github.com/githubuser/matcher#readme>
+homepage:       https://github.com/githubuser/matcher#readme
+bug-reports:    https://github.com/githubuser/matcher/issues
 author:         Author name here
 maintainer:     example@example.com
 copyright:      2022 Author name here
@@ -21,13 +21,13 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/pyparts
+  location: https://github.com/githubuser/matcher
 
 library
   exposed-modules:
       Lib
   other-modules:
-      Paths_pyparts
+      Paths_matcher
   hs-source-dirs:
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
@@ -47,10 +47,10 @@ library
     , warp
   default-language: Haskell2010
 
-executable pyparts-exe
+executable matcher-exe
   main-is: Main.hs
   other-modules:
-      Paths_pyparts
+      Paths_matcher
   hs-source-dirs:
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
@@ -61,7 +61,7 @@ executable pyparts-exe
     , bytestring
     , containers
     , data-fix
-    , pyparts
+    , matcher
     , scientific
     , text
     , transformers
@@ -71,11 +71,11 @@ executable pyparts-exe
     , warp
   default-language: Haskell2010
 
-test-suite pyparts-test
+test-suite matcher-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Paths_pyparts
+      Paths_matcher
   hs-source-dirs:
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
@@ -86,7 +86,7 @@ test-suite pyparts-test
     , bytestring
     , containers
     , data-fix
-    , pyparts
+    , matcher
     , scientific
     , text
     , transformers
