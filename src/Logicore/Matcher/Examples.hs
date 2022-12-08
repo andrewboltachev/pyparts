@@ -13,12 +13,13 @@ import Data.Text.Lazy.Encoding    as TL
 import Data.Text.Lazy.IO          as TL
 import Data.Aeson.KeyMap          as KM
 import Data.Aeson.Key             as K
-import Data.List                  as L
+import qualified Data.List        as L
 import qualified Data.Vector as V
 import Data.ByteString.Lazy       as BL
 import qualified Data.Set
 
 import Logicore.Matcher.Core
+import Logicore.Matcher.Additional
 import Logicore.Matcher.Examples.Utils
 import Logicore.Matcher.Experimental
 

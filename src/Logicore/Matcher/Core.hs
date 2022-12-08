@@ -8,13 +8,13 @@
 module Logicore.Matcher.Core
   (
     matchPattern
+  , matchPattern'
   , contextFreeMatch
   , ContextFreeGrammar(..)
   , MatchPattern(..)
   , MatchResult(..)
   -- result processing fns
   , gatherFunnel
-  , resetUnsignificant
   -- Matcher utils
   , m2mp
   -- Aeson utils
@@ -29,28 +29,26 @@ module Logicore.Matcher.Core
 
 import qualified Data.Vector.Generic
 --import qualified Data.Set
-import Data.List                  as L
+import qualified Data.List        as L
 import GHC.Generics
 import Data.Aeson
-import Data.ByteString            as B
-import Data.ByteString.Lazy       as BL
+--import Data.ByteString            as B
+--import Data.ByteString.Lazy       as BL
 import Data.Text                  as T
-import Data.Text.Encoding         as T
-import Data.Text.IO               as T
+--import Data.Text.Encoding         as T
+--import Data.Text.IO               as T
 import Data.Text.Lazy             as TL
 import Data.Text.Lazy.Encoding    as TL
-import Data.Text.Lazy.IO          as TL
+--import Data.Text.Lazy.IO          as TL
 --import Data.Map                   as M
 import Data.Aeson.KeyMap          as KM
 import Data.Aeson.Key             as K
 import qualified Data.Scientific as Sci
 import qualified Data.Vector as V
 import Prelude                    as P
-import Control.Monad
-import qualified Data.ByteString.UTF8       as BLU
-import Data.Fix
-import qualified Control.Monad.Trans.Writer.Lazy as W
-import Logicore.Matcher.Utils
+import Control.Monad()
+--import qualified Data.ByteString.UTF8       as BLU
+--import Logicore.Matcher.Utils
 
 data MatchResult a = MatchSuccess a
                  | MatchFailure String
@@ -66,6 +64,8 @@ instance Applicative MatchResult where
   (<*>) (MatchSuccess f) (MatchSuccess m) = MatchSuccess (f m)
   (<*>) _ (MatchFailure x) = (MatchFailure x)
   (<*>) (MatchFailure x) _ = (MatchFailure x)
+  (<*>) (NoMatch x) _ = (NoMatch x)
+  (<*>) _ (NoMatch x) = (NoMatch x)
   pure x = MatchSuccess x
 
 instance Monad MatchResult where
@@ -96,16 +96,16 @@ instance ToJSON a => ToJSON (ContextFreeGrammar a) where
 instance FromJSON a => FromJSON (ContextFreeGrammar a)
 
 contextFreeMatch' :: (Eq a, Show a, Show b) => ContextFreeGrammar a -> [b] -> (a -> b -> MatchResult a) -> MatchResult ([b], ContextFreeGrammar a)
-contextFreeMatch' (Char _) [] matchFn = NoMatch "can't read char"
+contextFreeMatch' (Char _) [] _ = NoMatch "can't read char"
 contextFreeMatch' (Char a) (x:xs) matchFn =
   case matchFn a x of
        NoMatch s -> NoMatch ("no char match: " ++ s)
        MatchFailure s -> MatchFailure s
-       MatchSuccess a -> MatchSuccess (xs, CharNode a)
+       MatchSuccess a' -> MatchSuccess (xs, CharNode a')
 
 contextFreeMatch' (Seq as) xs matchFn = (fmap . fmap) SeqNode $ L.foldl' f (MatchSuccess (xs, mempty)) as
   where f acc' a = do
-          (xs, result) <- acc'
+          (xs', result) <- acc'
           (xs', result') <- contextFreeMatch' a xs matchFn
           return (xs', result ++ [result'])
 
@@ -113,13 +113,15 @@ contextFreeMatch' (Or as) xs matchFn = L.foldr f (NoMatch "or mismatch") as
   where f (opt, a) b = do
           case contextFreeMatch' a xs matchFn of
                NoMatch _ -> b
+               MatchFailure s -> MatchFailure s
                MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode opt r)
 
 contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) StarNode $ L.foldl' f (MatchSuccess (xs, mempty)) xs
-  where f acc' b = do
+  where f acc' _ = do
           acc@(xs, result) <- acc'
           case contextFreeMatch' a xs matchFn of
                NoMatch _ -> MatchSuccess acc
+               MatchFailure s -> MatchFailure s
                MatchSuccess (xs', result') -> MatchSuccess (xs', result ++ [result'])
 
 contextFreeMatch' (Plus a) xs matchFn = do
@@ -130,12 +132,19 @@ contextFreeMatch' (Plus a) xs matchFn = do
   return (xs', (PlusNode rs'))
   
 
-contextFreeMatch' (Optional a) xs matchFn = do
-  return $ case contextFreeMatch' a xs matchFn of
-       NoMatch _ -> (xs, OptionalNodeEmpty)
-       MatchSuccess (xs', subresult) -> (xs', OptionalNodeValue subresult)
+contextFreeMatch' (Optional a) xs matchFn =
+  case contextFreeMatch' a xs matchFn of
+       NoMatch _ -> MatchSuccess (xs, OptionalNodeEmpty)
+       MatchFailure s -> MatchFailure s
+       MatchSuccess (xs', subresult) -> MatchSuccess (xs', OptionalNodeValue subresult)
 
-contextFreeMatch' a xs matchFn = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+contextFreeMatch' a xs _ = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+
+contextFreeMatch :: (Eq a, Show a, Show b) =>
+                    ContextFreeGrammar a
+                    -> [b]
+                    -> (a -> b -> MatchResult a)
+                    -> MatchResult (ContextFreeGrammar a)
 
 contextFreeMatch a xs matchFn = do
   (rest, result) <- contextFreeMatch' a xs matchFn
@@ -176,7 +185,7 @@ asString _ = Nothing
 type MatchObject = KeyMap MatchPattern
 
 -- | A JSON \"array\" (sequence).
-type MatchArray = V.Vector MatchPattern -- TODO just use list?
+--type MatchArray = V.Vector MatchPattern -- TODO just use list?
 
 {-data MatchOp = MatchOp (MatchPattern -> MatchResult MatchPattern)
 instance Show MatchOp where
@@ -250,7 +259,7 @@ instance ToJSON MatchPattern where
 instance FromJSON MatchPattern
     -- No need to provide a parseJSON implementation.
 
---gatherFunnel :: [Value] -> MatchPattern -> [Value]
+gatherFunnel :: [Value] -> MatchPattern -> [Value]
 gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
 gatherFunnel acc (MatchObject o) = L.foldl' gatherFunnel acc (KM.elems o) -- FIXME
 gatherFunnel acc (MatchArraySomeResult _ o) = L.foldl' gatherFunnel acc (fmap snd o)
@@ -355,6 +364,7 @@ matchPattern' itself (MatchArrayContextFree m) (Array a) = do
 
 matchPattern' itself (MatchArrayContextFree m) (Object a) = MatchFailure ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
 
+{-
 matchPattern' itself (MatchArrayContextFree m) (Object a) = do
   let a1 = case KM.lookup (fromString "body") a of
               Nothing -> MatchFailure "cf extra fail"
@@ -366,6 +376,7 @@ matchPattern' itself (MatchArrayContextFree m) (Object a) = do
              MatchFailure s -> MatchFailure s
              MatchSuccess x ->  MatchSuccess (MatchArrayContextFreeResult x)
   a2
+-}
 
 matchPattern' itself MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
@@ -425,16 +436,5 @@ matchPattern' itself m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ sho
 --matchOp = MatchApply . MatchOp
 matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
 matchPattern m v = matchPattern' matchPattern m v
-
-matchPatternPlus :: MatchPattern -> Value -> W.Writer [(MatchPattern, Value, MatchResult MatchPattern)] (MatchResult MatchPattern)
-matchPatternPlus m v = do
-  let x = matchPattern' matchPattern m v
-  W.tell [(m, v, x)]
-  return x
-
-resetUnsignificant (MatchObjectPartialResult _ a) = MatchObjectPartialResultU (fmap resetUnsignificant a)
-resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . fmap) resetUnsignificant a)
-resetUnsignificant (MatchSimpleOrResult m) = resetUnsignificant m
-resetUnsignificant a = a
 
 -- Match functions end

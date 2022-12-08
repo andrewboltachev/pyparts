@@ -291,7 +291,7 @@ pythonMatchContextFreePattern (Array a) = fmap Seq $ L.foldl' f (Right mempty) (
                           case matchAndCollapse grammar collapseFn e of
                               MatchFailure s -> Left s
                               MatchSuccess (_, s) -> successFn s
-                              MatchSuccess _ -> Left "wrong grammar"
+                              --MatchSuccess _ -> Left "wrong grammar"
                               NoMatch _ -> b
             e' <- x1
             return $ acc ++ [e']
@@ -325,7 +325,7 @@ pythonMatchPattern (Object a) = L.foldr f defaultMapMatch pythonMapMatches
         f (grammar, collapseFn, successFn) b = case matchAndCollapse grammar collapseFn x of
                                                     MatchFailure s -> Left s
                                                     MatchSuccess (_, s) -> successFn s
-                                                    MatchSuccess _ -> Left "wrong grammar"
+                                                    --MatchSuccess _ -> Left "wrong grammar"
                                                     NoMatch _ -> b
 
 pythonMatchPattern (String s) = Right $ MatchString s
