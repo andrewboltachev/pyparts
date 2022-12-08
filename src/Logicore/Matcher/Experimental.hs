@@ -58,7 +58,7 @@ matchToValueMinimal (MatchNumber m) = Just (Number m)
 matchToValueMinimal (MatchBool m) = Just (Bool m)
 matchToValueMinimal MatchNull = Just Null
 matchToValueMinimal (MatchAnyResult a) = Just a
-matchToValueMinimal MatchIgnoreResult = Nothing -- TODO
+-- matchToValueMinimal MatchIgnoreResult = Nothing -- TODO
 --matchToValueMinimal (MatchArrayResult a) = (Array $ V.fromList) $ catMaybes $ fmap matchToValueMinimal a
 matchToValueMinimal (MatchArrayResult m) = fmap Array $ ifNotEmpty =<< L.foldl' f (Just (V.empty :: V.Vector Value)) arr
   where

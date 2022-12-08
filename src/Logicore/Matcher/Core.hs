@@ -28,7 +28,7 @@ module Logicore.Matcher.Core
   ) where
 
 import qualified Data.Vector.Generic
-import qualified Data.Set
+--import qualified Data.Set
 import Data.List                  as L
 import GHC.Generics
 import Data.Aeson
@@ -194,45 +194,50 @@ instance ToJSON MatchOp where
 instance FromJSON MatchOp
     -- No need to provide a parseJSON implementation.-}
 
-                  -- queries
-data MatchPattern = MatchObject !MatchObject -- literal
-                  | MatchArray !MatchPattern -- literal
-                  | MatchString !T.Text
-                  | MatchStrict String !MatchPattern
+                  -- queries: structures - object
+data MatchPattern = MatchObject !MatchObject
+                  | MatchObjectPartial !MatchObject
+                  -- queries: structures - array
+                  | MatchArray !MatchPattern
+                  | MatchArraySome !MatchPattern
+                  | MatchArrayOne MatchPattern
+                  | MatchArrayExact (V.Vector MatchPattern)
+                  | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
+                  -- queries: conditions
                   | MatchAny
-                  | MatchIgnore
+                  | MatchSimpleOr [MatchPattern]
+                  | MatchIfThen MatchPattern MatchPattern String
+                  -- queries: funnel
                   | MatchFunnel
                   | MatchFunnelKeys
                   | MatchFunnelKeysU
-                  | MatchSimpleOr [MatchPattern]
-                  | MatchObjectPartial !MatchObject -- specific
-                  | MatchArraySome !MatchPattern -- specific
-                  | MatchArrayOne MatchPattern
-                  | MatchArrayExact [MatchPattern] -- specific
-                  | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
-                  | MatchIfThen MatchPattern MatchPattern String
-                  -- special queries
-                  -- | MatchApply MatchOp MatchPattern
-                  | MatchMustHave MatchPattern
-                  -- both
+                  -- both (literal matches)
+                  | MatchString !T.Text
                   | MatchNumber !Sci.Scientific
                   | MatchBool !Bool
                   | MatchNull
                   | MatchLiteral
-                  -- results
-                  | MatchFunnelResult !Value
-                  | MatchFunnelResultM !Value
-                  | MatchAnyResult !Value
-                  | MatchIgnoreResult
-                  | MatchAnyResultU
-                  | MatchSimpleOrResult MatchPattern
-                  | MatchObjectPartialResult Value !MatchObject -- specific
-                  | MatchObjectPartialResultU !MatchObject -- specific
-                  | MatchArraySomeResult [(Int, Value)] [(Int, MatchPattern)] -- specific
+                  -- results: structures - object
+                  | MatchObjectPartialResult Value !MatchObject
+                  | MatchObjectPartialResultU !MatchObject
+                  -- results: structures - array
+                  | MatchArraySomeResult [(Int, Value)] [(Int, MatchPattern)]
                   | MatchArrayResult [MatchPattern]
                   | MatchArrayOneResult MatchPattern
-                  | MatchArraySomeResultU [(Int, MatchPattern)] -- specific
+                  | MatchArraySomeResultU [(Int, MatchPattern)]
                   | MatchArrayContextFreeResult (ContextFreeGrammar MatchPattern)
+                  -- results: conditions
+                  | MatchAnyResult !Value
+                  | MatchSimpleOrResult MatchPattern
+                  -- results: funnel
+                  | MatchFunnelResult !Value
+                  | MatchFunnelResultM !Value
+                  -- unused/other
+                  -- | MatchStrict String !MatchPattern
+                  -- | MatchMustHave MatchPattern
+                  -- | MatchApply MatchOp MatchPattern
+                  -- | MatchIgnore
+                  -- | MatchIgnoreResult
                     deriving (Generic, Eq, Show)
 
 instance ToJSON MatchPattern where
@@ -259,7 +264,7 @@ gatherFunnel acc (MatchFunnelResultM r) = case asArray r of
                                                Just a -> L.nub $ a ++ acc
 gatherFunnel acc MatchLiteral = acc
 gatherFunnel acc (MatchAnyResult _) = acc
-gatherFunnel acc MatchIgnoreResult = acc
+-- gatherFunnel acc MatchIgnoreResult = acc
 gatherFunnel acc (MatchString _) = acc
 gatherFunnel acc (MatchNumber _) = acc
 gatherFunnel acc MatchNull = acc
@@ -277,9 +282,11 @@ m2mp m v = case v of
               Just x -> MatchSuccess x
               Nothing -> m
 
+{-
 matchPattern' itself (MatchStrict s m) v = case matchPattern' itself m v of
                                       NoMatch x -> MatchFailure s
                                       x -> x
+-}
 matchPattern' itself (MatchObject m) (Object a) = if keys m /= keys a then (MatchFailure "MatchObject keys mismatch") else fmap (MatchObject . KM.fromList) $ L.foldl' f (MatchSuccess []) (keys m)
   where f acc k = do
           acc' <- acc
@@ -322,14 +329,13 @@ matchPattern' itself (MatchArrayOne m) (Array a) = do
   return $ MatchArrayOneResult (P.head acc)
 
 matchPattern' itself (MatchArrayExact m) (Array a) = if P.length m /= V.length a then MatchFailure "array exact match" else do
-  let vv = (V.toList a)
-      f acc (p, e) = do
+  let f acc (p, e) = do
           acc' <- acc
           case matchPattern' itself p e of
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
              NoMatch r -> NoMatch r
-  acc <- L.foldl' f (MatchSuccess mempty) (P.zip m vv)
+  acc <- L.foldl' f (MatchSuccess mempty) (V.zip m a)
   return $ MatchArrayResult acc
 
 {-
@@ -390,7 +396,7 @@ matchPattern' itself (MatchArraySome m) (Array a) = do
   return $ MatchArraySomeResult a1 a2
 
 matchPattern' itself MatchAny a = MatchSuccess $ MatchAnyResult a
-matchPattern' itself MatchIgnore a = MatchSuccess MatchIgnoreResult
+-- matchPattern' itself MatchIgnore a = MatchSuccess MatchIgnoreResult
 matchPattern' itself (MatchSimpleOr ms) v = fmap MatchSimpleOrResult $ P.foldr f (NoMatch "or fail") ms
   where f a b = case matchPattern' itself a v of
                      MatchSuccess x -> MatchSuccess x
@@ -428,7 +434,6 @@ matchPatternPlus m v = do
 
 resetUnsignificant (MatchObjectPartialResult _ a) = MatchObjectPartialResultU (fmap resetUnsignificant a)
 resetUnsignificant (MatchArraySomeResult _ a) = MatchArraySomeResultU ((fmap . fmap) resetUnsignificant a)
---resetUnsignificant (MatchAnyResult _) = MatchAnyResultU
 resetUnsignificant (MatchSimpleOrResult m) = resetUnsignificant m
 resetUnsignificant a = a
 
