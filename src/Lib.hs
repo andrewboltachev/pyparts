@@ -116,21 +116,6 @@ contextFreeMatch' (Optional a) xs matchFn = do
 
 contextFreeMatch' a xs matchFn = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
 
---contextFreeMatch (Or a) xs = if a /= x then Left "char mismatch" else (xs, InputChar a)
-{-
-ghci> contextFreeMatch (Seq [Char 1, Optional (Char 2), Char 3, Char 4]) [1,2,3,4]
-
-<interactive>:106:1: warning: [-Wtype-defaults]
-    • Defaulting the following constraints to type ‘Integer’
-        (Show a0) arising from a use of ‘print’ at <interactive>:106:1-76
-        (Eq a0) arising from a use of ‘it’ at <interactive>:106:1-76
-        (Num a0) arising from a use of ‘it’ at <interactive>:106:1-76
-    • In a stmt of an interactive GHCi command: print it
-Right ([],SeqNode [InputChar 1,OptionalNodeValue (InputChar 2),InputChar 3,InputChar 4])
--}
-
---contextFreeMatch :: (Eq a, Show a) => (ContextFreeGrammar a) -> [a] -> (a -> b -> MatchResult a) -> MatchResult (ContextFreeGrammar a)
-
 contextFreeMatch a xs matchFn = do
   (rest, result) <- contextFreeMatch' a xs matchFn
   case P.length rest == 0 of
@@ -737,9 +722,6 @@ grammar'1 = MatchIfThen (MatchObjectPartial (fromList [
   ])) (MatchObjectPartial (fromList [(fromString "orelse", MatchNull)])) "orelse fail"
 
 
--- x ["body","orelse"!,"test"]
--- x.test ["args","func","type"]
-
 --  collapse utils begin
 selectKey k (Object a) = KM.lookup k a
 selectKey _ _ = Nothing
@@ -845,27 +827,6 @@ or_grammar = MatchObjectPartial (fromList [
     )
   ])
 
-{-
-MatchObjectPartial (fromList [
-          (fromString "type", MatchString $ T.pack "If"),
-          (fromString "test",
-            MatchObjectPartial (fromList [ -- top
-              (fromString "type", MatchString $ T.pack "Call"),
-              (fromString "func", MatchObjectPartial (fromList [
-                (fromString "type", MatchString $ T.pack "Name"),
-                (fromString "value", MatchString $ T.pack "__option")
-              ])),
-              (fromString "args", MatchArrayOne $ MatchLiteral)
-            ])
-          ),
-          (fromString "body",
-            MatchObjectPartial (fromList [
-              (fromString "type", MatchString $ T.pack "IndentedBlock"),
-              (fromString "body", MatchArray $ MatchAny)
-            ]))
-        ])
--}
-
 or_collapse = (sBody >=> sBody >=> (sList (sBody >=> sBody)))
 
 
@@ -915,9 +876,7 @@ any_collapse x = return x
 matchAndCollapse :: MatchPattern -> (Value -> MatchResult Value) -> Value -> MatchResult ([Value], Value)
 matchAndCollapse grammar collapse value = do
   r' <- matchPattern grammar value
-  -- r' :: MatchResult MatchPattern
   r <- return $ resetUnsignificant r'
-  -- r' :: MatchResult MatchPattern
   r <- matchToValueMinimal' r
   r'' <- collapse r
   return (gatherFunnel [] r', r'')
@@ -925,8 +884,7 @@ matchAndCollapse grammar collapse value = do
 matchWithFunnel :: MatchPattern -> Value -> MatchResult ([Value], Value)
 matchWithFunnel grammar value = matchAndCollapse grammar return value
 
---p3 :: IO (Maybe Value) -> IO ()
-p3 a grammar collapse = do
+matchFile a grammar collapse = do
   -- d :: Maybe Value
   d <- getD a
   let v = do
@@ -949,12 +907,8 @@ p3 a grammar collapse = do
                       MatchFailure s -> "MatchFailure " ++ s
                       MatchSuccess s -> "Success!!!\n\n\n" ++ s
 
+-- python
 
--- cata stuff
-data ListF a b = Nil | Cons a b deriving (Eq, Show, Functor)
-type List a = Fix (ListF a)
-
-l1 = Cons 1 $ Cons 2 $ Cons 3 Nil
 
 pythonUnsignificantKeys :: [String]
 pythonUnsignificantKeys = [
