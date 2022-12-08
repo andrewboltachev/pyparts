@@ -8,6 +8,7 @@
 module Logicore.Matcher.Core
   (
     matchPattern
+  , contextFreeMatch
   , ContextFreeGrammar(..)
   , MatchPattern(..)
   , MatchResult(..)
@@ -19,8 +20,8 @@ module Logicore.Matcher.Core
   -- Aeson utils
   , asKeyMap
   , asArray
-  , catMaybes
   , asString
+  , catMaybes
   -- common utils
   , m2e
   , safeHead
