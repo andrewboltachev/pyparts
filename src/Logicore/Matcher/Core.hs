@@ -5,7 +5,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 
-module Logicore.Matcher.Core where
+module Logicore.Matcher.Core
+  (
+    matchPattern
+  , ContextFreeGrammar(..)
+  , MatchPattern(..)
+  , MatchResult(..)
+  -- result processing fns
+  , gatherFunnel
+  , resetUnsignificant
+  -- Matcher utils
+  , m2mp
+  -- Aeson utils
+  , asKeyMap
+  , asArray
+  , catMaybes
+  , asString
+  -- common utils
+  , m2e
+  , safeHead
+  ) where
 
 import qualified Data.Vector.Generic
 import qualified Data.Set
