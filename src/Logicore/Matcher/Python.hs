@@ -9,9 +9,9 @@ import Logicore.Matcher.Core
 import Data.Text                  as T
 --import Data.Text.Encoding         as T
 --import Data.Text.IO               as T
---import Data.Text.Lazy             as TL
---import Data.Text.Lazy.Encoding    as TL
---import Data.Text.Lazy.IO          as TL
+import Data.Text.Lazy             as TL
+import Data.Text.Lazy.Encoding    as TL
+import Data.Text.Lazy.IO          as TL
 import Data.Aeson.KeyMap          as KM
 import Data.Aeson.Key             as K
 import qualified Data.List                  as L
@@ -19,6 +19,7 @@ import Control.Monad
 import qualified Data.Vector as V
 
 import Logicore.Matcher.Additional
+import Logicore.Matcher.Experimental
 -- python
 
 
@@ -108,7 +109,7 @@ selectKey _ _ = Nothing
 collapse' = selectKey (fromString "body")
 
 doCollapse f v = case f v of
-                     Nothing -> MatchFailure "collapse problem"
+                     Nothing -> MatchFailure ("collapse problem" ++ "\n" ++ ((TL.unpack . TL.decodeUtf8 . encode) v))
                      Just x -> MatchSuccess x
 
 sList f (Array a) = case P.traverse f a of
@@ -128,8 +129,8 @@ simple_or_grammar = MatchObjectPartial (fromList [
         (fromString "func", MatchObjectPartial (fromList [
           (fromString "type", MatchString $ T.pack "Name"),
           (fromString "value", MatchString $ T.pack "__simpleor")
-        ])),
-        (fromString "args", MatchArrayOne $ MatchAny) -- TODO
+        ]))
+        --,(fromString "args", MatchArrayOne $ MatchAny) -- TODO
       ])
     ),
     (fromString "body",
@@ -143,8 +144,8 @@ simple_or_grammar = MatchObjectPartial (fromList [
               (fromString "func", MatchObjectPartial (fromList [
                 (fromString "type", MatchString $ T.pack "Name"),
                 (fromString "value", MatchString $ T.pack "__option")
-              ])),
-              (fromString "args", MatchArrayOne $ MatchAny) -- TODO
+              ]))
+              --,(fromString "args", MatchArrayOne $ MatchAny) -- TODO
             ])
           ),
           (fromString "body",
@@ -169,8 +170,8 @@ or_grammar = MatchObjectPartial (fromList [
         (fromString "func", MatchObjectPartial (fromList [
           (fromString "type", MatchString $ T.pack "Name"),
           (fromString "value", MatchString $ T.pack "__or")
-        ])),
-        (fromString "args", MatchArrayOne $ MatchAny) -- TODO
+        ]))
+        --,(fromString "args", MatchArrayOne $ MatchAny) -- TODO
       ])
     ),
     (fromString "body",
@@ -244,8 +245,8 @@ any_grammar = MatchObjectPartial (fromList [
               (fromString "func", MatchObjectPartial (fromList [
                 (fromString "type", MatchString $ T.pack "Name"),
                 (fromString "value", MatchString $ T.pack "__any")
-              ])),
-              (fromString "args", MatchArrayOne $ MatchAny) -- TODO
+              ]))
+              --,(fromString "args", MatchArrayOne $ MatchAny) -- TODO
             ])
           )
         ])
@@ -288,7 +289,7 @@ pythonMatchContextFreePattern (Array a) = fmap Seq $ L.foldl' f (Right mempty) (
             let x1 = L.foldr g defaultElementMatch pythonElementMatches
                   where defaultElementMatch = fmap Char (pythonMatchPattern e)
                         g (grammar, collapseFn, successFn) b =
-                          case matchAndCollapse grammar collapseFn e of
+                          case matchAndCollapse' grammar collapseFn e of
                               MatchFailure s -> Left s
                               MatchSuccess (_, s) -> successFn s
                               --MatchSuccess _ -> Left "wrong grammar"
@@ -311,18 +312,18 @@ pythonMapMatches = [
   ] :: [(MatchPattern, Value -> MatchResult Value, Value -> Either String MatchPattern)]
 
 pythonMatchPattern :: Value -> Either String MatchPattern
-pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) a)
+pythonMatchPattern (Array a) = fmap MatchArrayExact (L.foldl' f (Right mempty) (V.toList a))
   where f acc e = do
           acc' <- acc
           e' <- pythonMatchPattern e
-          return $ V.snoc acc' e'
+          return $ acc' ++ [e']
 
 pythonMatchPattern (Object a) = L.foldr f defaultMapMatch pythonMapMatches
   where x = Object a
         defaultMapMatch = fmap MatchObjectPartial $ P.traverse pythonMatchPattern a'
 
                             where a' = KM.filterWithKey (\k _ -> not ((toString k) `P.elem` pythonUnsignificantKeys)) a
-        f (grammar, collapseFn, successFn) b = case matchAndCollapse grammar collapseFn x of
+        f (grammar, collapseFn, successFn) b = case matchAndCollapse' grammar collapseFn x of
                                                     MatchFailure s -> Left s
                                                     MatchSuccess (_, s) -> successFn s
                                                     --MatchSuccess _ -> Left "wrong grammar"

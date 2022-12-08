@@ -14,6 +14,7 @@ import Data.Text.Lazy.IO          as TL
 import Data.Aeson.KeyMap          as KM
 import Data.List                  as L
 import qualified Data.Vector as V
+import Logicore.Matcher.Additional
 
 matchToValueMinimal :: MatchPattern -> Maybe Value
 matchToValueMinimal (MatchObject m) = fmap Object $ L.foldl' f (Just mempty) (keys m) -- ifNotEmpty =<< 
@@ -88,3 +89,11 @@ matchToValueMinimal (MatchArrayOneResult a) = matchToValueMinimal a {-do
 matchToValueMinimal x = error $ show x
 
 matchToValueMinimal' x = (m2mp $ MatchFailure $ "matchToValueMinimal error " ++ show x) $ (matchToValueMinimal x)
+
+matchAndCollapse' :: MatchPattern -> (Value -> MatchResult Value) -> Value -> MatchResult ([Value], Value)
+matchAndCollapse' grammar collapse value = do
+  r' <- matchPattern grammar value
+  r <- return $ resetUnsignificant r'
+  r <- (m2mp $ MatchFailure $ "match...") $ matchToValueMinimal r
+  r'' <- collapse r
+  return (gatherFunnel [] r', r'')

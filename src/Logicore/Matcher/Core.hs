@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 
@@ -105,7 +104,7 @@ contextFreeMatch' (Char a) (x:xs) matchFn =
 
 contextFreeMatch' (Seq as) xs matchFn = (fmap . fmap) SeqNode $ L.foldl' f (MatchSuccess (xs, mempty)) as
   where f acc' a = do
-          (xs', result) <- acc'
+          (xs, result) <- acc'
           (xs', result') <- contextFreeMatch' a xs matchFn
           return (xs', result ++ [result'])
 
@@ -116,13 +115,14 @@ contextFreeMatch' (Or as) xs matchFn = L.foldr f (NoMatch "or mismatch") as
                MatchFailure s -> MatchFailure s
                MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode opt r)
 
-contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) StarNode $ L.foldl' f (MatchSuccess (xs, mempty)) xs
-  where f acc' _ = do
-          acc@(xs, result) <- acc'
+contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) StarNode $ f (MatchSuccess (xs, mempty))
+  where --f :: MatchResult ([b], ContextFreeGrammar a) -> MatchResult ([b], ContextFreeGrammar a)
+        f acc = do
+          (xs, result) <- acc
           case contextFreeMatch' a xs matchFn of
-               NoMatch _ -> MatchSuccess acc
+               NoMatch _ -> acc
                MatchFailure s -> MatchFailure s
-               MatchSuccess (xs', result') -> MatchSuccess (xs', result ++ [result'])
+               MatchSuccess (xs', result') -> f (MatchSuccess (xs', result ++ [result']))
 
 contextFreeMatch' (Plus a) xs matchFn = do
   (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs matchFn
@@ -210,7 +210,7 @@ data MatchPattern = MatchObject !MatchObject
                   | MatchArray !MatchPattern
                   | MatchArraySome !MatchPattern
                   | MatchArrayOne MatchPattern
-                  | MatchArrayExact (V.Vector MatchPattern)
+                  | MatchArrayExact [MatchPattern]
                   | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
                   -- queries: conditions
                   | MatchAny
@@ -344,7 +344,7 @@ matchPattern' itself (MatchArrayExact m) (Array a) = if P.length m /= V.length a
              MatchSuccess r -> MatchSuccess (acc' ++ [r])
              MatchFailure r -> MatchFailure r
              NoMatch r -> NoMatch r
-  acc <- L.foldl' f (MatchSuccess mempty) (V.zip m a)
+  acc <- L.foldl' f (MatchSuccess mempty) (P.zip m (V.toList a))
   return $ MatchArrayResult acc
 
 {-
