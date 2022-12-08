@@ -14,7 +14,9 @@ import qualified Data.Text.Lazy             as TL
 import qualified Data.Text.Lazy.Encoding    as TL
 import qualified Data.Text.Lazy.IO          as TL
 
-import Lib
+import Logicore.Matcher.Core
+import Logicore.Matcher.Additional
+import Logicore.Matcher.Python
 
 main :: IO ()
 main = do

@@ -25,7 +25,12 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Logicore.Matcher.Core
+      Logicore.Matcher.Examples
+      Logicore.Matcher.Examples.Utils
+      Logicore.Matcher.Experimental
+      Logicore.Matcher.Python
+      Logicore.Matcher.Utils
   other-modules:
       Paths_matcher
   hs-source-dirs:
