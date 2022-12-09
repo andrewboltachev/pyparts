@@ -403,7 +403,7 @@ matchPattern' itself (MatchArraySome m) (Array a) = do
              MatchFailure r -> MatchFailure r
              NoMatch _ -> MatchSuccess (a1 ++ [(idx, e)], a2)
   (a1, a2) <- L.foldl' f (MatchSuccess (mempty, mempty)) $ P.zip [0..] (V.toList a)
-  (a1, a2) <- if P.length a2 > 0 then MatchSuccess (a1, a2) else NoMatch "array mustn't be empty"
+  --(a1, a2) <- if P.length a2 > 0 then MatchSuccess (a1, a2) else NoMatch "array mustn't be empty"
   return $ MatchArraySomeResult a1 a2
 
 matchPattern' itself MatchAny a = MatchSuccess $ MatchAnyResult a
