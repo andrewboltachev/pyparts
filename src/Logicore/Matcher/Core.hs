@@ -181,9 +181,6 @@ asString _ = Nothing
 
 --- Match functions begin
 
--- | A JSON \"object\" (key\/value map).
-type MatchObject = KeyMap MatchPattern
-
 -- | A JSON \"array\" (sequence).
 --type MatchArray = V.Vector MatchPattern -- TODO just use list?
 
@@ -203,53 +200,100 @@ instance ToJSON MatchOp where
 instance FromJSON MatchOp
     -- No need to provide a parseJSON implementation.-}
 
-                  -- queries: structures - object
-data MatchPattern = MatchObject !MatchObject
-                  | MatchObjectPartial !MatchObject
-                  -- queries: structures - array
-                  | MatchArray !MatchPattern
-                  | MatchArraySome !MatchPattern
-                  | MatchArrayOne MatchPattern
-                  | MatchArrayExact [MatchPattern]
-                  | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
-                  -- queries: conditions
-                  | MatchAny
-                  | MatchSimpleOr [MatchPattern]
-                  | MatchIfThen MatchPattern MatchPattern String
-                  -- queries: funnel
-                  | MatchFunnel
-                  | MatchFunnelKeys
-                  | MatchFunnelKeysU
-                  -- both (literal matches)
-                  | MatchString !T.Text
-                  | MatchNumber !Sci.Scientific
-                  | MatchBool !Bool
-                  | MatchNull
-                  | MatchLiteral
-                  -- results: structures - object
-                  | MatchObjectPartialResult Value !MatchObject
-                  | MatchObjectPartialResultU !MatchObject
-                  -- results: structures - array
-                  | MatchArraySomeResult [(Int, Value)] [(Int, MatchPattern)]
-                  | MatchArrayResult [MatchPattern]
-                  | MatchArrayOneResult MatchPattern
-                  | MatchArraySomeResultU [(Int, MatchPattern)]
-                  | MatchArrayContextFreeResult (ContextFreeGrammar MatchPattern)
-                  -- results: conditions
-                  | MatchAnyResult !Value
-                  | MatchSimpleOrResult MatchPattern
-                  -- results: funnel
-                  | MatchFunnelResult !Value
-                  | MatchFunnelResultM !Value
-                  -- special
-                  | MatchRef String
-                  -- unused/other
-                  -- | MatchStrict String !MatchPattern
-                  -- | MatchMustHave MatchPattern
-                  -- | MatchApply MatchOp MatchPattern
-                  -- | MatchIgnore
-                  -- | MatchIgnoreResult
-                    deriving (Generic, Eq, Show)
+-- Match<What>[<How>], Match<What>[<How>]Result
+{-
+Object
+Partial (allow extra keys)
+Full (not allow extra keys)
+MatchObjectPartial <required-keymap>
+MatchObjectPartialOpt <required-keymap>
+-}
+
+data ObjectKeyMatch a = KeyReq a | KeyOpt a | KeyExt a deriving (Generic, Eq, Show)
+
+instance ToJSON a => ToJSON (ObjectKeyMatch a) where
+    -- No need to provide a toJSON implementation.
+
+    -- For efficiency, we write a simple toEncoding implementation, as
+    -- the default version uses toJSON.
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON a => FromJSON (ObjectKeyMatch a)
+    -- No need to provide a parseJSON implementation.
+
+data ArrayValMatch a = MatchedVal a | ExtraVal a deriving (Generic, Eq, Show)
+
+instance ToJSON a => ToJSON (ArrayValMatch a) where
+    -- No need to provide a toJSON implementation.
+
+    -- For efficiency, we write a simple toEncoding implementation, as
+    -- the default version uses toJSON.
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON a => FromJSON (ObjectKeyMatch a)
+    -- No need to provide a parseJSON implementation.
+
+type MatchObject a = KeyMap (ObjectKeyMatch a)
+
+                  -- structures - object
+data MatchPattern a = MatchObjectFull (MatchObject a)
+                    | MatchObjectPartial (MatchObject a)
+                    -- structures - array
+                    | MatchArrayAll a
+                    | MatchArraySome a
+                    | MatchArrayOne a
+                    | MatchArrayExact [a]
+                    | MatchArrayContextFree (ContextFreeGrammar a)
+                    -- literals: match particular value of
+                    | MatchStringExact !T.Text
+                    | MatchNumberExact !Sci.Scientific
+                    | MatchBoolExact !Bool
+                    -- literals: match any of
+                    | MatchString
+                    | MatchNumber
+                    | MatchBool
+                    -- literals: null is just null
+                    | MatchNull
+                    -- conditions
+                    | MatchAny
+                    | MatchOr (KeyMap a)
+                    | MatchIfThen a a String
+                    -- funnel
+                    | MatchFunnel
+                    | MatchFunnelKeys
+                    | MatchFunnelKeysU
+                    -- special
+                    | MatchRef String
+
+data MatchOutput a  = MatchObjectFullResult (MatchObject a)
+                    | MatchObjectPartialResult (MatchObject a)
+                    -- structures - array
+                    | MatchArrayAllResult (V.Vector a)
+                    | MatchArraySomeResult (V.Vector (ArrayValMatch a))
+                    | MatchArrayOneResult a
+                    | MatchArrayExactResult [a]
+                    | MatchArrayContextFreeResult (ContextFreeGrammar a)
+                    -- literals: match particular value of
+                    | MatchStringExactResult !T.Text
+                    | MatchNumberExactResult !Sci.Scientific
+                    | MatchBoolExactResult !Bool
+                    -- literals: match any of
+                    | MatchStringResult
+                    | MatchNumberResult
+                    | MatchBoolResult
+                    -- literals: null is just null
+                    | MatchNullResult
+                    -- conditions
+                    | MatchAnyResult
+                    | MatchOrResult (KeyMap a)
+                    | MatchIfThenResult a a String
+                    -- funnel
+                    | MatchFunnelResult
+                    | MatchFunnelKeysResult
+                    | MatchFunnelKeysUResult
+                    -- special
+                    | MatchRef String
+                      deriving (Generic, Eq, Show)
 
 data MatchPath = ObjKey Key | ArrKey Int deriving (Generic, Eq, Show)
 
@@ -466,7 +510,7 @@ matchPatternWithRefs
 :}
 -}
 
-
+{-
 matchPattern
   (MatchArray
     (MatchObject
@@ -480,4 +524,4 @@ MatchSuccess
     MatchObject (fromList [("name",MatchString "apple")]),
     MatchObject (fromList [("name",MatchString "banana")]),
     MatchObject (fromList [("name",MatchString "orange")])])
-
+-}
