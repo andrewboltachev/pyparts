@@ -241,6 +241,8 @@ data MatchPattern = MatchObject !MatchObject
                   -- results: funnel
                   | MatchFunnelResult !Value
                   | MatchFunnelResultM !Value
+                  -- special
+                  | MatchRef String
                   -- unused/other
                   -- | MatchStrict String !MatchPattern
                   -- | MatchMustHave MatchPattern
@@ -248,6 +250,8 @@ data MatchPattern = MatchObject !MatchObject
                   -- | MatchIgnore
                   -- | MatchIgnoreResult
                     deriving (Generic, Eq, Show)
+
+data MatchPath = ObjKey Key | ArrKey Int deriving (Generic, Eq, Show)
 
 instance ToJSON MatchPattern where
     -- No need to provide a toJSON implementation.
@@ -437,4 +441,43 @@ matchPattern' itself m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ sho
 matchPattern :: MatchPattern -> Value -> MatchResult MatchPattern
 matchPattern m v = matchPattern' matchPattern m v
 
+
+matchPatternWithRefs refs (MatchRef s) v =
+  case KM.lookup (fromString s) refs of
+       Nothing -> MatchFailure ("ref " ++ show s ++ " does not exist")
+       Just s -> matchPatternWithRefs refs s v
+matchPatternWithRefs refs m v = matchPattern' (matchPatternWithRefs refs) m v
+
 -- Match functions end
+{-
+:{
+matchPatternWithRefs
+  (fromList [
+    (
+      "category",
+       MatchObject (fromList [
+        ("children", MatchArray $ MatchRef "category"),
+        ("name", MatchLiteral)
+       ])
+    )
+  ])
+  (MatchRef "category")
+  (Object (fromList [("name", "category1"), ("children", Array [(Object (fromList [("name", "category2"), ("children", Array [(Object (fromList [("name", "category3"), ("children", Array [])]))])]))])]))
+:}
+-}
+
+
+matchPattern
+  (MatchArray
+    (MatchObject
+      (fromList [("name", MatchLiteral)])))
+  (Array [
+    Object (fromList [("name", String "apple")]),
+    Object (fromList [("name", String "banana")]),
+    Object (fromList [("name", String "orange")])])
+MatchSuccess
+  (MatchArrayResult [
+    MatchObject (fromList [("name",MatchString "apple")]),
+    MatchObject (fromList [("name",MatchString "banana")]),
+    MatchObject (fromList [("name",MatchString "orange")])])
+
