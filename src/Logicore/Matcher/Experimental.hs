@@ -16,6 +16,7 @@ import Data.List                  as L
 import qualified Data.Vector as V
 import Logicore.Matcher.Additional
 
+{-
 matchToValueMinimal :: MatchPattern -> Maybe Value
 matchToValueMinimal (MatchObject m) = fmap Object $ L.foldl' f (Just mempty) (keys m) -- ifNotEmpty =<< 
   where
@@ -97,3 +98,4 @@ matchAndCollapse' grammar collapse value = do
   r <- (m2mp $ MatchFailure $ "match...") $ matchToValueMinimal r
   r'' <- collapse r
   return (gatherFunnel [] r', r'')
+-}

@@ -4,6 +4,7 @@ import Data.Aeson
 import Logicore.Matcher.Core
 import qualified Control.Monad.Trans.Writer.Lazy as W
 
+{-
 matchPatternPlus :: MatchPattern -> Value -> W.Writer [(MatchPattern, Value, MatchResult MatchPattern)] (MatchResult MatchPattern)
 matchPatternPlus m v = do
   let x = matchPattern' matchPattern m v
@@ -25,4 +26,4 @@ matchAndCollapse grammar collapse value = do
 
 matchWithFunnel :: MatchPattern -> Value -> MatchResult ([Value], Value)
 matchWithFunnel grammar value = matchAndCollapse grammar return value
-
+-}

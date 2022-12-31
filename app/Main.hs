@@ -24,14 +24,15 @@ main = do
     foldr ($)
       (notFound missing)
       [ get "/" index
-      , post "echo:name" echo
-      , post "python-matcher-1" pythonMatcher1
-      , post "json-matcher-1" jsonMatcher1
+      --, post "echo:name" echo
+      --, post "python-matcher-1" pythonMatcher1
+      --, post "json-matcher-1" jsonMatcher1
       ]
 
 index :: ResponderM a
 index = send $ html "Hello World!"
 
+{-
 echo :: ResponderM a
 echo = do
   name <- param "name"
@@ -94,6 +95,7 @@ pythonMatcher1 = do
   send $ f $ Web.Twain.json $ case a of
        Left e -> Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
        Right x -> x
+-}
 
 missing :: ResponderM a
 missing = send $ html "Not found..."

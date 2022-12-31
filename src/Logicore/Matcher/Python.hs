@@ -23,6 +23,7 @@ import Logicore.Matcher.Experimental
 -- python
 
 
+{-
 pythonUnsignificantKeys :: [String]
 pythonUnsignificantKeys = [
   "lpar",
@@ -333,3 +334,4 @@ pythonMatchPattern (String s) = Right $ MatchString s
 pythonMatchPattern (Number s) = Right $ MatchNumber s
 pythonMatchPattern (Bool s) = Right $ MatchBool s
 pythonMatchPattern Null = Right $ MatchNull
+-}

@@ -23,6 +23,8 @@ import Logicore.Matcher.Additional
 import Logicore.Matcher.Examples.Utils
 import Logicore.Matcher.Experimental
 
+{-
+
 getData1 :: IO (Maybe Value)
 getData1 = do
   fileData <- BL.readFile "/home/andrey/Work/lc/matcher1.json"
@@ -277,4 +279,4 @@ matchFile a grammar collapse = do
 
 so_grammar = MatchObjectPartial (fromList [("items", MatchArray $ MatchObjectPartial (fromList [("tags", MatchFunnel)]))])
 so_collapse x = return x
-
+-}

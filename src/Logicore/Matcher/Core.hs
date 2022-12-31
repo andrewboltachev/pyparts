@@ -6,16 +6,16 @@
 
 module Logicore.Matcher.Core
   (
-    matchPattern
-  , matchPattern'
-  , contextFreeMatch
-  , ContextFreeGrammar(..)
-  , MatchPattern(..)
-  , MatchStatus(..)
+  --  matchPattern
+  --, matchPattern'
+  --, contextFreeMatch
+  --, ContextFreeGrammar(..)
+  --, MatchPattern(..)
+  --, MatchStatus(..)
   -- result processing fns
-  , gatherFunnel
+  --, gatherFunnel
   -- Matcher utils
-  , m2ms
+   m2ms
   -- Aeson utils
   , asKeyMap
   , asArray
@@ -356,7 +356,7 @@ doKeyMatch itself m a acc' k = do
                                        MatchSuccess s -> MatchSuccess (KM.insert k (KeyOpt s) acc)
        KeyExt _ -> MatchFailure "malformed grammar: KeyExt cannot be here"
 
---mObj :: Bool -> (MatchPattern a -> Value -> MatchStatus (MatchResult a)) -> KeyMap (ObjectKeyMatch (MatchPattern a)) -> KeyMap Value -> MatchStatus (MatchResult a)
+{-mObj :: Bool -> (MatchPattern a -> Value -> MatchStatus (MatchResult a)) -> KeyMap (ObjectKeyMatch (MatchPattern a)) -> KeyMap Value -> MatchStatus (MatchResult a)
 mObj keepExt itself m a = do
   preResult <- L.foldl' (doKeyMatch itself m a) (MatchSuccess mempty) (keys m)
   L.foldl' f (MatchSuccess preResult) (keys a)
@@ -369,6 +369,7 @@ mObj keepExt itself m a = do
                                True -> case KM.lookup a k of
                                             Nothing -> MatchFailure "impossible"
                                             Just v -> (KM.insert k (KeyExt v) acc)
+-}
 
 --matchPattern' itself (MatchObjectFull m) (Object a) = fmap MatchObjectFullResult (mObj False itself m a)
 --matchPattern' itself (MatchObjectPartial m) (Object a) = fmap MatchObjectPartialResult (mObj True itself m a)
