@@ -86,26 +86,26 @@ data ContextFreeGrammar a = Char a
                           | Optional (ContextFreeGrammar a)
                             deriving (Generic, Eq, Show, Foldable)
 
-data ContextFreeGrammarResult a = CharNode a
-                                | SeqNode [(ContextFreeGrammarResult a)]
-                                | StarNode [(ContextFreeGrammarResult a)]
-                                | PlusNode [(ContextFreeGrammarResult a)]
-                                | OrNode String (ContextFreeGrammarResult a)
-                                | OptionalNodeValue (ContextFreeGrammarResult a)
-                                | OptionalNodeEmpty
-                                  deriving (Generic, Eq, Show, Foldable)
+data ContextFreeGrammarResult g r = CharNode r
+                                  | SeqNode [(ContextFreeGrammarResult g r)]
+                                  | StarNode [(ContextFreeGrammarResult g r)]
+                                  | PlusNode [(ContextFreeGrammarResult g r)]
+                                  | OrNode String (ContextFreeGrammarResult g r)
+                                  | OptionalNodeValue (ContextFreeGrammarResult g r)
+                                  | OptionalNodeEmpty (ContextFreeGrammar g)
+                                    deriving (Generic, Eq, Show, Foldable)
 
 instance ToJSON a => ToJSON (ContextFreeGrammar a) where
     toEncoding = genericToEncoding defaultOptions
 
 instance FromJSON a => FromJSON (ContextFreeGrammar a)
 
-instance ToJSON a => ToJSON (ContextFreeGrammarResult a) where
+instance (ToJSON g, ToJSON r) => ToJSON (ContextFreeGrammarResult g r) where
     toEncoding = genericToEncoding defaultOptions
 
-instance FromJSON a => FromJSON (ContextFreeGrammarResult a)
+instance (FromJSON g, FromJSON r) => FromJSON (ContextFreeGrammarResult g r)
 
-contextFreeMatch' :: (Eq a, Show a, Show b) => ContextFreeGrammar a -> [b] -> (a -> b -> MatchStatus c) -> MatchStatus ([b], ContextFreeGrammarResult c)
+contextFreeMatch' :: (Show g, Show v) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus ([v], (ContextFreeGrammarResult g r))
 contextFreeMatch' (Char _) [] _ = NoMatch "can't read char"
 contextFreeMatch' (Char a) (x:xs) matchFn =
   case matchFn a x of
@@ -145,13 +145,13 @@ contextFreeMatch' (Plus a) xs matchFn = do
 
 contextFreeMatch' (Optional a) xs matchFn =
   case contextFreeMatch' a xs matchFn of
-       NoMatch _ -> MatchSuccess (xs, OptionalNodeEmpty)
+       NoMatch _ -> MatchSuccess (xs, OptionalNodeEmpty a)
        MatchFailure s -> MatchFailure s
        MatchSuccess (xs', subresult) -> MatchSuccess (xs', OptionalNodeValue subresult)
 
 contextFreeMatch' a xs _ = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
 
-contextFreeMatch :: (Eq a, Show a, Show b) => ContextFreeGrammar a -> [b] -> (a -> b -> MatchStatus c) -> MatchStatus (ContextFreeGrammarResult c)
+contextFreeMatch :: (Show g, Show v) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus (ContextFreeGrammarResult g r)
 contextFreeMatch a xs matchFn = do
   (rest, result) <- contextFreeMatch' a xs matchFn
   case P.length rest == 0 of
@@ -255,7 +255,7 @@ data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
                  | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
                  | MatchArrayOneResult MatchResult
                  | MatchArrayExactResult [MatchResult]
-                 | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchResult)
+                 | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
                  | MatchNumberExactResult !Sci.Scientific
