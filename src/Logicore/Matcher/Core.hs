@@ -80,7 +80,7 @@ instance Monad MatchStatus where
 
 data ContextFreeGrammar a = Char a
                           | Seq [(ContextFreeGrammar a)]
-                          | Or [(String, (ContextFreeGrammar a))]
+                          | Or (KeyMap (ContextFreeGrammar a))
                           | Star (ContextFreeGrammar a)
                           | Plus (ContextFreeGrammar a)
                           | Optional (ContextFreeGrammar a)
@@ -90,7 +90,7 @@ data ContextFreeGrammarResult g r = CharNode r
                                   | SeqNode [(ContextFreeGrammarResult g r)]
                                   | StarNode [(ContextFreeGrammarResult g r)]
                                   | PlusNode [(ContextFreeGrammarResult g r)]
-                                  | OrNode String (ContextFreeGrammarResult g r)
+                                  | OrNode (KeyMap (ContextFreeGrammar g)) Key (ContextFreeGrammarResult g r)
                                   | OptionalNodeValue (ContextFreeGrammarResult g r)
                                   | OptionalNodeEmpty (ContextFreeGrammar g)
                                     deriving (Generic, Eq, Show, Foldable)
@@ -119,12 +119,12 @@ contextFreeMatch' (Seq as) xs matchFn = (fmap . fmap) SeqNode $ L.foldl' f (Matc
           (xs', result') <- contextFreeMatch' a xs matchFn
           return (xs', result ++ [result'])
 
-contextFreeMatch' (Or as) xs matchFn = L.foldr f (NoMatch "or mismatch") as
+contextFreeMatch' (Or as) xs matchFn = L.foldr f (NoMatch "or mismatch") (KM.toList as)
   where f (opt, a) b = do
           case contextFreeMatch' a xs matchFn of
                NoMatch _ -> b
                MatchFailure s -> MatchFailure s
-               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode opt r)
+               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode (KM.delete opt as) opt r)
 
 contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) StarNode $ f (MatchSuccess (xs, mempty))
   where --f :: MatchStatus ([b], ContextFreeGrammar a) -> MatchStatus ([b], ContextFreeGrammar a)
