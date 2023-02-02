@@ -52,6 +52,7 @@ import Control.Monad()
 --import qualified Data.ByteString.UTF8       as BLU
 --import Logicore.Matcher.Utils
 import Data.Functor.Foldable.TH (makeBaseFunctor)
+import Data.Functor.Foldable
 
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
@@ -240,7 +241,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   -- conditions
                   | MatchAny
                   | MatchOr (KeyMap MatchPattern)
-                  | MatchIfThen MatchPattern MatchPattern String
+                  | MatchIfThen MatchPattern String MatchPattern
                   -- funnel
                   | MatchFunnel
                   | MatchFunnelKeys
@@ -279,7 +280,7 @@ data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
                  -- conditions
                  | MatchAnyResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
-                 | MatchIfThenResult MatchResult String MatchResult
+                 | MatchIfThenResult MatchPattern String MatchResult
                  -- funnel
                  | MatchFunnelResult Value
                  | MatchFunnelKeysResult (KeyMap Value)
@@ -436,27 +437,26 @@ matchPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object
 matchPattern MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelKeysUResult $ v
 matchPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object"
 
-matchPattern (MatchIfThen baseMatch match failMsg) v =
+matchPattern (MatchIfThen baseMatch failMsg match) v =
   case matchPattern baseMatch v of
        NoMatch x -> NoMatch x
        MatchFailure f -> MatchFailure f
-       MatchSuccess s -> case matchPattern match v of
+       MatchSuccess _ -> case matchPattern match v of
                             NoMatch x -> MatchFailure (failMsg ++ show x)
                             MatchFailure f -> MatchFailure f
-                            MatchSuccess s -> MatchSuccess s
+                            MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
 
 matchPattern (MatchArraySome m) (Array a) = do
   let f acc' e = do
           acc <- acc'
           case matchPattern m e of
-             MatchSuccess r -> MatchSuccess $ acc ++ [(MatchedVal r)]
+             MatchSuccess r -> MatchSuccess $ V.snoc acc (MatchedVal r)
              MatchFailure r -> MatchFailure r
-             NoMatch _ -> MatchSuccess $ acc ++ [(ExtraVal e)]
+             NoMatch _ -> MatchSuccess $ V.snoc acc (ExtraVal e)
   a1 <- L.foldl' f (MatchSuccess mempty) a
-  return $ MatchArraySomeResult (V.fromList a1)
+  return $ MatchArraySomeResult a1
 
 matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
--- matchPattern MatchIgnore a = MatchSuccess MatchIgnoreResult
 matchPattern (MatchOr ms) v = do
   let f (k, a) b = case matchPattern a v of
                      MatchSuccess x -> MatchSuccess (k, x)
@@ -477,6 +477,22 @@ matchPattern MatchBoolAny (Bool a) = MatchSuccess $ MatchBoolAnyResult a
 matchPattern MatchNull Null = MatchSuccess MatchNullResult
 -- default ca
 matchPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
+
+matchResultToPattern :: MatchResult -> MatchPattern
+matchResultToPattern = cata go
+  where
+    go :: (MatchResultF MatchPattern) -> MatchPattern
+    go (MatchObjectFullResultF r) = MatchObjectFull r
+    go (MatchObjectPartialResultF r) = MatchObjectFull (KM.filter f r)
+      where
+        f (KeyExt _) = False
+        f _ = True
+    go (MatchArrayAllResultF r) = MatchArrayAll (V.head r) -- ekk
+
+matchResultToValue :: MatchResult -> Value
+matchResultToValue = undefined
+{-
+-}
 
 -- Match functions end
 {-
