@@ -342,22 +342,22 @@ mObj keepExt m a = do
   preResult <- L.foldl' (doKeyMatch m a) (MatchSuccess mempty) (keys m)
   L.foldl' f (MatchSuccess preResult) (keys a)
     where
+      step k r acc req = case KM.lookup k a of
+                      Nothing -> if req
+                                      then NoMatch $ "Required key " ++ show k ++ " not found in map"
+                                      else MatchSuccess acc
+                      Just n -> case matchPattern r n of
+                                     NoMatch s -> NoMatch s
+                                     MatchFailure s -> MatchFailure s
+                                     MatchSuccess s -> MatchSuccess (KM.insert k el acc)
+                                        where
+                                          el = if req then (KeyReq s) else (KeyOpt s)
       doKeyMatch m a acc' k = do
         acc <- acc'
         v <- (m2ms $ MatchFailure "impossible") (KM.lookup k m)
         case v of
-            KeyReq r -> case KM.lookup k a of     
-                              Nothing -> NoMatch $ "Required key " ++ show k ++ " not found in map"
-                              Just n -> case matchPattern r n of
-                                            NoMatch s -> NoMatch s
-                                            MatchFailure s -> MatchFailure s
-                                            MatchSuccess s -> MatchSuccess (KM.insert k (KeyReq s) acc)
-            KeyOpt r -> case KM.lookup k a of     
-                              Nothing -> MatchSuccess acc
-                              Just n -> case matchPattern r n of
-                                            NoMatch s -> NoMatch s
-                                            MatchFailure s -> MatchFailure s
-                                            MatchSuccess s -> MatchSuccess (KM.insert k (KeyOpt s) acc)
+            KeyReq r -> step k r acc True
+            KeyOpt r -> step k r acc False
             KeyExt _ -> MatchFailure "malformed grammar: KeyExt cannot be here"
       f acc' k = do
             acc <- acc'
