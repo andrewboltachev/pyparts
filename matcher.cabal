@@ -44,6 +44,7 @@ library
     , bytestring
     , containers
     , data-fix
+    , recursion-schemes
     , scientific
     , text
     , transformers
@@ -68,6 +69,7 @@ executable matcher-exe
     , containers
     , data-fix
     , matcher
+    , recursion-schemes
     , scientific
     , text
     , transformers
@@ -93,6 +95,7 @@ test-suite matcher-test
     , containers
     , data-fix
     , matcher
+    , recursion-schemes
     , scientific
     , text
     , transformers

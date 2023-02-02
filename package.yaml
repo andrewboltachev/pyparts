@@ -33,6 +33,7 @@ dependencies:
 - twain
 - warp
 - transformers
+- recursion-schemes
 
 ghc-options:
 - -Wall

@@ -1,6 +1,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 
@@ -48,6 +51,7 @@ import Prelude                    as P
 import Control.Monad()
 --import qualified Data.ByteString.UTF8       as BLU
 --import Logicore.Matcher.Utils
+import Data.Functor.Foldable.TH (makeBaseFunctor)
 
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
@@ -84,7 +88,9 @@ data ContextFreeGrammar a = Char a
                           | Star (ContextFreeGrammar a)
                           | Plus (ContextFreeGrammar a)
                           | Optional (ContextFreeGrammar a)
-                            deriving (Generic, Eq, Show, Foldable)
+                            deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
+
+makeBaseFunctor ''ContextFreeGrammar
 
 data ContextFreeGrammarResult g r = CharNode r
                                   | SeqNode [(ContextFreeGrammarResult g r)]
@@ -93,7 +99,9 @@ data ContextFreeGrammarResult g r = CharNode r
                                   | OrNode (KeyMap (ContextFreeGrammar g)) Key (ContextFreeGrammarResult g r)
                                   | OptionalNodeValue (ContextFreeGrammarResult g r)
                                   | OptionalNodeEmpty (ContextFreeGrammar g)
-                                    deriving (Generic, Eq, Show, Foldable)
+                                    deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
+
+makeBaseFunctor ''ContextFreeGrammarResult
 
 instance ToJSON a => ToJSON (ContextFreeGrammar a) where
     toEncoding = genericToEncoding defaultOptions
@@ -190,7 +198,7 @@ asString _ = Nothing
 --- Helper types
 
 --- Indicating if matching a key in an Object is obligatory
-data ObjectKeyMatch a = KeyReq a | KeyOpt a | KeyExt Value deriving (Generic, Eq, Show)
+data ObjectKeyMatch a = KeyReq a | KeyOpt a | KeyExt Value deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
 instance ToJSON a => ToJSON (ObjectKeyMatch a) where
     toEncoding = genericToEncoding defaultOptions
@@ -199,7 +207,7 @@ instance FromJSON a => FromJSON (ObjectKeyMatch a)
     -- No need to provide a parseJSON implementation.
 
 --- Indicating if an element were matched or ignored (when only some must match)
-data ArrayValMatch a = MatchedVal a | ExtraVal Value deriving (Generic, Eq, Show)
+data ArrayValMatch a = MatchedVal a | ExtraVal Value deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
 instance ToJSON a => ToJSON (ArrayValMatch a) where
     toEncoding = genericToEncoding defaultOptions
@@ -241,6 +249,8 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchRef String
                     deriving (Generic, Eq, Show)
 
+makeBaseFunctor ''MatchPattern
+
 instance ToJSON MatchPattern where
     toEncoding = genericToEncoding defaultOptions
 
@@ -277,6 +287,9 @@ data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
                  -- special
                  | MatchRefResult String MatchResult
                    deriving (Generic, Eq, Show)
+
+
+makeBaseFunctor ''MatchResult
 
 instance ToJSON MatchResult where
     toEncoding = genericToEncoding defaultOptions
