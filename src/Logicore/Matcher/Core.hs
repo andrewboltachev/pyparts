@@ -95,7 +95,7 @@ makeBaseFunctor ''ContextFreeGrammar
 
 data ContextFreeGrammarResult g r = CharNode r
                                   | SeqNode [(ContextFreeGrammarResult g r)]
-                                  | StarNode [(ContextFreeGrammarResult g r)]
+                                  | StarNode g [(ContextFreeGrammarResult g r)]
                                   | PlusNode [(ContextFreeGrammarResult g r)]
                                   | OrNode (KeyMap (ContextFreeGrammar g)) Key (ContextFreeGrammarResult g r)
                                   | OptionalNodeValue (ContextFreeGrammarResult g r)
@@ -223,10 +223,10 @@ instance FromJSON a => FromJSON (ArrayValMatch a)
 data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
                   -- structures - array
-                  | MatchArrayAll MatchPattern
-                  | MatchArraySome MatchPattern
-                  | MatchArrayOne MatchPattern
-                  | MatchArrayExact [MatchPattern]
+                  -- | MatchArrayAll MatchPattern
+                  -- | MatchArraySome MatchPattern
+                  -- | MatchArrayOne MatchPattern
+                  -- | MatchArrayExact [MatchPattern]
                   | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
                   -- literals: match particular value of
                   | MatchStringExact !T.Text
@@ -262,10 +262,10 @@ instance FromJSON MatchPattern
 data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
                  | MatchObjectPartialResult (KeyMap (ObjectKeyMatch MatchResult))
                  -- structures - array
-                 | MatchArrayAllResult (V.Vector MatchResult)
-                 | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
-                 | MatchArrayOneResult MatchResult
-                 | MatchArrayExactResult [MatchResult]
+                 -- | MatchArrayAllResult (V.Vector MatchResult)
+                 -- | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
+                 -- | MatchArrayOneResult MatchResult
+                 -- | MatchArrayExactResult [MatchResult]
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
@@ -373,6 +373,7 @@ mObj keepExt m a = do
 matchPattern (MatchObjectFull m) (Object a) = fmap MatchObjectFullResult (mObj False m a)
 matchPattern (MatchObjectPartial m) (Object a) = fmap MatchObjectPartialResult (mObj True m a)
 
+{-
 matchPattern (MatchArrayAll m) (Array a) = do
   let vv = (V.toList a)
       f acc e = do
@@ -397,6 +398,16 @@ matchPattern (MatchArrayOne m) (Array a) = do
   acc <- if P.length acc /= 1 then NoMatch "Array length isn't 1" else MatchSuccess acc
   return $ MatchArrayOneResult (P.head acc)
 
+matchPattern (MatchArraySome m) (Array a) = do
+  let f acc' e = do
+          acc <- acc'
+          case matchPattern m e of
+             MatchSuccess r -> MatchSuccess $ V.snoc acc (MatchedVal r)
+             MatchFailure r -> MatchFailure r
+             NoMatch _ -> MatchSuccess $ V.snoc acc (ExtraVal e)
+  a1 <- L.foldl' f (MatchSuccess mempty) a
+  return $ MatchArraySomeResult a1
+
 matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then MatchFailure "Array exact match" else do
   let f acc (p, e) = do
           acc' <- acc
@@ -406,6 +417,7 @@ matchPattern (MatchArrayExact m) (Array a) = if P.length m /= V.length a then Ma
              NoMatch r -> NoMatch r
   acc <- L.foldl' f (MatchSuccess mempty) (P.zip m (V.toList a))
   return $ MatchArrayExactResult acc
+-}
 
 matchPattern (MatchArrayContextFree m) (Array a) = do
   case contextFreeMatch m (V.toList a) matchPattern of
@@ -446,16 +458,6 @@ matchPattern (MatchIfThen baseMatch failMsg match) v =
                             MatchFailure f -> MatchFailure f
                             MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
 
-matchPattern (MatchArraySome m) (Array a) = do
-  let f acc' e = do
-          acc <- acc'
-          case matchPattern m e of
-             MatchSuccess r -> MatchSuccess $ V.snoc acc (MatchedVal r)
-             MatchFailure r -> MatchFailure r
-             NoMatch _ -> MatchSuccess $ V.snoc acc (ExtraVal e)
-  a1 <- L.foldl' f (MatchSuccess mempty) a
-  return $ MatchArraySomeResult a1
-
 matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
 matchPattern (MatchOr ms) v = do
   let f (k, a) b = case matchPattern a v of
@@ -478,6 +480,18 @@ matchPattern MatchNull Null = MatchSuccess MatchNullResult
 -- default ca
 matchPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
+
+contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
+contextFreeGrammarResultToGrammar f = cata go
+  where
+    --go :: ContextFreeGrammarResultF (ContextFreeGrammar p) r (ContextFreeGrammar p) -> ContextFreeGrammar p
+    go (CharNodeF r) = Char (f r)
+    go (SeqNodeF r) = Seq r
+    go (StarNodeF r) = Star r
+    go (PlusNodeF r) = Plus r
+
+--contextFreeGrammarResultToSource
+
 matchResultToPattern :: MatchResult -> MatchPattern
 matchResultToPattern = cata go
   where
@@ -487,7 +501,9 @@ matchResultToPattern = cata go
       where
         f (KeyExt _) = False
         f _ = True
-    go (MatchArrayAllResultF r) = MatchArrayAll (V.head r) -- ekk
+    --go (MatchArrayAllResultF r) = MatchArrayAll (V.head r) -- ekk
+    --go (MatchArraySomeResultF r) = MatchArraySome (V.head r) -- ekk
+    --go (MatchArrayExactF r) = MatchArrayExact (KM.filter f r)
 
 matchResultToValue :: MatchResult -> Value
 matchResultToValue = undefined
