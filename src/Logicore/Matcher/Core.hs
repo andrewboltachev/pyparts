@@ -56,7 +56,7 @@ import Data.Functor.Foldable
 import Data.Fix (Fix, unFix)
 
 import Test.QuickCheck
-import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Gen (oneof)
 
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
@@ -95,6 +95,14 @@ data ContextFreeGrammar a = Char a
                           | Optional (ContextFreeGrammar a)
                             deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
+instance Arbitrary a => Arbitrary (ContextFreeGrammar a) where
+  arbitrary = do
+    a <- arbitrary -- Char
+    b <- arbitrary -- Seq
+    c <- arbitrary -- Or
+    d <- arbitrary -- Star, Plus, Optional
+    elements [Char a, Seq b, Or c, Star d, Plus d, Optional d]
+
 makeBaseFunctor ''ContextFreeGrammar
 
 -- TODO: much better approach?
@@ -107,6 +115,25 @@ data ContextFreeGrammarResult g r = CharNode r
                                   | OptionalNodeValue (ContextFreeGrammarResult g r)
                                   | OptionalNodeEmpty (ContextFreeGrammar g)
                                     deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
+
+instance (Arbitrary g, Arbitrary r) => Arbitrary (ContextFreeGrammarResult g r) where
+  arbitrary = do
+    a <- arbitrary -- CharNode
+    b <- arbitrary -- SeqNode, StarNodeValue, PlusNode
+    c <- arbitrary -- StarNodeEmpty, OptionalNodeEmpty
+    km <- arbitrary -- OrNode
+    k <- arbitrary -- OrNode
+    v <- arbitrary -- OrNode
+    e <- arbitrary -- OptionalNodeValue
+    elements [
+      CharNode a,
+      SeqNode b,
+      StarNodeEmpty c,
+      StarNodeValue b,
+      PlusNode b,
+      OrNode km k v,
+      OptionalNodeEmpty c,
+      OptionalNodeValue e]
 
 makeBaseFunctor ''ContextFreeGrammarResult
 
@@ -215,6 +242,12 @@ instance ToJSON a => ToJSON (ObjectKeyMatch a) where
 instance FromJSON a => FromJSON (ObjectKeyMatch a)
     -- No need to provide a parseJSON implementation.
 
+instance Arbitrary a => Arbitrary (ObjectKeyMatch a) where
+  arbitrary = oneof [
+    KeyReq <$> arbitrary,
+    KeyOpt <$> arbitrary,
+    KeyExt <$> arbitrary]
+
 --- Indicating if an element were matched or ignored (when only some must match)
 data ArrayValMatch a = MatchedVal a | ExtraVal Value deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
@@ -258,6 +291,28 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchRef String
                     deriving (Generic, Eq, Show)
 
+instance Arbitrary MatchPattern where
+  arbitrary = oneof [
+      MatchObjectFull <$> arbitrary,
+      MatchObjectPartial <$> arbitrary,
+      MatchArrayContextFree <$> arbitrary,
+      MatchStringExact <$> T.pack <$> arbitrary,
+      MatchNumberExact <$> (Sci.scientific <$> arbitrary <*> arbitrary),
+      MatchBoolExact <$> arbitrary,
+      return $ MatchStringAny,
+      return $ MatchNumberAny,
+      return $ MatchBoolAny,
+      return $ MatchNull,
+      return $ MatchAny,
+      MatchOr <$> arbitrary,
+      MatchIfThen <$> arbitrary <*> arbitrary <*> arbitrary,
+      return $ MatchFunnel,
+      return $ MatchFunnelKeys,
+      return $ MatchFunnelKeysU,
+      MatchRef <$> arbitrary
+      ]
+
+
 makeBaseFunctor ''MatchPattern
 
 instance ToJSON MatchPattern where
@@ -296,7 +351,6 @@ data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
                  -- special
                  | MatchRefResult String MatchResult
                    deriving (Generic, Eq, Show)
-
 
 makeBaseFunctor ''MatchResult
 
