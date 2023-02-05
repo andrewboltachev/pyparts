@@ -53,6 +53,7 @@ import Control.Monad()
 --import Logicore.Matcher.Utils
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
+import Data.Fix (Fix, unFix)
 
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
@@ -93,9 +94,11 @@ data ContextFreeGrammar a = Char a
 
 makeBaseFunctor ''ContextFreeGrammar
 
+-- TODO: much better approach?
 data ContextFreeGrammarResult g r = CharNode r
                                   | SeqNode [(ContextFreeGrammarResult g r)]
-                                  | StarNode g [(ContextFreeGrammarResult g r)]
+                                  | StarNodeEmpty (ContextFreeGrammar g)
+                                  | StarNodeValue [(ContextFreeGrammarResult g r)]
                                   | PlusNode [(ContextFreeGrammarResult g r)]
                                   | OrNode (KeyMap (ContextFreeGrammar g)) Key (ContextFreeGrammarResult g r)
                                   | OptionalNodeValue (ContextFreeGrammarResult g r)
@@ -135,8 +138,10 @@ contextFreeMatch' (Or as) xs matchFn = L.foldr f (NoMatch "or mismatch") (KM.toL
                MatchFailure s -> MatchFailure s
                MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode (KM.delete opt as) opt r)
 
-contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) StarNode $ f (MatchSuccess (xs, mempty))
+contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) c $ f (MatchSuccess (xs, mempty))
   where --f :: MatchStatus ([b], ContextFreeGrammar a) -> MatchStatus ([b], ContextFreeGrammar a)
+        c [] = StarNodeEmpty a
+        c xs = StarNodeValue xs
         f acc = do
           (xs, result) <- acc
           case contextFreeMatch' a xs matchFn of
@@ -147,7 +152,7 @@ contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) StarNode $ f (MatchSuccess
 contextFreeMatch' (Plus a) xs matchFn = do
   (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs matchFn
   rs' <- case subresult of
-              (SeqNode [r, (StarNode rs)]) -> MatchSuccess (r:rs)
+              (SeqNode [r, (StarNodeValue rs)]) -> MatchSuccess (r:rs)
               _ -> NoMatch "impossible"
   return (xs', (PlusNode rs'))
   
@@ -480,17 +485,31 @@ matchPattern MatchNull Null = MatchSuccess MatchNullResult
 -- default ca
 matchPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
-
-contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
+--contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
+--contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
+--contextFreeGrammarResultToGrammar :: (Data.Functor.Foldable.Recursive t1, Data.Functor.Foldable.Base t1 ~ ContextFreeGrammarResultF a t2) => (t2 -> a) -> t1 -> ContextFreeGrammar a
 contextFreeGrammarResultToGrammar f = cata go
   where
     --go :: ContextFreeGrammarResultF (ContextFreeGrammar p) r (ContextFreeGrammar p) -> ContextFreeGrammar p
     go (CharNodeF r) = Char (f r)
     go (SeqNodeF r) = Seq r
-    go (StarNodeF r) = Star r
-    go (PlusNodeF r) = Plus r
+    go (StarNodeEmptyF g) = Star g
+    go (StarNodeValueF r) = Star (P.head r)
+    go (PlusNodeF r) = Plus (P.head r)
+    go (OrNodeF g k r) = Or (KM.insert k r g)
+    go (OptionalNodeValueF r) = Optional r
+    go (OptionalNodeEmptyF g) = Optional g
 
---contextFreeGrammarResultToSource
+contextFreeGrammarResultToSource f = cata go
+  where
+    go (CharNodeF r) = [f r]
+    go (SeqNodeF r) = P.concat r
+    go (StarNodeEmptyF g) = []
+    go (StarNodeValueF r) = P.concat r
+    go (PlusNodeF r) = P.concat r
+    go (OrNodeF g k r) = [P.concat r]
+    go (OptionalNodeValueF r) = [P.concat r]
+    go (OptionalNodeEmptyF g) = []
 
 matchResultToPattern :: MatchResult -> MatchPattern
 matchResultToPattern = cata go
@@ -501,12 +520,52 @@ matchResultToPattern = cata go
       where
         f (KeyExt _) = False
         f _ = True
-    --go (MatchArrayAllResultF r) = MatchArrayAll (V.head r) -- ekk
-    --go (MatchArraySomeResultF r) = MatchArraySome (V.head r) -- ekk
-    --go (MatchArrayExactF r) = MatchArrayExact (KM.filter f r)
+    go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
+    go (MatchStringExactResultF r) = MatchStringExact r
+    go (MatchNumberExactResultF r) = MatchNumberExact r
+    go (MatchBoolExactResultF r) = MatchBoolExact r
+    go (MatchStringAnyResultF r) = MatchStringAny
+    go (MatchNumberAnyResultF r) = MatchNumberAny
+    go (MatchBoolAnyResultF r) = MatchBoolAny
+    go MatchNullResultF = MatchNull
+    go (MatchAnyResultF r) = MatchAny
+    go (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
+    go (MatchIfThenResultF p errorMsg r) = MatchIfThen p errorMsg r
+    go (MatchFunnelResultF r) = MatchFunnel
+    go (MatchFunnelKeysResultF r) = MatchFunnelKeys
+    go (MatchFunnelKeysUResultF r) = MatchFunnelKeysU
+    go (MatchRefResultF ref r) = MatchRef ref
 
 matchResultToValue :: MatchResult -> Value
-matchResultToValue = undefined
+matchResultToValue = cata go
+  where
+    --go :: (MatchResultF MatchPattern) -> Value
+    go (MatchObjectFullResultF r) = Object (KM.map f r)
+      where
+        f (KeyReq v) = v
+        f (KeyOpt v) = v
+        -- f (KeyExt v) = v
+    go (MatchObjectPartialResultF r) = Object (KM.map f r)
+      where
+        f (KeyReq v) = v
+        f (KeyOpt v) = v
+        f (KeyExt v) = v
+    --go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
+    go (MatchStringExactResultF r) = String r
+    go (MatchNumberExactResultF r) = Number r
+    go (MatchBoolExactResultF r) = Bool r
+    go (MatchStringAnyResultF r) = String r
+    go (MatchNumberAnyResultF r) = Number r
+    go (MatchBoolAnyResultF r) = Bool r
+    go MatchNullResultF = Null
+    go (MatchAnyResultF r) = r
+    go (MatchOrResultF m k r) = r
+    go (MatchIfThenResultF p errorMsg r) = r
+    go (MatchFunnelResultF r) = r
+    go (MatchFunnelKeysResultF r) = Object r
+    go (MatchFunnelKeysUResultF r) = Object r
+    go (MatchRefResultF ref r) = r
+
 {-
 -}
 
@@ -543,3 +602,9 @@ MatchSuccess
     MatchObject (fromList [("name",MatchString "banana")]),
     MatchObject (fromList [("name",MatchString "orange")])])
 -}
+
+
+g00 = (Seq [(Star (Char "bar")), (Optional (Char "wow"))])
+
+main1 = do
+  contextFreeMatch g00 (["bar", "bar", "bar", "wow"] :: [String]) ((\a b -> if a == b then MatchSuccess a else NoMatch "foo") :: String -> String -> MatchStatus String)
