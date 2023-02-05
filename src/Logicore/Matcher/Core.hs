@@ -511,6 +511,17 @@ contextFreeGrammarResultToSource f = cata go
     go (OptionalNodeValueF r) = r
     go (OptionalNodeEmptyF g) = []
 
+contextFreeGrammarResultToSourceBad f = cata go
+  where
+    go (CharNodeF r) = [f r]
+    go (SeqNodeF r) = P.concat r
+    go (StarNodeEmptyF g) = []
+    go (StarNodeValueF r) = P.concat r
+    go (PlusNodeF r) = P.concat r
+    go (OrNodeF g k r) = [P.concat r]
+    go (OptionalNodeValueF r) = [P.concat r]
+    go (OptionalNodeEmptyF g) = []
+
 matchResultToPattern :: MatchResult -> MatchPattern
 matchResultToPattern = cata go
   where
@@ -550,7 +561,7 @@ matchResultToValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = v
         f (KeyExt v) = v
-    --go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ P.concat $ contextFreeGrammarResultToSource id r
+    go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
     go (MatchStringExactResultF r) = String r
     go (MatchNumberExactResultF r) = Number r
     go (MatchBoolExactResultF r) = Bool r
