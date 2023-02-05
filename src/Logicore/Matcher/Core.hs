@@ -96,12 +96,13 @@ data ContextFreeGrammar a = Char a
                             deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
 instance Arbitrary a => Arbitrary (ContextFreeGrammar a) where
-  arbitrary = do
-    a <- arbitrary -- Char
-    b <- arbitrary -- Seq
-    c <- arbitrary -- Or
-    d <- arbitrary -- Star, Plus, Optional
-    elements [Char a, Seq b, Or c, Star d, Plus d, Optional d]
+  arbitrary = oneof [
+    Char <$> arbitrary,
+    Seq <$> arbitrary,
+    Or <$> arbitrary,
+    Star <$> arbitrary,
+    Plus <$> arbitrary,
+    Optional <$> arbitrary]
 
 makeBaseFunctor ''ContextFreeGrammar
 
@@ -117,23 +118,15 @@ data ContextFreeGrammarResult g r = CharNode r
                                     deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
 instance (Arbitrary g, Arbitrary r) => Arbitrary (ContextFreeGrammarResult g r) where
-  arbitrary = do
-    a <- arbitrary -- CharNode
-    b <- arbitrary -- SeqNode, StarNodeValue, PlusNode
-    c <- arbitrary -- StarNodeEmpty, OptionalNodeEmpty
-    km <- arbitrary -- OrNode
-    k <- arbitrary -- OrNode
-    v <- arbitrary -- OrNode
-    e <- arbitrary -- OptionalNodeValue
-    elements [
-      CharNode a,
-      SeqNode b,
-      StarNodeEmpty c,
-      StarNodeValue b,
-      PlusNode b,
-      OrNode km k v,
-      OptionalNodeEmpty c,
-      OptionalNodeValue e]
+  arbitrary = oneof [
+      CharNode <$> arbitrary,
+      SeqNode <$> arbitrary,
+      StarNodeEmpty <$> arbitrary,
+      StarNodeValue <$> arbitrary,
+      PlusNode <$> arbitrary,
+      OrNode <$> arbitrary <*> arbitrary <*> arbitrary,
+      OptionalNodeEmpty <$> arbitrary,
+      OptionalNodeValue <$> arbitrary]
 
 makeBaseFunctor ''ContextFreeGrammarResult
 
@@ -308,9 +301,8 @@ instance Arbitrary MatchPattern where
       MatchIfThen <$> arbitrary <*> arbitrary <*> arbitrary,
       return $ MatchFunnel,
       return $ MatchFunnelKeys,
-      return $ MatchFunnelKeysU,
-      MatchRef <$> arbitrary
-      ]
+      return $ MatchFunnelKeysU{-,
+      MatchRef <$> arbitrary-}]
 
 
 makeBaseFunctor ''MatchPattern
@@ -351,6 +343,26 @@ data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
                  -- special
                  | MatchRefResult String MatchResult
                    deriving (Generic, Eq, Show)
+
+instance Arbitrary MatchResult where
+  arbitrary = oneof [
+    MatchObjectFullResult <$> arbitrary,
+    MatchObjectPartialResult <$> arbitrary,
+    MatchArrayContextFreeResult <$> arbitrary,
+    MatchStringExactResult <$> T.pack <$> arbitrary,
+    MatchNumberExactResult <$> (Sci.scientific <$> arbitrary <*> arbitrary),
+    MatchBoolExactResult <$> arbitrary,
+    MatchStringAnyResult <$> T.pack <$> arbitrary,
+    MatchNumberAnyResult <$> (Sci.scientific <$> arbitrary <*> arbitrary),
+    MatchBoolAnyResult <$> arbitrary,
+    return $ MatchNullResult,
+    MatchAnyResult <$> arbitrary,
+    MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary,
+    MatchIfThenResult <$> arbitrary <*> arbitrary <*> arbitrary,
+    MatchFunnelResult <$> arbitrary,
+    MatchFunnelKeysResult <$> arbitrary,
+    MatchFunnelKeysUResult <$> arbitrary {-,
+    MatchRefResult <$> arbitrary <*> arbitrary-}]
 
 makeBaseFunctor ''MatchResult
 
@@ -676,3 +688,10 @@ g00 = (Seq [(Star (Char 1)), (Optional (Char 4))])
 
 main1 = do
   contextFreeMatch g00 ([1, 1, 1, 4] :: [Int]) ((\a b -> if a == b then MatchSuccess a else NoMatch "foo") :: Int -> Int -> MatchStatus Int)
+
+
+qc1 = do
+  quickCheck (\g v -> case (matchPattern g v) of (MatchSuccess s) -> v == matchResultToValue s; _ -> True)
+
+qc2 = do
+  quickCheck (\g v -> case (matchPattern g v) of (MatchSuccess s) -> g == matchResultToPattern s; _ -> True)
