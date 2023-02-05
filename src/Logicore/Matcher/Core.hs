@@ -55,6 +55,9 @@ import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
 import Data.Fix (Fix, unFix)
 
+import Test.QuickCheck
+import Test.QuickCheck.Arbitrary
+
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
 --
