@@ -507,8 +507,8 @@ contextFreeGrammarResultToSource f = cata go
     go (StarNodeEmptyF g) = []
     go (StarNodeValueF r) = P.concat r
     go (PlusNodeF r) = P.concat r
-    go (OrNodeF g k r) = [P.concat r]
-    go (OptionalNodeValueF r) = [P.concat r]
+    go (OrNodeF g k r) = r
+    go (OptionalNodeValueF r) = r
     go (OptionalNodeEmptyF g) = []
 
 matchResultToPattern :: MatchResult -> MatchPattern
@@ -550,7 +550,7 @@ matchResultToValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = v
         f (KeyExt v) = v
-    --go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
+    --go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ P.concat $ contextFreeGrammarResultToSource id r
     go (MatchStringExactResultF r) = String r
     go (MatchNumberExactResultF r) = Number r
     go (MatchBoolExactResultF r) = Bool r
@@ -604,7 +604,7 @@ MatchSuccess
 -}
 
 
-g00 = (Seq [(Star (Char "bar")), (Optional (Char "wow"))])
+g00 = (Seq [(Star (Char 1)), (Optional (Char 4))])
 
 main1 = do
-  contextFreeMatch g00 (["bar", "bar", "bar", "wow"] :: [String]) ((\a b -> if a == b then MatchSuccess a else NoMatch "foo") :: String -> String -> MatchStatus String)
+  contextFreeMatch g00 ([1, 1, 1, 4] :: [Int]) ((\a b -> if a == b then MatchSuccess a else NoMatch "foo") :: Int -> Int -> MatchStatus Int)
