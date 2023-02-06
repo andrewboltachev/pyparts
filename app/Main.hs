@@ -20,24 +20,42 @@ import Logicore.Matcher.Python
 
 main :: IO ()
 main = do
-  run 3002 $
+  run 3042 $
     foldr ($)
       (notFound missing)
       [ get "/" index
-      --, post "echo:name" echo
+      , post "echo:name" echo
+      , post "matchPattern" matchPatternEndpoint
+      , post "matchResultToPattern" matchResultToPatternEndpoint
+      , post "matchResultToSource" matchResultToSourceEndpoint
       --, post "python-matcher-1" pythonMatcher1
       --, post "json-matcher-1" jsonMatcher1
       ]
 
+jsonMatcher1 = do
+  b <- (fromBody :: ResponderM Value)
+  let a = do
+          e <- (m2e "JSON root element must be a map") $ asKeyMap b
+          arg1 <- (m2e "arg1 error") $ KM.lookup (K.fromString "arg1") e
+          mp <- (m2e "Cannot decode MatchPattern from presented grammar") $ (((decode . encode) grammar) :: Maybe MatchPattern) -- TODO
+          r <- case matchAndCollapse mp return code of
+                  MatchFailure s -> Left ("MatchFailure: " ++ s)
+                  NoMatch x -> Left ("NoMatch: " ++ x)
+                  MatchSuccess x -> Right $ (KM.singleton (K.fromString "data") x)
+          return (Object r)
+  send $ Web.Twain.json $ case a of
+       Left e -> Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
+       Right x -> x
+
 index :: ResponderM a
 index = send $ html "Hello World!"
 
-{-
 echo :: ResponderM a
 echo = do
   name <- param "name"
   send $ html $ "Hello, " <> name
 
+{-
 jsonMatcher1 :: ResponderM a
 jsonMatcher1 = do
   b <- (fromBody :: ResponderM Value)

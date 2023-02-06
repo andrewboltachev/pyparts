@@ -646,6 +646,18 @@ matchResultToValue = cata go
     go (MatchFunnelKeysUResultF r) = Object r
     go (MatchRefResultF ref r) = r
 
+makeBaseFunctor ''Value
+
+valueToExactGrammar :: Value -> MatchPattern
+valueToExactGrammar = cata go
+  where
+    go (ObjectF a) = MatchObjectFull (fmap KeyReq a)
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
+    go (StringF a) = MatchStringExact a
+    go (NumberF a) = MatchNumberExact a
+    go (BoolF a) = MatchBoolExact a
+    go NullF = MatchNull
+
 {-
 -}
 
@@ -703,3 +715,7 @@ Object (fromList [])
 
 qc2 = do
   quickCheck (\g v -> case (matchPattern g v) of (MatchSuccess s) -> g == matchResultToPattern s; _ -> True)
+
+
+qc3 = do
+  quickCheck (\v-> case (matchPattern (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
