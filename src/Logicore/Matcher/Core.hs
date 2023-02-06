@@ -596,7 +596,7 @@ matchResultToPattern = cata go
   where
     go :: (MatchResultF MatchPattern) -> MatchPattern
     go (MatchObjectFullResultF r) = MatchObjectFull r
-    go (MatchObjectPartialResultF r) = MatchObjectFull (KM.filter f r)
+    go (MatchObjectPartialResultF r) = MatchObjectPartial (KM.filter f r)
       where
         f (KeyExt _) = False
         f _ = True
@@ -692,6 +692,14 @@ main1 = do
 
 qc1 = do
   quickCheck (\g v -> case (matchPattern g v) of (MatchSuccess s) -> v == matchResultToValue s; _ -> True)
+
+{-
+ghci> qc2
+*** Failed! Falsified (after 3 tests and 1 shrink):     
+MatchObjectPartial (fromList [])
+Object (fromList [])
+
+-}
 
 qc2 = do
   quickCheck (\g v -> case (matchPattern g v) of (MatchSuccess s) -> g == matchResultToPattern s; _ -> True)
