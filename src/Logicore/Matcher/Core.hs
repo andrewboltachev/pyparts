@@ -53,7 +53,7 @@ import Control.Monad()
 --import Logicore.Matcher.Utils
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
-import Data.Fix (Fix, unFix)
+import Data.Bifunctor
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
@@ -301,8 +301,8 @@ instance Arbitrary MatchPattern where
       MatchIfThen <$> arbitrary <*> arbitrary <*> arbitrary,
       return $ MatchFunnel,
       return $ MatchFunnelKeys,
-      return $ MatchFunnelKeysU{-,
-      MatchRef <$> arbitrary-}]
+      return $ MatchFunnelKeysU,
+      MatchRef <$> arbitrary]
 
 
 makeBaseFunctor ''MatchPattern
@@ -314,8 +314,8 @@ instance FromJSON MatchPattern
     -- No need to provide a parseJSON implementation.
 
                  -- structures - object
-data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
-                 | MatchObjectPartialResult (KeyMap (ObjectKeyMatch MatchResult))
+data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKeyMatch MatchResult))
+                 | MatchObjectPartialResult (KeyMap MatchPattern) (KeyMap (ObjectKeyMatch MatchResult))
                  -- structures - array
                  -- | MatchArrayAllResult (V.Vector MatchResult)
                  -- | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
@@ -346,8 +346,8 @@ data MatchResult = MatchObjectFullResult (KeyMap (ObjectKeyMatch MatchResult))
 
 instance Arbitrary MatchResult where
   arbitrary = oneof [
-    MatchObjectFullResult <$> arbitrary,
-    MatchObjectPartialResult <$> arbitrary,
+    MatchObjectFullResult <$> arbitrary <*> arbitrary,
+    MatchObjectPartialResult <$> arbitrary <*> arbitrary,
     MatchArrayContextFreeResult <$> arbitrary,
     MatchStringExactResult <$> T.pack <$> arbitrary,
     MatchNumberExactResult <$> (Sci.scientific <$> arbitrary <*> arbitrary),
@@ -361,8 +361,8 @@ instance Arbitrary MatchResult where
     MatchIfThenResult <$> arbitrary <*> arbitrary <*> arbitrary,
     MatchFunnelResult <$> arbitrary,
     MatchFunnelKeysResult <$> arbitrary,
-    MatchFunnelKeysUResult <$> arbitrary {-,
-    MatchRefResult <$> arbitrary <*> arbitrary-}]
+    MatchFunnelKeysUResult <$> arbitrary,
+    MatchRefResult <$> arbitrary <*> arbitrary]
 
 makeBaseFunctor ''MatchResult
 
@@ -420,11 +420,11 @@ mObj keepExt m a = do
       step k r acc req = case KM.lookup k a of
                       Nothing -> if req
                                       then NoMatch $ "Required key " ++ show k ++ " not found in map"
-                                      else MatchSuccess acc
+                                      else MatchSuccess $ first (KM.insert k r) acc
                       Just n -> case matchPattern r n of
                                      NoMatch s -> NoMatch s
                                      MatchFailure s -> MatchFailure s
-                                     MatchSuccess s -> MatchSuccess (KM.insert k el acc)
+                                     MatchSuccess s -> MatchSuccess $ second (KM.insert k el) acc
                                         where
                                           el = if req then (KeyReq s) else (KeyOpt s)
       doKeyMatch m a acc' k = do
@@ -442,10 +442,10 @@ mObj keepExt m a = do
                                False -> NoMatch "extra key in arg"
                                True -> case KM.lookup k a of
                                             Nothing -> MatchFailure "impossible"
-                                            Just v -> MatchSuccess (KM.insert k (KeyExt v) acc)
+                                            Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
 
-matchPattern (MatchObjectFull m) (Object a) = fmap MatchObjectFullResult (mObj False m a)
-matchPattern (MatchObjectPartial m) (Object a) = fmap MatchObjectPartialResult (mObj True m a)
+matchPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
+matchPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
 
 {-
 matchPattern (MatchArrayAll m) (Array a) = do
@@ -595,8 +595,8 @@ matchResultToPattern :: MatchResult -> MatchPattern
 matchResultToPattern = cata go
   where
     go :: (MatchResultF MatchPattern) -> MatchPattern
-    go (MatchObjectFullResultF r) = MatchObjectFull r
-    go (MatchObjectPartialResultF r) = MatchObjectPartial (KM.filter f r)
+    go (MatchObjectFullResultF g r) = MatchObjectFull (KM.union (fmap KeyOpt g) r)
+    go (MatchObjectPartialResultF g r) = MatchObjectPartial (KM.union (fmap KeyOpt g) (KM.filter f r))
       where
         f (KeyExt _) = False
         f _ = True
@@ -620,12 +620,12 @@ matchResultToValue :: MatchResult -> Value
 matchResultToValue = cata go
   where
     --go :: (MatchResultF MatchPattern) -> Value
-    go (MatchObjectFullResultF r) = Object (KM.map f r)
+    go (MatchObjectFullResultF g r) = Object (KM.map f r)
       where
         f (KeyReq v) = v
         f (KeyOpt v) = v
         -- f (KeyExt v) = v
-    go (MatchObjectPartialResultF r) = Object (KM.map f r)
+    go (MatchObjectPartialResultF g r) = Object (KM.map f r)
       where
         f (KeyReq v) = v
         f (KeyOpt v) = v
