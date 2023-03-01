@@ -46,7 +46,9 @@ library
     , data-fix
     , recursion-schemes
     , scientific
+    , template-haskell
     , text
+    , th-abstraction
     , transformers
     , twain
     , utf8-string
@@ -71,7 +73,9 @@ executable matcher-exe
     , matcher
     , recursion-schemes
     , scientific
+    , template-haskell
     , text
+    , th-abstraction
     , transformers
     , twain
     , utf8-string
@@ -97,7 +101,9 @@ test-suite matcher-test
     , matcher
     , recursion-schemes
     , scientific
+    , template-haskell
     , text
+    , th-abstraction
     , transformers
     , twain
     , utf8-string

@@ -58,6 +58,12 @@ import Data.Bifunctor
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
 
+import Language.Haskell.TH
+import Language.Haskell.TH.Datatype as TH.Abs
+import Language.Haskell.TH.Datatype.TyVarBndr
+import Language.Haskell.TH.Syntax (mkNameG_tc, mkNameG_v)
+
+
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
 --
@@ -86,14 +92,13 @@ instance Monad MatchStatus where
   (>>=) (NoMatch m) _ = (NoMatch m)
 
 -- CF matcher
-
 data ContextFreeGrammar a = Char a
-                          | Seq [(ContextFreeGrammar a)]
-                          | Or (KeyMap (ContextFreeGrammar a))
-                          | Star (ContextFreeGrammar a)
-                          | Plus (ContextFreeGrammar a)
-                          | Optional (ContextFreeGrammar a)
-                            deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
+                            | Seq [(ContextFreeGrammar a)]
+                            | Or (KeyMap (ContextFreeGrammar a))
+                            | Star (ContextFreeGrammar a)
+                            | Plus (ContextFreeGrammar a)
+                            | Optional (ContextFreeGrammar a)
+                              deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
 instance Arbitrary a => Arbitrary (ContextFreeGrammar a) where
   arbitrary = oneof [
@@ -719,3 +724,7 @@ qc2 = do
 
 qc3 = do
   quickCheck (\v-> case (matchPattern (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
+
+-- TH tricks (read DT)
+
+d1 = reifyDatatype ''MatchPattern

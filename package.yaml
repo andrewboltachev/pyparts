@@ -34,6 +34,8 @@ dependencies:
 - warp
 - transformers
 - recursion-schemes
+- template-haskell
+- th-abstraction
 
 ghc-options:
 - -Wall
