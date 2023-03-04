@@ -63,6 +63,7 @@ import Language.Haskell.TH.Datatype as TH.Abs
 import Language.Haskell.TH.Datatype.TyVarBndr
 import Language.Haskell.TH.Syntax (mkNameG_tc, mkNameG_v)
 
+import Logicore.Matcher.Helpers
 
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
@@ -728,3 +729,5 @@ qc3 = do
 -- TH tricks (read DT)
 
 d1 = reifyDatatype ''MatchPattern
+-- TL.unpack . TL.decodeUtf8 . encode . toJ
+d2 = $(ddd [''MatchPattern, ''ContextFreeGrammar])
