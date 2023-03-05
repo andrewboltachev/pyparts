@@ -34,9 +34,9 @@ makeBaseFunctor ''Type
 constrs = cata go
   where
     go :: TypeF Value -> Value
-    go (VarTF a) = Object $ KM.fromList [(K.fromString "type", s "Var"), (K.fromString "value", s $ nameBase $ a)]
-    go (ConTF a) = Null
-    go (AppTF a b) = Null
+    go (VarTF a) = Object $ KM.fromList [(K.fromString "type", s "VarT"), (K.fromString "value", s $ showName a)]
+    go (ConTF a) = Object $ KM.fromList [(K.fromString "type", s "VarT"), (K.fromString "value", s $ nameBase $ a)]
+    go (AppTF a b) = Array $ V.fromList [a, b]
     go (ForallTF _ _ _) = error "ForallTF"
     go (ForallVisTF _ _) = error "ForallVisTF"
     go (AppKindTF _ _) = error "AppKindTF"
@@ -51,7 +51,7 @@ constrs = cata go
     go (ArrowTF) = error "ArrowT"
     go (MulArrowTF) = error "MulArrowT"
     go (EqualityTF) = error "EqualityT"
-    go (ListTF) = error "ListT"
+    go (ListTF) = Object $ KM.fromList [(K.fromString "type", s "ListT")]
     go (PromotedTupleTF _) = error "PromotedTupleTF"
     go (PromotedNilTF) = error "PromotedNilT"
     go (PromotedConsTF) = error "PromotedConsT"
@@ -64,16 +64,23 @@ constrs = cata go
 s = (String . T.pack)
 
 --J t = (String . T.pack . nameBase . datatypeName) t
-ddd1 :: [Name] -> Q (KeyMap Value)
-ddd1 ds = L.foldl f mempty ds
+ddd1 :: [Name] -> Q Value
+ddd1 ds = fmap (Array . V.fromList) $ L.foldl f mempty ds
   where f acc' e = do
           e <- reifyDatatype e
           acc <- acc'
+          let vrs x = s $ showName $ case x of
+                           PlainTV n _ -> n
+                           KindedTV n _ _ -> n
           let ff x = Object $ KM.fromList [
                 (K.fromString "tag", s $ nameBase $ constructorName $ x),
-                (K.fromString "content", Array $ V.fromList $ fmap constrs (constructorFields x))
+                (K.fromString "contents", Array $ V.fromList $ fmap constrs (constructorFields x))
                 ]
           let d = Array $ V.fromList $ fmap ff (datatypeCons e)
-          return $ KM.insert ((K.fromString . nameBase . datatypeName) e) d acc
+          return $ acc <> [
+            Object $ KM.fromList [(K.fromString "value", ((s . nameBase . datatypeName) e)),
+            (K.fromString "vars", s $ show $ fmap vrs $ datatypeVars e),
+            (K.fromString "contents", d)
+            ]]
 
 ddd xs = ((stringE . TL.unpack . TL.decodeUtf8 . encode) =<< (ddd1 xs))
