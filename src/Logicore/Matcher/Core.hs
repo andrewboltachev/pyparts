@@ -730,4 +730,10 @@ qc3 = do
 
 d1 = reifyDatatype ''MatchPattern
 -- TL.unpack . TL.decodeUtf8 . encode . toJ
-d2 = $(ddd [''MatchPattern, ''ContextFreeGrammar])
+d2 = $(ddd [''MatchPattern,
+						''MatchResult,
+						''ContextFreeGrammar,
+						''ContextFreeGrammarResult,
+						''ObjectKeyMatch,
+						''ArrayValMatch
+						])

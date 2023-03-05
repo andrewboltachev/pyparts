@@ -62,6 +62,7 @@ constrs = cata go
     go (ImplicitParamTF _ _) = error "ImplicitParamTF"
 
 s = (String . T.pack)
+arr = (Array . V.fromList)
 
 --J t = (String . T.pack . nameBase . datatypeName) t
 ddd1 :: [Name] -> Q Value
@@ -79,7 +80,7 @@ ddd1 ds = fmap (Array . V.fromList) $ L.foldl f mempty ds
           let d = Array $ V.fromList $ fmap ff (datatypeCons e)
           return $ acc <> [
             Object $ KM.fromList [(K.fromString "value", ((s . nameBase . datatypeName) e)),
-            (K.fromString "vars", s $ show $ fmap vrs $ datatypeVars e),
+            (K.fromString "vars", arr $ fmap vrs $ datatypeVars e),
             (K.fromString "contents", d)
             ]]
 
