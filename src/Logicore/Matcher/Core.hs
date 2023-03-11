@@ -281,7 +281,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   -- conditions
                   | MatchAny
                   | MatchOr (KeyMap MatchPattern)
-                  | MatchIfThen MatchPattern String MatchPattern
+                  | MatchIfThen MatchPattern T.Text MatchPattern
                   -- funnel
                   | MatchFunnel
                   | MatchFunnelKeys
@@ -304,7 +304,7 @@ instance Arbitrary MatchPattern where
       return $ MatchNull,
       return $ MatchAny,
       MatchOr <$> arbitrary,
-      MatchIfThen <$> arbitrary <*> arbitrary <*> arbitrary,
+      MatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
       return $ MatchFunnel,
       return $ MatchFunnelKeys,
       return $ MatchFunnelKeysU,
@@ -341,7 +341,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  -- conditions
                  | MatchAnyResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
-                 | MatchIfThenResult MatchPattern String MatchResult
+                 | MatchIfThenResult MatchPattern T.Text MatchResult
                  -- funnel
                  | MatchFunnelResult Value
                  | MatchFunnelKeysResult (KeyMap Value)
@@ -364,7 +364,7 @@ instance Arbitrary MatchResult where
     return $ MatchNullResult,
     MatchAnyResult <$> arbitrary,
     MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary,
-    MatchIfThenResult <$> arbitrary <*> arbitrary <*> arbitrary,
+    MatchIfThenResult <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
     MatchFunnelResult <$> arbitrary,
     MatchFunnelKeysResult <$> arbitrary,
     MatchFunnelKeysUResult <$> arbitrary,
@@ -534,7 +534,7 @@ matchPattern (MatchIfThen baseMatch failMsg match) v =
        NoMatch x -> NoMatch x
        MatchFailure f -> MatchFailure f
        MatchSuccess _ -> case matchPattern match v of
-                            NoMatch x -> MatchFailure (failMsg ++ show x)
+                            NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
                             MatchFailure f -> MatchFailure f
                             MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
 
@@ -734,6 +734,5 @@ d2 = $(ddd [''MatchPattern,
 						''MatchResult,
 						''ContextFreeGrammar,
 						''ContextFreeGrammarResult,
-						''ObjectKeyMatch,
-						''ArrayValMatch
+						''ObjectKeyMatch
 						])

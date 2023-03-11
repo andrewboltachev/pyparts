@@ -35,8 +35,8 @@ constrs = cata go
   where
     go :: TypeF Value -> Value
     go (VarTF a) = Object $ KM.fromList [(K.fromString "type", s "VarT"), (K.fromString "value", s $ showName a)]
-    go (ConTF a) = Object $ KM.fromList [(K.fromString "type", s "VarT"), (K.fromString "value", s $ nameBase $ a)]
-    go (AppTF a b) = Array $ V.fromList [a, b]
+    go (ConTF a) = Object $ KM.fromList [(K.fromString "type", s "ConT"), (K.fromString "value", s $ nameBase $ a)]
+    go (AppTF a b) = Object $ KM.fromList [(K.fromString "type", s "AppT"), (K.fromString "target", a), (K.fromString "param", b)]
     go (ForallTF _ _ _) = error "ForallTF"
     go (ForallVisTF _ _) = error "ForallVisTF"
     go (AppKindTF _ _) = error "AppKindTF"

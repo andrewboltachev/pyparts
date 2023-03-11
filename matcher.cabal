@@ -30,6 +30,7 @@ library
       Logicore.Matcher.Examples
       Logicore.Matcher.Examples.Utils
       Logicore.Matcher.Experimental
+      Logicore.Matcher.Helpers
       Logicore.Matcher.Python
       Logicore.Matcher.Utils
   other-modules:
