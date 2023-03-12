@@ -36,6 +36,7 @@ main = do
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
+      , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
       ]
 
 
@@ -88,7 +89,14 @@ mkValueToExactGrammar e = do
   value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   output <- return $ valueToExactGrammar value
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
-  return $ Object $ (KM.fromList [(K.fromString "value", outputValue)])
+  return $ Object $ (KM.fromList [(K.fromString "grammar", outputValue)])
+
+mkValueToExactResult :: (Object -> MatchStatus Value)
+mkValueToExactResult e = do
+  value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
+  output <- valueToExactResult value
+  outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
+  return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
 fnEndpoint :: (Object -> MatchStatus Value) -> ResponderM b
 fnEndpoint f = do

@@ -664,6 +664,9 @@ valueToExactGrammar = cata go
     go (BoolF a) = MatchBoolExact a
     go NullF = MatchNull
 
+valueToExactResult :: Value -> MatchStatus MatchResult
+valueToExactResult v = matchPattern g v where g = valueToExactGrammar v
+
 {-
 -}
 
