@@ -382,6 +382,66 @@ instance FromJSON MatchResult
 
 data MatchPath = ObjKey Key | ArrKey Int deriving (Generic, Eq, Show)
 
+                  -- structures - object
+data ThickPattern = ThickObjectFull (KeyMap (ObjectKeyMatch ThickPattern))
+                  | ThickObjectPartial (KeyMap (ObjectKeyMatch ThickPattern))
+                  -- structures - array
+                  -- | ThickArrayAll ThickPattern
+                  -- | ThickArraySome ThickPattern
+                  -- | ThickArrayOne ThickPattern
+                  -- | ThickArrayExact [ThickPattern]
+                  | ThickArrayContextFree (ContextFreeGrammar ThickPattern)
+                  -- literals: match particular value of
+                  | ThickStringExact !T.Text
+                  | ThickNumberExact !Sci.Scientific
+                  | ThickBoolExact !Bool
+                  -- literals: match any of
+                  | ThickStringAny
+                  | ThickNumberAny
+                  | ThickBoolAny
+                  -- literals: null is just null
+                  | ThickNull
+                  -- conditions
+                  | ThickAny
+                  | ThickOr (KeyMap ThickPattern)
+                  | ThickIfThen ThickPattern T.Text ThickPattern
+                  -- funnel
+                  | ThickFunnel
+                  | ThickFunnelKeys
+                  | ThickFunnelKeysU
+                  -- special
+                  | ThickRef String
+                    deriving (Generic, Eq, Show)
+
+instance Arbitrary ThickPattern where
+  arbitrary = oneof [
+      ThickObjectFull <$> arbitrary,
+      ThickObjectPartial <$> arbitrary,
+      ThickArrayContextFree <$> arbitrary,
+      ThickStringExact <$> T.pack <$> arbitrary,
+      ThickNumberExact <$> (Sci.scientific <$> arbitrary <*> arbitrary),
+      ThickBoolExact <$> arbitrary,
+      return $ ThickStringAny,
+      return $ ThickNumberAny,
+      return $ ThickBoolAny,
+      return $ ThickNull,
+      return $ ThickAny,
+      ThickOr <$> arbitrary,
+      ThickIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
+      return $ ThickFunnel,
+      return $ ThickFunnelKeys,
+      return $ ThickFunnelKeysU,
+      ThickRef <$> arbitrary]
+
+
+makeBaseFunctor ''ThickPattern
+
+instance ToJSON ThickPattern where
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON ThickPattern
+    -- No need to provide a parseJSON implementation.
+
 {-
 gatherFunnel :: [Value] -> MatchPattern -> [Value]
 gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
@@ -419,14 +479,17 @@ m2ms m v = case v of
 -- (look category theory product)
 matchPattern :: MatchPattern -> Value -> MatchStatus MatchResult
 
+mObj :: Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatus (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj keepExt m a = do
   preResult <- L.foldl' (doKeyMatch m a) (MatchSuccess mempty) (keys m)
   L.foldl' f (MatchSuccess preResult) (keys a)
     where
       step k r acc req = case KM.lookup k a of
+                      -- KeyOpt means key might be missing
                       Nothing -> if req
                                       then NoMatch $ "Required key " ++ show k ++ " not found in map"
                                       else MatchSuccess $ first (KM.insert k r) acc
+                      -- if it exists, it must match
                       Just n -> case matchPattern r n of
                                      NoMatch s -> NoMatch s
                                      MatchFailure s -> MatchFailure s
@@ -597,30 +660,30 @@ contextFreeGrammarResultToSourceBad f = cata go
     go (OptionalNodeValueF r) = [P.concat r]
     go (OptionalNodeEmptyF g) = []
 
-matchResultToPattern :: MatchResult -> MatchPattern
-matchResultToPattern = cata go
+matchResultToPatternAlg :: (MatchResultF MatchPattern) -> MatchPattern
+matchResultToPatternAlg (MatchObjectFullResultF g r) = MatchObjectFull (KM.union (fmap KeyOpt g) r)
+matchResultToPatternAlg (MatchObjectPartialResultF g r) = MatchObjectPartial (KM.union (fmap KeyOpt g) (KM.filter f r))
   where
-    go :: (MatchResultF MatchPattern) -> MatchPattern
-    go (MatchObjectFullResultF g r) = MatchObjectFull (KM.union (fmap KeyOpt g) r)
-    go (MatchObjectPartialResultF g r) = MatchObjectPartial (KM.union (fmap KeyOpt g) (KM.filter f r))
-      where
-        f (KeyExt _) = False
-        f _ = True
-    go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
-    go (MatchStringExactResultF r) = MatchStringExact r
-    go (MatchNumberExactResultF r) = MatchNumberExact r
-    go (MatchBoolExactResultF r) = MatchBoolExact r
-    go (MatchStringAnyResultF r) = MatchStringAny
-    go (MatchNumberAnyResultF r) = MatchNumberAny
-    go (MatchBoolAnyResultF r) = MatchBoolAny
-    go MatchNullResultF = MatchNull
-    go (MatchAnyResultF r) = MatchAny
-    go (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
-    go (MatchIfThenResultF p errorMsg r) = MatchIfThen p errorMsg r
-    go (MatchFunnelResultF r) = MatchFunnel
-    go (MatchFunnelKeysResultF r) = MatchFunnelKeys
-    go (MatchFunnelKeysUResultF r) = MatchFunnelKeysU
-    go (MatchRefResultF ref r) = MatchRef ref
+    f (KeyExt _) = False
+    f _ = True
+matchResultToPatternAlg (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
+matchResultToPatternAlg (MatchStringExactResultF r) = MatchStringExact r
+matchResultToPatternAlg (MatchNumberExactResultF r) = MatchNumberExact r
+matchResultToPatternAlg (MatchBoolExactResultF r) = MatchBoolExact r
+matchResultToPatternAlg (MatchStringAnyResultF r) = MatchStringAny
+matchResultToPatternAlg (MatchNumberAnyResultF r) = MatchNumberAny
+matchResultToPatternAlg (MatchBoolAnyResultF r) = MatchBoolAny
+matchResultToPatternAlg MatchNullResultF = MatchNull
+matchResultToPatternAlg (MatchAnyResultF r) = MatchAny
+matchResultToPatternAlg (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
+matchResultToPatternAlg (MatchIfThenResultF p errorMsg r) = MatchIfThen p errorMsg r
+matchResultToPatternAlg (MatchFunnelResultF r) = MatchFunnel
+matchResultToPatternAlg (MatchFunnelKeysResultF r) = MatchFunnelKeys
+matchResultToPatternAlg (MatchFunnelKeysUResultF r) = MatchFunnelKeysU
+matchResultToPatternAlg (MatchRefResultF ref r) = MatchRef ref
+
+matchResultToPattern :: MatchResult -> MatchPattern
+matchResultToPattern = cata matchResultToPatternAlg
 
 matchResultToValue :: MatchResult -> Value
 matchResultToValue = cata go
@@ -651,6 +714,63 @@ matchResultToValue = cata go
     go (MatchFunnelKeysResultF r) = Object r
     go (MatchFunnelKeysUResultF r) = Object r
     go (MatchRefResultF ref r) = r
+
+matchResultToThin :: MatchResult -> Maybe Value
+matchResultToThin = zygo (check . matchResultToPatternAlg) go
+  where
+    -- returns True for constant data. False for "real" data
+    --check :: MatchResultF Maybe Value -> Maybe Value
+    -- leaf nodes: "real" data
+
+    check MatchObjectFull g = 
+    check MatchObjectPartial g =
+    check MatchArrayContextFree g =
+    check MatchStringExact _ = True
+    check MatchNumberExact _ = True
+    check MatchBoolExact _ = True
+    check MatchStringAny = False
+    check MatchNumberAny = False
+    check MatchBoolAny = False
+    check MatchNull = True
+    check MatchAny = False
+    check MatchOr (KeyMap MatchPattern) =
+    check MatchIfThen _ _ g = g
+    check MatchFunnel = False
+    check MatchFunnelKeys = False
+    check MatchFunnelKeysU = False
+    --check MatchRef String
+
+    --go :: MatchResultF Maybe Value -> Maybe Value
+    go = undefined
+    {-- leaf nodes: "real" data
+    go (MatchStringAnyResultF r) = String r
+    go (MatchNumberAnyResultF r) = Number r
+    go (MatchBoolAnyResultF r) = Bool r
+    go (MatchAnyResultF (r, _)) = (r, ())
+    go (MatchFunnelResultF r) = r
+    go (MatchFunnelKeysResultF r) = Object r
+    go (MatchFunnelKeysUResultF r) = Object r
+    go (MatchRefResultF ref r) = r
+    -- leaf nodes: "constant" data
+    go (MatchStringExactResultF r) = (String r, ())
+    go (MatchNumberExactResultF r) = Number r
+    go (MatchBoolExactResultF r) = Bool r
+    go MatchNullResultF = Null
+    -- containers
+    go (MatchObjectFullResultF g r) = Object (KM.map (fst . f) r)
+      where
+        f (KeyReq v) = v
+        f (KeyOpt v) = v
+        -- f (KeyExt v) = v
+    go (MatchObjectPartialResultF g r) = Object (KM.map (fst . f) r)
+      where
+        f (KeyReq v) = v
+        f (KeyOpt v) = v
+        f (KeyExt v) = v
+    go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToThin id r
+
+    go (MatchOrResultF m k r) = r
+    go (MatchIfThenResultF p errorMsg r) = r-}
 
 makeBaseFunctor ''Value
 
@@ -734,8 +854,8 @@ qc3 = do
 d1 = reifyDatatype ''MatchPattern
 -- TL.unpack . TL.decodeUtf8 . encode . toJ
 d2 = $(ddd [''MatchPattern,
-						''MatchResult,
-						''ContextFreeGrammar,
-						''ContextFreeGrammarResult,
-						''ObjectKeyMatch
-						])
+            ''MatchResult,
+            ''ContextFreeGrammar,
+            ''ContextFreeGrammarResult,
+            ''ObjectKeyMatch
+            ])
