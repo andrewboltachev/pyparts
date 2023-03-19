@@ -43,6 +43,7 @@ library
     , aeson
     , base >=4.7 && <5
     , bytestring
+    , comonad
     , containers
     , data-fix
     , recursion-schemes
@@ -69,6 +70,7 @@ executable matcher-exe
     , aeson
     , base >=4.7 && <5
     , bytestring
+    , comonad
     , containers
     , data-fix
     , matcher
@@ -97,6 +99,7 @@ test-suite matcher-test
     , aeson
     , base >=4.7 && <5
     , bytestring
+    , comonad
     , containers
     , data-fix
     , matcher

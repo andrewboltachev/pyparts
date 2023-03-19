@@ -660,30 +660,31 @@ contextFreeGrammarResultToSourceBad f = cata go
     go (OptionalNodeValueF r) = [P.concat r]
     go (OptionalNodeEmptyF g) = []
 
-matchResultToPatternAlg :: (MatchResultF MatchPattern) -> MatchPattern
+--matchResultToPatternAlg :: (MatchResultF MatchPattern) -> MatchPattern
 matchResultToPatternAlg (MatchObjectFullResultF g r) = MatchObjectFull (KM.union (fmap KeyOpt g) r)
 matchResultToPatternAlg (MatchObjectPartialResultF g r) = MatchObjectPartial (KM.union (fmap KeyOpt g) (KM.filter f r))
   where
     f (KeyExt _) = False
     f _ = True
-matchResultToPatternAlg (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
-matchResultToPatternAlg (MatchStringExactResultF r) = MatchStringExact r
-matchResultToPatternAlg (MatchNumberExactResultF r) = MatchNumberExact r
-matchResultToPatternAlg (MatchBoolExactResultF r) = MatchBoolExact r
-matchResultToPatternAlg (MatchStringAnyResultF r) = MatchStringAny
-matchResultToPatternAlg (MatchNumberAnyResultF r) = MatchNumberAny
-matchResultToPatternAlg (MatchBoolAnyResultF r) = MatchBoolAny
-matchResultToPatternAlg MatchNullResultF = MatchNull
-matchResultToPatternAlg (MatchAnyResultF r) = MatchAny
-matchResultToPatternAlg (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
-matchResultToPatternAlg (MatchIfThenResultF p errorMsg r) = MatchIfThen p errorMsg r
-matchResultToPatternAlg (MatchFunnelResultF r) = MatchFunnel
-matchResultToPatternAlg (MatchFunnelKeysResultF r) = MatchFunnelKeys
-matchResultToPatternAlg (MatchFunnelKeysUResultF r) = MatchFunnelKeysU
-matchResultToPatternAlg (MatchRefResultF ref r) = MatchRef ref
+
 
 matchResultToPattern :: MatchResult -> MatchPattern
-matchResultToPattern = cata matchResultToPatternAlg
+matchResultToPattern = cata go where
+  go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
+  go (MatchStringExactResultF r) = MatchStringExact r
+  go (MatchNumberExactResultF r) = MatchNumberExact r
+  go (MatchBoolExactResultF r) = MatchBoolExact r
+  go (MatchStringAnyResultF r) = MatchStringAny
+  go (MatchNumberAnyResultF r) = MatchNumberAny
+  go (MatchBoolAnyResultF r) = MatchBoolAny
+  go MatchNullResultF = MatchNull
+  go (MatchAnyResultF r) = MatchAny
+  go (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
+  go (MatchIfThenResultF p errorMsg r) = MatchIfThen p errorMsg r
+  go (MatchFunnelResultF r) = MatchFunnel
+  go (MatchFunnelKeysResultF r) = MatchFunnelKeys
+  go (MatchFunnelKeysUResultF r) = MatchFunnelKeysU
+  go (MatchRefResultF ref r) = MatchRef ref
 
 matchResultToValue :: MatchResult -> Value
 matchResultToValue = cata go
@@ -715,62 +716,77 @@ matchResultToValue = cata go
     go (MatchFunnelKeysUResultF r) = Object r
     go (MatchRefResultF ref r) = r
 
-matchResultToThin :: MatchResult -> Maybe Value
-matchResultToThin = zygo (check . matchResultToPatternAlg) go
+extractObjectKeyMatch :: a -> (ObjectKeyMatch a) -> a
+extractObjectKeyMatch ext (KeyReq a) = a
+extractObjectKeyMatch ext (KeyOpt a) = a
+extractObjectKeyMatch ext (KeyExt v) = ext
+
+contextFreeGrammarIsConstant :: (a -> Bool) -> ContextFreeGrammar a -> Bool
+contextFreeGrammarIsConstant f = cata go
   where
-    -- returns True for constant data. False for "real" data
-    --check :: MatchResultF Maybe Value -> Maybe Value
-    -- leaf nodes: "real" data
+    go (CharF a) = f a
+    go (SeqF a) = P.any id a
+    go (OrF a) = P.any id (KM.elems a)
+    go (StarF a) = a
+    go (PlusF a) = a
+    go (OptionalF a) = a
 
-    check MatchObjectFull g = 
-    check MatchObjectPartial g =
-    check MatchArrayContextFree g =
-    check MatchStringExact _ = True
-    check MatchNumberExact _ = True
-    check MatchBoolExact _ = True
-    check MatchStringAny = False
-    check MatchNumberAny = False
-    check MatchBoolAny = False
-    check MatchNull = True
-    check MatchAny = False
-    check MatchOr (KeyMap MatchPattern) =
-    check MatchIfThen _ _ g = g
-    check MatchFunnel = False
-    check MatchFunnelKeys = False
-    check MatchFunnelKeysU = False
-    --check MatchRef String
+contextFreeGrammarResultIsConstant :: (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
+contextFreeGrammarResultIsConstant gf rf = cata go
+  where
+    go (CharNodeF r) = rf r
+    go (SeqNodeF r) = P.any id r
+    go (StarNodeEmptyF g) = contextFreeGrammarIsConstant gf g
+    go (StarNodeValueF r) = (P.head r)
+    go (PlusNodeF r) = (P.head r)
+    go (OrNodeF g k r) = r || P.any (contextFreeGrammarIsConstant gf) (KM.elems g)
+    go (OptionalNodeValueF r) = r
+    go (OptionalNodeEmptyF g) = contextFreeGrammarIsConstant gf g
 
-    --go :: MatchResultF Maybe Value -> Maybe Value
+matchPatternIsConstant :: MatchPattern -> Bool
+matchPatternIsConstant = cata go
+  where
+    go (MatchObjectFullF g) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
+    go (MatchObjectPartialF g) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
+    go (MatchArrayContextFreeF g) = contextFreeGrammarIsConstant id g
+    go (MatchStringExactF _) = True
+    go (MatchNumberExactF _) = True
+    go (MatchBoolExactF _) = True
+    go MatchStringAnyF = False
+    go MatchNumberAnyF = False
+    go MatchBoolAnyF = False
+    go MatchNullF = True
+    go MatchAnyF = False
+    go (MatchOrF g) = P.any id (KM.elems g)
+    go (MatchIfThenF _ _ g) = g
+    go MatchFunnelF = False
+    go MatchFunnelKeysF = False
+    go MatchFunnelKeysUF = False
+    --go MatchRef String =
+
+matchResultIsConstantAlg :: MatchResultF Bool -> Bool
+matchResultIsConstantAlg = check where
+    check (MatchObjectFullResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsConstant g
+    check (MatchObjectPartialResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsConstant g
+    --check (MatchArrayContextFreeF g) = contextFreeGrammarIsConstant g
+    check (MatchStringExactResultF _) = True
+    check (MatchNumberExactResultF _) = True
+    check (MatchBoolExactResultF _) = True
+    check (MatchStringAnyResultF _) = False
+    check (MatchNumberAnyResultF _) = False
+    check (MatchBoolAnyResultF _) = False
+    check MatchNullResultF = True
+    check (MatchAnyResultF _) = False
+    check (MatchOrResultF g _ r) = r || P.any matchPatternIsConstant (KM.elems g)
+    check (MatchIfThenResultF _ _ g) = g
+    check (MatchFunnelResultF _) = False
+    check (MatchFunnelKeysResultF _) = False
+    check (MatchFunnelKeysUResultF _) = False
+
+matchResultToThinValue :: MatchResult -> Value
+matchResultToThinValue = zygo matchResultIsConstantAlg go
+  where
     go = undefined
-    {-- leaf nodes: "real" data
-    go (MatchStringAnyResultF r) = String r
-    go (MatchNumberAnyResultF r) = Number r
-    go (MatchBoolAnyResultF r) = Bool r
-    go (MatchAnyResultF (r, _)) = (r, ())
-    go (MatchFunnelResultF r) = r
-    go (MatchFunnelKeysResultF r) = Object r
-    go (MatchFunnelKeysUResultF r) = Object r
-    go (MatchRefResultF ref r) = r
-    -- leaf nodes: "constant" data
-    go (MatchStringExactResultF r) = (String r, ())
-    go (MatchNumberExactResultF r) = Number r
-    go (MatchBoolExactResultF r) = Bool r
-    go MatchNullResultF = Null
-    -- containers
-    go (MatchObjectFullResultF g r) = Object (KM.map (fst . f) r)
-      where
-        f (KeyReq v) = v
-        f (KeyOpt v) = v
-        -- f (KeyExt v) = v
-    go (MatchObjectPartialResultF g r) = Object (KM.map (fst . f) r)
-      where
-        f (KeyReq v) = v
-        f (KeyOpt v) = v
-        f (KeyExt v) = v
-    go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToThin id r
-
-    go (MatchOrResultF m k r) = r
-    go (MatchIfThenResultF p errorMsg r) = r-}
 
 makeBaseFunctor ''Value
 
