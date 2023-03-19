@@ -54,6 +54,7 @@ import Control.Monad()
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
 import Data.Bifunctor
+import Data.Maybe (isJust)
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
@@ -638,6 +639,7 @@ contextFreeGrammarResultToGrammar f = cata go
     go (OptionalNodeValueF r) = Optional r
     go (OptionalNodeEmptyF g) = Optional g
 
+contextFreeGrammarResultToSource :: (r -> a) -> ContextFreeGrammarResult g r -> [a]
 contextFreeGrammarResultToSource f = cata go
   where
     go (CharNodeF r) = [f r]
@@ -786,10 +788,57 @@ matchResultIsMovableAlg = check where
 matchResultIsMovable :: MatchResult -> Bool
 matchResultIsMovable = cata matchResultIsMovableAlg
 
-matchResultToThinValue :: MatchResult -> Value
-matchResultToThinValue = zygo matchResultIsMovableAlg go
+--contextFreeGrammarResultToThin :: (r -> a) -> ContextFreeGrammarResult g r -> Maybe [a]
+
+
+contextFreeGrammarResultToThin :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> [Maybe Value]
+contextFreeGrammarResultToThin = para go
   where
-    go = undefined
+    --replaceNum :: [Maybe Value] -> Value
+    go (CharNodeF r) = [r]
+    go (SeqNodeF r) = P.filter isJust $ P.concat (fmap snd r)
+    go (StarNodeEmptyF g) = []
+    go (StarNodeValueF r) = P.concat (fmap snd r)
+    go (PlusNodeF r) = P.concat (fmap snd r)
+    go (OrNodeF g k r) = (snd r)
+    go (OptionalNodeValueF r) = (snd r)
+    go (OptionalNodeEmptyF g) = []
+
+
+matchResultToThinValue :: MatchResult -> Maybe Value
+matchResultToThinValue = cata go
+  where
+    nonEmptyMap m = if KM.size m == 0 then Nothing else Just m
+    filterEmpty a = (KM.map m (KM.filter isJust a)) where m (Just x) = x
+    replaceSingleton (Object m) = if (KM.size m) == 1 then P.head (KM.elems m) else Object m
+    prepareSeq [] = Nothing
+    prepareSeq l = Just $ fmap j l where j (Just x) = x
+    go :: MatchResultF (Maybe Value) -> Maybe Value
+    go (MatchObjectFullResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ (KM.map f r)
+      where
+        f (KeyReq v) = v
+        f (KeyOpt v) = v
+        f (KeyExt _) = error "must not be here"
+    go (MatchObjectPartialResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ (KM.map f r)
+      where
+        f (KeyReq v) = v
+        f (KeyOpt v) = v
+        f (KeyExt v) = Just v
+    go (MatchArrayContextFreeResultF r) = fmap (Array . V.fromList) $ prepareSeq $ (P.filter isJust) $ contextFreeGrammarResultToThin r
+    go (MatchStringExactResultF r) = Nothing
+    go (MatchNumberExactResultF r) = Nothing
+    go (MatchBoolExactResultF r) = Nothing
+    go (MatchStringAnyResultF r) = Just $ String r
+    go (MatchNumberAnyResultF r) = Just $ Number r
+    go (MatchBoolAnyResultF r) = Just $ Bool r
+    go MatchNullResultF = Nothing
+    go (MatchAnyResultF r) = Just $ r
+    go (MatchOrResultF m k r) = r
+    go (MatchIfThenResultF p errorMsg r) = r
+    go (MatchFunnelResultF r) = Just $ r
+    go (MatchFunnelKeysResultF r) = Just $ Object r
+    go (MatchFunnelKeysUResultF r) = Just $ Object r
+    go (MatchRefResultF ref r) = r
 
 makeBaseFunctor ''Value
 
@@ -884,6 +933,29 @@ d2 = $(ddd [''MatchPattern,
 qc4 = do
   quickCheck (not . matchPatternIsMovable . valueToExactGrammar)
 
-{-
 qc5 = do
-  quickCheck (\v -> case (matchPattern (valueToExactGrammar v) v) of MatchSuccess s -> matchResultIsConstant s; _ -> False)-}
+  quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable s; _ -> False)
+
+{-
+ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1)]))
+Just (Number 1.0)
+ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1), (K.fromString "b", KeyOpt $ Match]))
+Match                         MatchBoolExactF               MatchFunnelResult             MatchNumberExact              MatchOrResult                 MatchStringAnyF
+MatchAny                      MatchBoolExactResult          MatchFunnelResultF            MatchNumberExactF             MatchOrResultF                MatchStringAnyResult
+MatchAnyF                     MatchBoolExactResultF         MatchIfThen                   MatchNumberExactResult        MatchPath                     MatchStringAnyResultF
+MatchAnyResult                MatchFailure                  MatchIfThenF                  MatchNumberExactResultF       MatchPattern                  MatchStringExact
+MatchAnyResultF               MatchFunnel                   MatchIfThenResult             MatchObjectFull               MatchPatternF                 MatchStringExactF
+MatchArrayContextFree         MatchFunnelF                  MatchIfThenResultF            MatchObjectFullF              MatchQ                        MatchStringExactResult
+MatchArrayContextFreeF        MatchFunnelKeys               MatchNull                     MatchObjectFullResult         MatchRef                      MatchStringExactResultF
+MatchArrayContextFreeResult   MatchFunnelKeysF              MatchNullF                    MatchObjectFullResultF        MatchRefF                     MatchSuccess
+MatchArrayContextFreeResultF  MatchFunnelKeysResult         MatchNullResult               MatchObjectPartial            MatchRefResult                MatchedVal
+MatchBoolAny                  MatchFunnelKeysResultF        MatchNullResultF              MatchObjectPartialF           MatchRefResultF
+MatchBoolAnyF                 MatchFunnelKeysU              MatchNumberAny                MatchObjectPartialResult      MatchResult
+MatchBoolAnyResult            MatchFunnelKeysUF             MatchNumberAnyF               MatchObjectPartialResultF     MatchResultF
+MatchBoolAnyResultF           MatchFunnelKeysUResult        MatchNumberAnyResult          MatchOr                       MatchStatus
+MatchBoolExact                MatchFunnelKeysUResultF       MatchNumberAnyResultF         MatchOrF                      MatchStringAny
+ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1), (K.fromString "b", KeyOpt $ MatchNumberAnyResult 2)]))
+Just (Object (fromList [("a",Number 1.0),("b",Number 2.0)]))
+ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1), (K.fromString "b", KeyOpt $ MatchNumberExactResult 2)]))
+Just (Number 1.0)
+-}
