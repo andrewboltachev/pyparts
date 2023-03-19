@@ -768,7 +768,7 @@ matchResultIsConstantAlg :: MatchResultF Bool -> Bool
 matchResultIsConstantAlg = check where
     check (MatchObjectFullResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsConstant g
     check (MatchObjectPartialResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsConstant g
-    --check (MatchArrayContextFreeF g) = contextFreeGrammarIsConstant g
+    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsConstant matchPatternIsConstant id g
     check (MatchStringExactResultF _) = True
     check (MatchNumberExactResultF _) = True
     check (MatchBoolExactResultF _) = True
