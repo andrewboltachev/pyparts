@@ -721,70 +721,73 @@ extractObjectKeyMatch ext (KeyReq a) = a
 extractObjectKeyMatch ext (KeyOpt a) = a
 extractObjectKeyMatch ext (KeyExt v) = ext
 
-contextFreeGrammarIsConstant :: (a -> Bool) -> ContextFreeGrammar a -> Bool
-contextFreeGrammarIsConstant f = cata go
+contextFreeGrammarIsMovable :: (a -> Bool) -> ContextFreeGrammar a -> Bool
+contextFreeGrammarIsMovable f = cata go
   where
     go (CharF a) = f a
     go (SeqF a) = P.any id a
     go (OrF a) = P.any id (KM.elems a)
-    go (StarF a) = a
-    go (PlusF a) = a
-    go (OptionalF a) = a
+    go (StarF a) = True
+    go (PlusF a) = True
+    go (OptionalF a) = True
 
-contextFreeGrammarResultIsConstant :: (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
-contextFreeGrammarResultIsConstant gf rf = cata go
+contextFreeGrammarResultIsMovable :: (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
+contextFreeGrammarResultIsMovable gf rf = cata go
   where
     go (CharNodeF r) = rf r
     go (SeqNodeF r) = P.any id r
-    go (StarNodeEmptyF g) = contextFreeGrammarIsConstant gf g
-    go (StarNodeValueF r) = (P.head r)
-    go (PlusNodeF r) = (P.head r)
-    go (OrNodeF g k r) = r || P.any (contextFreeGrammarIsConstant gf) (KM.elems g)
-    go (OptionalNodeValueF r) = r
-    go (OptionalNodeEmptyF g) = contextFreeGrammarIsConstant gf g
+    go (StarNodeEmptyF g) = True
+    go (StarNodeValueF r) = True
+    go (PlusNodeF r) = True
+    go (OrNodeF g k r) = r || P.any (contextFreeGrammarIsMovable gf) (KM.elems g)
+    go (OptionalNodeValueF r) = True
+    go (OptionalNodeEmptyF g) = True
 
-matchPatternIsConstant :: MatchPattern -> Bool
-matchPatternIsConstant = cata go
+matchPatternIsMovable :: MatchPattern -> Bool
+matchPatternIsMovable = cata go
   where
     go (MatchObjectFullF g) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
     go (MatchObjectPartialF g) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
-    go (MatchArrayContextFreeF g) = contextFreeGrammarIsConstant id g
-    go (MatchStringExactF _) = True
-    go (MatchNumberExactF _) = True
-    go (MatchBoolExactF _) = True
-    go MatchStringAnyF = False
-    go MatchNumberAnyF = False
-    go MatchBoolAnyF = False
-    go MatchNullF = True
-    go MatchAnyF = False
+    go (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable id g
+    go (MatchStringExactF _) = False
+    go (MatchNumberExactF _) = False
+    go (MatchBoolExactF _) = False
+    go MatchStringAnyF = True
+    go MatchNumberAnyF = True
+    go MatchBoolAnyF = True
+    go MatchNullF = False
+    go MatchAnyF = True
     go (MatchOrF g) = P.any id (KM.elems g)
     go (MatchIfThenF _ _ g) = g
-    go MatchFunnelF = False
-    go MatchFunnelKeysF = False
-    go MatchFunnelKeysUF = False
+    go MatchFunnelF = True
+    go MatchFunnelKeysF = True
+    go MatchFunnelKeysUF = True
     --go MatchRef String =
 
-matchResultIsConstantAlg :: MatchResultF Bool -> Bool
-matchResultIsConstantAlg = check where
-    check (MatchObjectFullResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsConstant g
-    check (MatchObjectPartialResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsConstant g
-    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsConstant matchPatternIsConstant id g
-    check (MatchStringExactResultF _) = True
-    check (MatchNumberExactResultF _) = True
-    check (MatchBoolExactResultF _) = True
-    check (MatchStringAnyResultF _) = False
-    check (MatchNumberAnyResultF _) = False
-    check (MatchBoolAnyResultF _) = False
-    check MatchNullResultF = True
-    check (MatchAnyResultF _) = False
-    check (MatchOrResultF g _ r) = r || P.any matchPatternIsConstant (KM.elems g)
+matchResultIsMovableAlg :: MatchResultF Bool -> Bool
+matchResultIsMovableAlg = check where
+    check (MatchObjectFullResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsMovable g
+    check (MatchObjectPartialResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsMovable g
+    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsMovable matchPatternIsMovable id g
+    check (MatchStringExactResultF _) = False
+    check (MatchNumberExactResultF _) = False
+    check (MatchBoolExactResultF _) = False
+    check (MatchStringAnyResultF _) = True
+    check (MatchNumberAnyResultF _) = True
+    check (MatchBoolAnyResultF _) = True
+    check MatchNullResultF = False
+    check (MatchAnyResultF _) = True
+    check (MatchOrResultF g _ r) = r || P.any matchPatternIsMovable (KM.elems g)
     check (MatchIfThenResultF _ _ g) = g
-    check (MatchFunnelResultF _) = False
-    check (MatchFunnelKeysResultF _) = False
-    check (MatchFunnelKeysUResultF _) = False
+    check (MatchFunnelResultF _) = True
+    check (MatchFunnelKeysResultF _) = True
+    check (MatchFunnelKeysUResultF _) = True
+
+matchResultIsMovable :: MatchResult -> Bool
+matchResultIsMovable = cata matchResultIsMovableAlg
 
 matchResultToThinValue :: MatchResult -> Value
-matchResultToThinValue = zygo matchResultIsConstantAlg go
+matchResultToThinValue = zygo matchResultIsMovableAlg go
   where
     go = undefined
 
@@ -863,7 +866,7 @@ qc2 = do
 
 
 qc3 = do
-  quickCheck (\v-> case (matchPattern (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
+  quickCheck (\v -> case (matchPattern (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
 
 -- TH tricks (read DT)
 
@@ -875,3 +878,12 @@ d2 = $(ddd [''MatchPattern,
             ''ContextFreeGrammarResult,
             ''ObjectKeyMatch
             ])
+
+-- constantness
+
+qc4 = do
+  quickCheck (not . matchPatternIsMovable . valueToExactGrammar)
+
+{-
+qc5 = do
+  quickCheck (\v -> case (matchPattern (valueToExactGrammar v) v) of MatchSuccess s -> matchResultIsConstant s; _ -> False)-}
