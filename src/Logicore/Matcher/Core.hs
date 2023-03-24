@@ -797,8 +797,8 @@ contextFreeGrammarResultToThin = para go
     --replaceNum :: [Maybe Value] -> Value
     go (CharNodeF r) = [r]
     go (SeqNodeF r) = P.filter isJust $ P.concat (fmap snd r)
-    go (StarNodeEmptyF g) = []
-    go (StarNodeValueF r) = P.concat (fmap snd r)
+    go (StarNodeEmptyF g) = [Just $ Number 0]
+    go (StarNodeValueF r) = let l = P.concat (fmap snd r) in if P.length l == 0 then [Just $ Number (fromIntegral $ P.length r)] else l
     go (PlusNodeF r) = P.concat (fmap snd r)
     go (OrNodeF g k r) = (snd r)
     go (OptionalNodeValueF r) = (snd r)
