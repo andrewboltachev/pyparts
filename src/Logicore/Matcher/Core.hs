@@ -113,6 +113,11 @@ instance Arbitrary a => Arbitrary (ContextFreeGrammar a) where
 
 makeBaseFunctor ''ContextFreeGrammar
 
+instance ToJSON a => ToJSON (ContextFreeGrammar a) where
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON a => FromJSON (ContextFreeGrammar a)
+
 -- TODO: much better approach?
 data ContextFreeGrammarResult g r = CharNode r
                                   | SeqNode [(ContextFreeGrammarResult g r)]
@@ -136,11 +141,6 @@ instance (Arbitrary g, Arbitrary r) => Arbitrary (ContextFreeGrammarResult g r) 
       OptionalNodeValue <$> arbitrary]
 
 makeBaseFunctor ''ContextFreeGrammarResult
-
-instance ToJSON a => ToJSON (ContextFreeGrammar a) where
-    toEncoding = genericToEncoding defaultOptions
-
-instance FromJSON a => FromJSON (ContextFreeGrammar a)
 
 instance (ToJSON g, ToJSON r) => ToJSON (ContextFreeGrammarResult g r) where
     toEncoding = genericToEncoding defaultOptions
@@ -383,65 +383,90 @@ instance FromJSON MatchResult
 
 data MatchPath = ObjKey Key | ArrKey Int deriving (Generic, Eq, Show)
 
+-- ThickMatch stuff begin
                   -- structures - object
-data ThickPattern = ThickObjectFull (KeyMap (ObjectKeyMatch ThickPattern))
-                  | ThickObjectPartial (KeyMap (ObjectKeyMatch ThickPattern))
+data ThickMatchPattern = ThickMatchObjectFull (KeyMap (ObjectKeyMatch ThickMatchPattern))
+                  | ThickMatchObjectPartial (KeyMap (ObjectKeyMatch ThickMatchPattern))
                   -- structures - array
-                  -- | ThickArrayAll ThickPattern
-                  -- | ThickArraySome ThickPattern
-                  -- | ThickArrayOne ThickPattern
-                  -- | ThickArrayExact [ThickPattern]
-                  | ThickArrayContextFree (ContextFreeGrammar ThickPattern)
+                  -- | ThickMatchArrayAll ThickMatchPattern
+                  -- | ThickMatchArraySome ThickMatchPattern
+                  -- | ThickMatchArrayOne ThickMatchPattern
+                  -- | ThickMatchArrayExact [ThickMatchPattern]
+                  | ThickMatchArrayContextFree (ContextFreeGrammar ThickMatchPattern)
                   -- literals: match particular value of
-                  | ThickStringExact !T.Text
-                  | ThickNumberExact !Sci.Scientific
-                  | ThickBoolExact !Bool
+                  | ThickMatchStringExact !T.Text
+                  | ThickMatchNumberExact !Sci.Scientific
+                  | ThickMatchBoolExact !Bool
                   -- literals: match any of
-                  | ThickStringAny
-                  | ThickNumberAny
-                  | ThickBoolAny
+                  | ThickMatchStringAny
+                  | ThickMatchNumberAny
+                  | ThickMatchBoolAny
                   -- literals: null is just null
-                  | ThickNull
+                  | ThickMatchNull
                   -- conditions
-                  | ThickAny
-                  | ThickOr (KeyMap ThickPattern)
-                  | ThickIfThen ThickPattern T.Text ThickPattern
+                  | ThickMatchAny
+                  | ThickMatchOr (KeyMap ThickMatchPattern)
+                  | ThickMatchIfThen ThickMatchPattern T.Text ThickMatchPattern
                   -- funnel
-                  | ThickFunnel
-                  | ThickFunnelKeys
-                  | ThickFunnelKeysU
+                  | ThickMatchFunnel
+                  | ThickMatchFunnelKeys
+                  | ThickMatchFunnelKeysU
                   -- special
-                  | ThickRef String
+                  | ThickMatchRef String
                     deriving (Generic, Eq, Show)
 
-instance Arbitrary ThickPattern where
+instance Arbitrary ThickMatchPattern where
   arbitrary = oneof [
-      ThickObjectFull <$> arbitrary,
-      ThickObjectPartial <$> arbitrary,
-      ThickArrayContextFree <$> arbitrary,
-      ThickStringExact <$> T.pack <$> arbitrary,
-      ThickNumberExact <$> (Sci.scientific <$> arbitrary <*> arbitrary),
-      ThickBoolExact <$> arbitrary,
-      return $ ThickStringAny,
-      return $ ThickNumberAny,
-      return $ ThickBoolAny,
-      return $ ThickNull,
-      return $ ThickAny,
-      ThickOr <$> arbitrary,
-      ThickIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
-      return $ ThickFunnel,
-      return $ ThickFunnelKeys,
-      return $ ThickFunnelKeysU,
-      ThickRef <$> arbitrary]
+      ThickMatchObjectFull <$> arbitrary,
+      ThickMatchObjectPartial <$> arbitrary,
+      ThickMatchArrayContextFree <$> arbitrary,
+      ThickMatchStringExact <$> T.pack <$> arbitrary,
+      ThickMatchNumberExact <$> (Sci.scientific <$> arbitrary <*> arbitrary),
+      ThickMatchBoolExact <$> arbitrary,
+      return $ ThickMatchStringAny,
+      return $ ThickMatchNumberAny,
+      return $ ThickMatchBoolAny,
+      return $ ThickMatchNull,
+      return $ ThickMatchAny,
+      ThickMatchOr <$> arbitrary,
+      ThickMatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
+      return $ ThickMatchFunnel,
+      return $ ThickMatchFunnelKeys,
+      return $ ThickMatchFunnelKeysU,
+      ThickMatchRef <$> arbitrary]
 
 
-makeBaseFunctor ''ThickPattern
+makeBaseFunctor ''ThickMatchPattern
 
-instance ToJSON ThickPattern where
+instance ToJSON ThickMatchPattern where
     toEncoding = genericToEncoding defaultOptions
 
-instance FromJSON ThickPattern
+instance FromJSON ThickMatchPattern
     -- No need to provide a parseJSON implementation.
+
+data ThickContextFreeGrammar a = ThickChar a
+                               | ThickSeq [(ThickContextFreeGrammar a)]
+                               | ThickOr (KeyMap (ThickContextFreeGrammar a))
+                               | ThickStar (ThickContextFreeGrammar a)
+                               | ThickPlus (ThickContextFreeGrammar a)
+                               | ThickOptional (ThickContextFreeGrammar a)
+                                 deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
+
+instance Arbitrary a => Arbitrary (ThickContextFreeGrammar a) where
+  arbitrary = oneof [
+    ThickChar <$> arbitrary,
+    ThickSeq <$> arbitrary,
+    ThickOr <$> arbitrary,
+    ThickStar <$> arbitrary,
+    ThickPlus <$> arbitrary,
+    ThickOptional <$> arbitrary]
+
+makeBaseFunctor ''ThickContextFreeGrammar
+
+instance ToJSON a => ToJSON (ThickContextFreeGrammar a) where
+    toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
 {-
 gatherFunnel :: [Value] -> MatchPattern -> [Value]
