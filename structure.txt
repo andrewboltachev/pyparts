@@ -20,3 +20,5 @@ contextFreeGrammarResultToGrammar, contextFreeGrammarResultToSource
 matchResultToPattern(Alg), matchResultToValue, BF Value, valueToExactGrammar
 
 ...is movable
+
+contextFreeGrammarResultToThin, matchResultToThinValue

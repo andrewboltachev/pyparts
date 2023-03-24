@@ -54,7 +54,7 @@ import Control.Monad()
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
 import Data.Bifunctor
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromJust)
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
@@ -834,28 +834,43 @@ instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
 
 
-contextFreeGrammarResultToThin :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> [Maybe Value]
-contextFreeGrammarResultToThin = para go
+contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
+contextFreeGrammarResultToThinValue = cata go
   where
-    --replaceNum :: [Maybe Value] -> Value
-    go (CharNodeF r) = [r]
-    go (SeqNodeF r) = P.filter isJust $ P.concat (fmap snd r)
-    go (StarNodeEmptyF g) = [Just $ Number 0]
-    go (StarNodeValueF r) = let l = P.concat (fmap snd r) in if P.length l == 0 then [Just $ Number (fromIntegral $ P.length r)] else l
-    go (PlusNodeF r) = P.concat (fmap snd r)
-    go (OrNodeF g k r) = (snd r)
-    go (OptionalNodeValueF r) = (snd r)
-    go (OptionalNodeEmptyF g) = []
+    gg = contextFreeGrammarIsMovable matchPatternIsMovable
+    tMap t v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "value", v)]
+    tMapK t k = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", k)]
+    tMapKV t k v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", k), (K.fromString "value", v)]
+    go :: ContextFreeGrammarResultF MatchPattern (Maybe Value) (Maybe Value) -> Maybe Value
+    go (CharNodeF r) = fmap (tMap "Char") r
+    go (SeqNodeF r) = let l = P.map fromJust $ P.filter isJust r in
+      if P.null l
+         then Nothing
+         else Just $ tMap "SeqNode" $ Array $ V.fromList $ l
+    go (StarNodeEmptyF g) = Just $ if gg g
+                                      then tMap "StarNode" $ Array $ V.fromList ([] :: [Value])
+                                      else tMap "StarNodeTrivial" $ Array $ V.fromList ([] :: [Value])
+    go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
+                               then tMap "StarNodeTrivial" $ Number 0
+                               else tMap "StarNode" $ Array $ V.fromList $ P.map fromJust r
+    go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
+                               then tMap "PlusNodeTrivial" $ Number 0
+                               else tMap "PlusNode" $ Array $ V.fromList $ P.map fromJust r
+    go (OrNodeF g k r) = Just $ if r == Nothing
+                            then tMapK "OrNodeTrivial" (String $ (T.pack . K.toString) k)
+                            else tMapKV "OrNodeTrivial" (String $ (T.pack . K.toString) k) (fromJust r)
+    go (OptionalNodeValueF r) = fmap (tMap "OptionalNodeValue") r
+    go (OptionalNodeEmptyF g) = if gg g then Just $ tMap "OptionalNodeEmpty" $ Null else Nothing
 
 
 matchResultToThinValue :: MatchResult -> Maybe Value
 matchResultToThinValue = cata go
   where
-    nonEmptyMap m = if KM.size m == 0 then Nothing else Just m
-    filterEmpty a = (KM.map m (KM.filter isJust a)) where m (Just x) = x
+    filterEmpty a = (KM.map fromJust (KM.filter isJust a))
+    nonEmptyMap m = if KM.null m then Nothing else Just m
     replaceSingleton (Object m) = if (KM.size m) == 1 then P.head (KM.elems m) else Object m
-    prepareSeq [] = Nothing
-    prepareSeq l = Just $ fmap j l where j (Just x) = x
+    --prepareSeq [] = Nothing
+    --prepareSeq l = Just $ fmap j l where j (Just x) = x
     go :: MatchResultF (Maybe Value) -> Maybe Value
     go (MatchObjectFullResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ (KM.map f r)
       where
@@ -867,7 +882,8 @@ matchResultToThinValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = v
         f (KeyExt v) = Just v
-    go (MatchArrayContextFreeResultF r) = fmap (Array . V.fromList) $ prepareSeq $ (P.filter isJust) $ contextFreeGrammarResultToThin r
+    --go (MatchArrayContextFreeResultF r) = fmap (Array . V.fromList) $ prepareSeq $ (P.filter isJust) $ contextFreeGrammarResultToThinValue r
+    go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
     go (MatchBoolExactResultF r) = Nothing
