@@ -899,8 +899,99 @@ matchResultToThinValue = cata go
     go (MatchFunnelKeysUResultF r) = Just $ Object r
     go (MatchRefResultF ref r) = r
 
+-- thin pattern
+
+thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
+
 {-
+mObj :: Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatus (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
+mObj keepExt m a = do
+  preResult <- L.foldl' (doKeyMatch m a) (MatchSuccess mempty) (keys m)
+  L.foldl' f (MatchSuccess preResult) (keys a)
+    where
+      step k r acc req = case KM.lookup k a of
+                      -- KeyOpt means key might be missing
+                      Nothing -> if req
+                                      then NoMatch $ "Required key " ++ show k ++ " not found in map"
+                                      else MatchSuccess $ first (KM.insert k r) acc
+                      -- if it exists, it must match
+                      Just n -> case thinPattern r n of
+                                     NoMatch s -> NoMatch s
+                                     MatchFailure s -> MatchFailure s
+                                     MatchSuccess s -> MatchSuccess $ second (KM.insert k el) acc
+                                        where
+                                          el = if req then (KeyReq s) else (KeyOpt s)
+      doKeyMatch m a acc' k = do
+        acc <- acc'
+        v <- (m2ms $ MatchFailure "impossible") (KM.lookup k m)
+        case v of
+            KeyReq r -> step k r acc True
+            KeyOpt r -> step k r acc False
+            KeyExt _ -> MatchFailure "malformed grammar: KeyExt cannot be here"
+      f acc' k = do
+            acc <- acc'
+            case KM.member k m of
+                 True -> MatchSuccess acc
+                 False -> case keepExt of
+                               False -> NoMatch "extra key in arg"
+                               True -> case KM.lookup k a of
+                                            Nothing -> MatchFailure "impossible"
+                                            Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
+
+thinPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
+thinPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
+
+thinPattern (MatchArrayContextFree m) (Array a) = do
+  case contextFreeMatch m (V.toList a) thinPattern of
+       NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
+       MatchFailure s -> MatchFailure s
+       MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
+
+thinPattern (MatchArrayContextFree m) (Object a) = MatchFailure ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
 -}
+
+thinPattern MatchFunnel (Just v) = MatchSuccess (True, MatchFunnelResult v)
+
+thinPattern MatchFunnelKeys (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysResult v)
+thinPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object or Nothing"
+
+thinPattern MatchFunnelKeysU (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysUResult v)
+thinPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object or Nothing"
+
+{-
+thinPattern (MatchIfThen baseMatch failMsg match) v =
+  case thinPattern baseMatch v of
+       NoMatch x -> NoMatch x
+       MatchFailure f -> MatchFailure f
+       MatchSuccess _ -> case thinPattern match v of
+                            NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
+                            MatchFailure f -> MatchFailure f
+                            MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
+-}
+
+thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
+{-
+thinPattern (MatchOr ms) v = do
+  let f (k, a) b = case thinPattern a v of
+                     MatchSuccess x -> MatchSuccess (k, x)
+                     MatchFailure f -> MatchFailure f
+                     _ -> b
+  (k, res) <- P.foldr f (NoMatch "or fail") (KM.toList ms)
+  return $ MatchOrResult (KM.delete k ms) k res
+-}
+
+-- specific (aka exact)
+thinPattern (MatchStringExact m) Nothing = MatchSuccess (False, MatchStringExactResult m)
+thinPattern (MatchNumberExact m) Nothing = MatchSuccess (False, MatchNumberExactResult m)
+thinPattern (MatchBoolExact m) Nothing = MatchSuccess (False, MatchBoolExactResult m)
+-- any (of a type)
+thinPattern MatchStringAny (Just (String a)) = MatchSuccess (True, MatchStringAnyResult a)
+thinPattern MatchNumberAny (Just (Number a)) = MatchSuccess (True, MatchNumberAnyResult a)
+thinPattern MatchBoolAny (Just (Bool a)) = MatchSuccess (True, MatchBoolAnyResult a)
+-- null is just null
+thinPattern MatchNull Nothing = MatchSuccess (False, MatchNullResult)
+-- default ca
+thinPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
 -- Match functions end
 {-
