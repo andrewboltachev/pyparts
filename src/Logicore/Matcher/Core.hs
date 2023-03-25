@@ -55,6 +55,7 @@ import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
 import Data.Bifunctor
 import Data.Maybe (isJust, fromJust)
+import Data.Monoid
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
@@ -908,6 +909,83 @@ thinPattern or2 $ Just (Object (KM.fromList [("key",String "option2"),("type",St
 thinPattern or2 $ Just (Object (KM.fromList [("key",String "option1"),("type",String "OrTrivial")]))
 -}
 
+
+thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> MatchStatus (Bool, ContextFreeGrammarResult MatchPattern MatchResult)
+thinContextFreeMatch (Char a) v = do
+  case thinPattern a v of
+       NoMatch s -> NoMatch ("no char match: " ++ s)
+       MatchFailure s -> MatchFailure s
+       MatchSuccess (b, r) -> MatchSuccess (b, CharNode r)
+
+thinContextFreeMatch (Seq as) Nothing = if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
+                                           then MatchSuccess (False, SeqNode [])
+                                           else NoMatch "data error"
+thinContextFreeMatch (Seq as) (Just v) = do
+  if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
+     then NoMatch "data error"
+     else
+      do
+        v <- (m2ms $ MatchFailure "data error") $ asKeyMap v
+        itsType <- (m2ms $ MatchFailure "data error") $ KM.lookup "type" v
+        itsValue <- (m2ms $ MatchFailure "data error") $ KM.lookup "value" v
+        _ <- if itsType /= "SeqNode" then MatchFailure "data error" else MatchSuccess $ SeqNode []
+        let f acc a = do
+            (b, c) <- acc
+            return $ if not $ contextFreeGrammarIsMovable matchPatternIsMovable a
+               then (All True, [])
+               else (All True, [])
+        r <- L.foldl' f (MatchSuccess mempty) as
+        let r1@(bb, _) = bimap getAll SeqNode r
+        if not bb then MatchFailure "bb fail" else MatchSuccess r1
+
+{-(fmap . fmap) SeqNode $ L.foldl' f (MatchSuccess (xs, mempty)) as
+  where f acc' a = do
+          (xs, result) <- acc'
+          (xs', result') <- thinContextFreeMatch a xs
+          return (xs', result ++ [result'])-}
+
+{-thinContextFreeMatch (Or as) xs = L.foldr f (NoMatch "or mismatch") (KM.toList as)
+  where f (opt, a) b = do
+          case thinContextFreeMatch a xs of
+               NoMatch _ -> b
+               MatchFailure s -> MatchFailure s
+               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode (KM.delete opt as) opt r)
+
+thinContextFreeMatch (Star a) xs = (fmap . fmap) c $ f (MatchSuccess (xs, mempty))
+  where --f :: MatchStatus ([b], ContextFreeGrammar a) -> MatchStatus ([b], ContextFreeGrammar a)
+        c [] = StarNodeEmpty a
+        c xs = StarNodeValue xs
+        f acc = do
+          (xs, result) <- acc
+          case thinContextFreeMatch a xs of
+               NoMatch _ -> acc
+               MatchFailure s -> MatchFailure s
+               MatchSuccess (xs', result') -> f (MatchSuccess (xs', result ++ [result']))
+
+thinContextFreeMatch (Plus a) xs = do
+  (xs', subresult) <- thinContextFreeMatch (Seq [a, Star a]) xs
+  rs' <- case subresult of
+              (SeqNode [r, (StarNodeValue rs)]) -> MatchSuccess (r:rs)
+              _ -> NoMatch "impossible"
+  return (xs', (PlusNode rs'))
+  
+
+thinContextFreeMatch (Optional a) xs =
+  case thinContextFreeMatch a xs of
+       NoMatch _ -> MatchSuccess (xs, OptionalNodeEmpty a)
+       MatchFailure s -> MatchFailure s
+       MatchSuccess (xs', subresult) -> MatchSuccess (xs', OptionalNodeValue subresult)-}
+
+thinContextFreeMatch a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+
+{-
+thinContextFreeMatch :: (Show g, Show v) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus (ContextFreeGrammarResult g r)
+thinContextFreeMatch a xs = do
+  (rest, result) <- thinContextFreeMatch a xs
+  case P.length rest == 0 of
+       False -> NoMatch ("rest left: " ++ show rest)
+       True -> MatchSuccess result-}
+
 thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
 
 {-
@@ -947,25 +1025,35 @@ mObj keepExt m a = do
 
 thinPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
 thinPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
+-}
 
-thinPattern (MatchArrayContextFree m) (Array a) = do
-  case contextFreeMatch m (V.toList a) thinPattern of
+{-
+
+seq1 = MatchArrayContextFree (Seq [Char $ MatchNumberExact 1, Char $ MatchNumberAny])
+dseq1 = Array [Number 1, Number 2]
+matchPattern seq1 dseq1
+
+MatchSuccess (MatchArrayContextFreeResult (SeqNode [CharNode (MatchNumberExactResult 1.0),CharNode (MatchNumberAnyResult 2.0)]))
+
+ghci> matchResultToThinValue $ MatchArrayContextFreeResult (SeqNode [CharNode (MatchNumberExactResult 1.0),CharNode (MatchNumberAnyResult 2.0)])
+
+ts = Just (Object (fromList [("type",String "SeqNode"),("value",Array [Object (fromList [("type",String "Char"),("value",Number 2.0)])])]))
+-}
+
+thinPattern (MatchArrayContextFree m) a = do
+  case thinContextFreeMatch m a of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
-       MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
-
-thinPattern (MatchArrayContextFree m) (Object a) = MatchFailure ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
--}
+       MatchSuccess (b, x) -> MatchSuccess (b, (MatchArrayContextFreeResult x))
 
 thinPattern MatchFunnel (Just v) = MatchSuccess (True, MatchFunnelResult v)
 
 thinPattern MatchFunnelKeys (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysResult v)
-thinPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object or Nothing"
+thinPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object or met Nothing"
 
 thinPattern MatchFunnelKeysU (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysUResult v)
-thinPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object or Nothing"
+thinPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object or met Nothing"
 
-{-
 thinPattern (MatchIfThen baseMatch failMsg match) v =
   case thinPattern baseMatch v of
        NoMatch x -> NoMatch x
@@ -973,8 +1061,7 @@ thinPattern (MatchIfThen baseMatch failMsg match) v =
        MatchSuccess _ -> case thinPattern match v of
                             NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
                             MatchFailure f -> MatchFailure f
-                            MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
--}
+                            MatchSuccess s -> MatchSuccess $ fmap (MatchIfThenResult baseMatch failMsg) s
 
 thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
 
