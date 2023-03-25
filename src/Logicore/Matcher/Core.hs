@@ -833,14 +833,14 @@ instance ToJSON a => ToJSON (ThickContextFreeGrammar a) where
 instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
 
+tMap t v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "value", v)]
+tMapK t k = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k)]
+tMapKV t k v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k), (K.fromString "value", v)]
 
 contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
 contextFreeGrammarResultToThinValue = cata go
   where
     gg = contextFreeGrammarIsMovable matchPatternIsMovable
-    tMap t v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "value", v)]
-    tMapK t k = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", k)]
-    tMapKV t k v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", k), (K.fromString "value", v)]
     go :: ContextFreeGrammarResultF MatchPattern (Maybe Value) (Maybe Value) -> Maybe Value
     go (CharNodeF r) = fmap (tMap "Char") r
     go (SeqNodeF r) = let l = P.map fromJust $ P.filter isJust r in
@@ -857,8 +857,8 @@ contextFreeGrammarResultToThinValue = cata go
                                then tMap "PlusNodeTrivial" $ Number 0
                                else tMap "PlusNode" $ Array $ V.fromList $ P.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
-                            then tMapK "OrNodeTrivial" (String $ (T.pack . K.toString) k)
-                            else tMapKV "OrNodeTrivial" (String $ (T.pack . K.toString) k) (fromJust r)
+                            then tMapK "OrNodeTrivial" k
+                            else tMapKV "OrNode" k (fromJust r)
     go (OptionalNodeValueF r) = fmap (tMap "OptionalNodeValue") r
     go (OptionalNodeEmptyF g) = if gg g then Just $ tMap "OptionalNodeEmpty" $ Null else Nothing
 
@@ -892,7 +892,9 @@ matchResultToThinValue = cata go
     go (MatchBoolAnyResultF r) = Just $ Bool r
     go MatchNullResultF = Nothing
     go (MatchAnyResultF r) = Just $ r
-    go (MatchOrResultF m k r) = r
+    go (MatchOrResultF g k r) = Just $ if r == Nothing
+                                   then tMapK "OrTrivial" k
+                                   else tMapKV "Or" k (fromJust r)
     go (MatchIfThenResultF p errorMsg r) = r
     go (MatchFunnelResultF r) = Just $ r
     go (MatchFunnelKeysResultF r) = Just $ Object r
@@ -900,6 +902,11 @@ matchResultToThinValue = cata go
     go (MatchRefResultF ref r) = r
 
 -- thin pattern
+or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
+{-
+thinPattern or2 $ Just (Object (KM.fromList [("key",String "option2"),("type",String "Or"),("value",Number 44.0)]))
+thinPattern or2 $ Just (Object (KM.fromList [("key",String "option1"),("type",String "OrTrivial")]))
+-}
 
 thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
 
@@ -970,15 +977,14 @@ thinPattern (MatchIfThen baseMatch failMsg match) v =
 -}
 
 thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
-{-
-thinPattern (MatchOr ms) v = do
-  let f (k, a) b = case thinPattern a v of
-                     MatchSuccess x -> MatchSuccess (k, x)
-                     MatchFailure f -> MatchFailure f
-                     _ -> b
-  (k, res) <- P.foldr f (NoMatch "or fail") (KM.toList ms)
-  return $ MatchOrResult (KM.delete k ms) k res
--}
+
+thinPattern (MatchOr ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
+  itsType <- (m2ms $ MatchFailure "data error") $ KM.lookup (K.fromString "type") v
+  itsKey <- (m2ms $ MatchFailure "data error") $ KM.lookup (K.fromString "key") v
+  itsKey <- (m2ms $ MatchFailure "data error") $ asString itsKey
+  let itsK = (K.fromString . T.unpack) itsKey
+  itsMatch <- (m2ms $ MatchFailure "data error") $ KM.lookup itsK ms
+  fmap ((\a -> (True, a)) . (MatchOrResult (KM.delete itsK ms) itsK) . snd) (thinPattern itsMatch (KM.lookup (K.fromString "value") v))
 
 -- specific (aka exact)
 thinPattern (MatchStringExact m) Nothing = MatchSuccess (False, MatchStringExactResult m)
@@ -1093,4 +1099,25 @@ ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromLis
 Just (Object (fromList [("a",Number 1.0),("b",Number 2.0)]))
 ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1), (K.fromString "b", KeyOpt $ MatchNumberExactResult 2)]))
 Just (Number 1.0)
+-}
+
+-- Different matches for or example (trivial and normal)
+{-
+ghci> or1 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", (MatchNumberExact 2))]))
+ghci> mor1 = matchPattern or1 $ Number 2
+ghci> fmap matchResultToThinValue  $ matchPattern or1 $ Number 2
+MatchSuccess (Just (Object (fromList [("key",String "option2"),("type",String "OrTrivial")])))
+ghci> or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
+ghci> mor2 = matchPattern or1 $ Number 44
+ghci> mor2
+NoMatch "or fail"
+ghci> mor2 = matchPattern or2 $ Number 44
+
+<interactive>:164:1: warning: [-Wname-shadowing]
+    This binding for ‘mor2’ shadows the existing binding
+      defined at <interactive>:162:1
+ghci> mor2
+MatchSuccess (MatchOrResult (fromList [("option1",MatchNumberExact 1.0)]) "option2" (MatchNumberAnyResult 44.0))
+ghci> fmap matchResultToThinValue mor2
+MatchSuccess (Just (Object (fromList [("key",String "option2"),("type",String "Or"),("value",Number 44.0)])))
 -}
