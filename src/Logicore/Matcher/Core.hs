@@ -843,7 +843,7 @@ contextFreeGrammarResultToThinValue = cata go
   where
     gg = contextFreeGrammarIsMovable matchPatternIsMovable
     go :: ContextFreeGrammarResultF MatchPattern (Maybe Value) (Maybe Value) -> Maybe Value
-    go (CharNodeF r) = fmap (tMap "Char") r
+    go (CharNodeF r) = r --fmap (tMap "Char") r
     go (SeqNodeF r) = let l = P.map fromJust $ P.filter isJust r in
       if P.null l
          then Nothing
@@ -912,6 +912,31 @@ thinPattern or2 $ Just (Object (KM.fromList [("key",String "option1"),("type",St
 -}
 
 
+thinSeq as v = do
+        let gs = fmap (contextFreeGrammarIsMovable matchPatternIsMovable) as
+        let isOne = P.length (P.filter id gs) == 1
+        v <- if not isOne
+                then
+                  do
+                    v <- (m2ms $ MatchFailure "data error7") $ asKeyMap v
+                    itsType <- (m2ms $ MatchFailure "data error8") $ KM.lookup "type" v
+                    itsValue <- (m2ms $ MatchFailure "data error9") $ KM.lookup "value" v
+                    (m2ms $ MatchFailure "data error10") $ asArray itsValue
+                else
+                  do
+                    return $ [v]
+        let f acc' (a, gg) = do
+            (ii, acc) <- acc'
+            let (i:is) = ii
+            if gg -- movable
+              then fmap (\x -> (is, acc <> (bimap All L.singleton x))) (thinContextFreeMatch a (Just i))
+              else fmap (\x -> (ii, acc <> (bimap (const mempty) L.singleton x))) (thinContextFreeMatch a Nothing)
+        r <- L.foldl' f (MatchSuccess (v, mempty)) $ P.zip as gs
+        _ <- if P.null $ fst r then MatchSuccess "foo" else MatchFailure "not all consumed"
+        let r1@(bb, _) = bimap getAll SeqNode (snd r)
+        if not bb then MatchFailure "bb fail" else MatchSuccess r1
+        --MatchSuccess r1
+
 thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> MatchStatus (Bool, ContextFreeGrammarResult MatchPattern MatchResult)
 thinContextFreeMatch (Char a) v = do
   case thinPattern a v of
@@ -920,25 +945,12 @@ thinContextFreeMatch (Char a) v = do
        MatchSuccess (b, r) -> MatchSuccess (b, CharNode r)
 
 thinContextFreeMatch (Seq as) Nothing = if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
-                                           then MatchSuccess (False, SeqNode [])
-                                           else NoMatch "data error"
+                                           then thinSeq as (Array [])
+                                           else NoMatch "data error5"
 thinContextFreeMatch (Seq as) (Just v) = do
   if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
-     then NoMatch "data error"
-     else
-      do
-        v <- (m2ms $ MatchFailure "data error") $ asKeyMap v
-        itsType <- (m2ms $ MatchFailure "data error") $ KM.lookup "type" v
-        itsValue <- (m2ms $ MatchFailure "data error") $ KM.lookup "value" v
-        _ <- if itsType /= "SeqNode" then MatchFailure "data error" else MatchSuccess $ SeqNode []
-        let f acc a = do
-            (b, c) <- acc
-            return $ if not $ contextFreeGrammarIsMovable matchPatternIsMovable a
-               then (All True, [])
-               else (All True, [])
-        r <- L.foldl' f (MatchSuccess mempty) as
-        let r1@(bb, _) = bimap getAll SeqNode r
-        if not bb then MatchFailure "bb fail" else MatchSuccess r1
+     then NoMatch "data error6"
+     else thinSeq as v
 
 {-(fmap . fmap) SeqNode $ L.foldl' f (MatchSuccess (xs, mempty)) as
   where f acc' a = do
@@ -1068,11 +1080,11 @@ thinPattern (MatchIfThen baseMatch failMsg match) v =
 thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
 
 thinPattern (MatchOr ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
-  itsType <- (m2ms $ MatchFailure "data error") $ KM.lookup (K.fromString "type") v
-  itsKey <- (m2ms $ MatchFailure "data error") $ KM.lookup (K.fromString "key") v
-  itsKey <- (m2ms $ MatchFailure "data error") $ asString itsKey
+  itsType <- (m2ms $ MatchFailure "data error1") $ KM.lookup (K.fromString "type") v
+  itsKey <- (m2ms $ MatchFailure "data error2") $ KM.lookup (K.fromString "key") v
+  itsKey <- (m2ms $ MatchFailure "data error3") $ asString itsKey
   let itsK = (K.fromString . T.unpack) itsKey
-  itsMatch <- (m2ms $ MatchFailure "data error") $ KM.lookup itsK ms
+  itsMatch <- (m2ms $ MatchFailure "data error4") $ KM.lookup itsK ms
   fmap ((\a -> (True, a)) . (MatchOrResult (KM.delete itsK ms) itsK) . snd) (thinPattern itsMatch (KM.lookup (K.fromString "value") v))
 
 -- specific (aka exact)
@@ -1209,4 +1221,21 @@ ghci> mor2
 MatchSuccess (MatchOrResult (fromList [("option1",MatchNumberExact 1.0)]) "option2" (MatchNumberAnyResult 44.0))
 ghci> fmap matchResultToThinValue mor2
 MatchSuccess (Just (Object (fromList [("key",String "option2"),("type",String "Or"),("value",Number 44.0)])))
+-}
+
+{-
+ghci> matchPattern (MatchArrayContextFree $ (Seq [Char $ MatchNumberExact 1, Char $ MatchNumberAny])) (Array [(Number 1), (Number 2.0)])
+MatchSuccess (MatchArrayContextFreeResult (SeqNode [CharNode (MatchNumberExactResult 1.0),CharNode (MatchNumberAnyResult 2.0)]))
+
+old:
+ghci> matchResultToThinValue $ MatchArrayContextFreeResult (SeqNode [CharNode (MatchNumberExactResult 1.0),CharNode (MatchNumberAnyResult 2.0)])
+Just (Object (fromList [("type",String "Char"),("value",Number 2.0)]))
+
+new:
+Just (Number 2.0)
+
+ghci> thinPattern (MatchArrayContextFree $ (Seq [Char $ MatchNumberExact 1, Char $ MatchNumberAny])) (Just (Number 2.0))
+MatchFailure "bb fail"
+
+
 -}
