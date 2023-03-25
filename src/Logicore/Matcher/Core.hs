@@ -847,7 +847,9 @@ contextFreeGrammarResultToThinValue = cata go
     go (SeqNodeF r) = let l = P.map fromJust $ P.filter isJust r in
       if P.null l
          then Nothing
-         else Just $ tMap "SeqNode" $ Array $ V.fromList $ l
+         else if P.length l == 1
+                 then Just $ P.head l
+                 else Just $ tMap "SeqNode" $ Array $ V.fromList $ l
     go (StarNodeEmptyF g) = Just $ if gg g
                                       then tMap "StarNode" $ Array $ V.fromList ([] :: [Value])
                                       else tMap "StarNodeTrivial" $ Array $ V.fromList ([] :: [Value])
