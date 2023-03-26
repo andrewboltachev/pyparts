@@ -49,6 +49,7 @@ import qualified Data.Scientific as Sci
 import qualified Data.Vector as V
 import Prelude                    as P
 import Control.Monad()
+import Control.Comonad
 --import qualified Data.ByteString.UTF8       as BLU
 --import Logicore.Matcher.Utils
 import Data.Functor.Foldable.TH (makeBaseFunctor)
@@ -59,6 +60,7 @@ import Data.Monoid
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
+import Test.Hspec
 
 import Language.Haskell.TH
 import Language.Haskell.TH.Datatype as TH.Abs
@@ -93,6 +95,14 @@ instance Monad MatchStatus where
   (>>=) (MatchSuccess m) f = f m
   (>>=) (MatchFailure m) _ = (MatchFailure m)
   (>>=) (NoMatch m) _ = (NoMatch m)
+
+instance Comonad MatchStatus where
+  extract (MatchSuccess s) = s
+  extract (MatchFailure _) = error "cannot extract"
+  extract (NoMatch _) = error "cannot extract"
+  duplicate (MatchSuccess s) = MatchSuccess (MatchSuccess s)
+  duplicate (MatchFailure m) = MatchFailure m
+  duplicate (NoMatch m) = NoMatch m
 
 -- CF matcher
 data ContextFreeGrammar a = Char a
@@ -231,6 +241,9 @@ asArray _ = Nothing
 
 asString (String x) = Just x
 asString _ = Nothing
+
+asBool (Bool x) = Just x
+asBool _ = Nothing
 
 --- Helper types
 
@@ -746,7 +759,6 @@ matchResultIsMovableAlg = check where
 matchResultIsMovable :: MatchResult -> Bool
 matchResultIsMovable = cata matchResultIsMovableAlg
 
---contextFreeGrammarResultToThin :: (r -> a) -> ContextFreeGrammarResult g r -> Maybe [a]
 
 -- Thick/Thin stuff
                   -- structures - object
@@ -835,8 +847,11 @@ instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
 
 tMap t v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "value", v)]
+tMapT t v = Object $ KM.fromList [(K.fromString "type", String t)]
 tMapK t k = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k)]
+tMapF t f = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "flag", Bool f)]
 tMapKV t k v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k), (K.fromString "value", v)]
+tMapFV t f v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "flag", Bool f), (K.fromString "value", v)]
 
 contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
 contextFreeGrammarResultToThinValue = cata go
@@ -862,8 +877,12 @@ contextFreeGrammarResultToThinValue = cata go
     go (OrNodeF g k r) = Just $ if r == Nothing
                             then tMapK "OrNodeTrivial" k
                             else tMapKV "OrNode" k (fromJust r)
-    go (OptionalNodeValueF r) = fmap (tMap "OptionalNodeValue") r
-    go (OptionalNodeEmptyF g) = if gg g then Just $ tMap "OptionalNodeEmpty" $ Null else Nothing
+    go (OptionalNodeValueF r) = Just $ if r == Nothing
+                            then tMapF "OptionalNodeTrivial" True
+                            else tMapFV "OptionalNode" True (fromJust r)
+    go (OptionalNodeEmptyF g) = Just $ if not $ gg g
+                            then tMapF "OptionalNodeTrivial" False
+                            else tMapF "OptionalNode" False
 
 
 matchResultToThinValue :: MatchResult -> Maybe Value
@@ -945,51 +964,12 @@ thinContextFreeMatch (Char a) v = do
        MatchSuccess (b, r) -> MatchSuccess (b, CharNode r)
 
 thinContextFreeMatch (Seq as) Nothing = if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
-                                           then thinSeq as (Array [])
+                                           then thinSeq as (Array $ V.fromList [])
                                            else NoMatch "data error5"
 thinContextFreeMatch (Seq as) (Just v) = do
   if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
      then NoMatch "data error6"
      else thinSeq as v
-
-{-(fmap . fmap) SeqNode $ L.foldl' f (MatchSuccess (xs, mempty)) as
-  where f acc' a = do
-          (xs, result) <- acc'
-          (xs', result') <- thinContextFreeMatch a xs
-          return (xs', result ++ [result'])-}
-
-{-thinContextFreeMatch (Or as) xs = L.foldr f (NoMatch "or mismatch") (KM.toList as)
-  where f (opt, a) b = do
-          case thinContextFreeMatch a xs of
-               NoMatch _ -> b
-               MatchFailure s -> MatchFailure s
-               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode (KM.delete opt as) opt r)-}
-
-{-
-or1 = MatchArrayContextFree (Seq [Or $ fromList [(fromString "opt1", Char $ MatchNumberExact 1), (fromString "opt2", Char $ MatchNumberAny)]])
-
-ghci> matchPattern or1 (Array [Number 2])
-MatchSuccess (MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt1",Char (MatchNumberExact 1.0))]) "opt2" (CharNode (MatchNumberAnyResult 2.0))]))
-
-ghci> ror1 = matchPattern or1 (Array [Number 2])
-ghci> fmap matchResultToThinValue ror1
-MatchSuccess (Just (Object (fromList [("key",String "opt2"),("type",String "OrNode"),("value",Number 2.0)])))
-
-ortv1 = Just (Object (fromList [("key",String "opt2"),("type",String "OrNode"),("value",Number 2.0)]))
-
-ghci> thinPattern or1 ortv1
-MatchSuccess (True,MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt1",Char (MatchNumberExact 1.0))]) "opt2" (CharNode (MatchNumberAnyResult 2.0))]))
-
-ghci> ror2 = matchPattern or1 (Array [Number 1])
-ghci> ror2
-MatchSuccess (MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt2",Char MatchNumberAny)]) "opt1" (CharNode (MatchNumberExactResult 1.0))]))
-
-ghci> fmap matchResultToThinValue ror2
-MatchSuccess (Just (Object (fromList [("key",String "opt1"),("type",String "OrNodeTrivial")])))
-
-ortv2 = Just (Object (fromList [("key",String "opt1"),("type",String "OrNodeTrivial")]))
-
--}
 
 thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
   itsType <- (m2ms $ MatchFailure "data error1") $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
@@ -1015,11 +995,23 @@ thinContextFreeMatch (Plus a) xs = do
   rs' <- case subresult of
               (SeqNode [r, (StarNodeValue rs)]) -> MatchSuccess (r:rs)
               _ -> NoMatch "impossible"
-  return (xs', (PlusNode rs'))
+  return (xs', (PlusNode rs'))-}
   
 
-thinContextFreeMatch (Optional a) xs =
-  case thinContextFreeMatch a xs of
+thinContextFreeMatch (Optional a) (Just (Object v)) = do
+  let gg = contextFreeGrammarIsMovable matchPatternIsMovable
+  itsType <- (m2ms $ MatchFailure "data error1") $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
+  itsKey <- (m2ms $ MatchFailure "data error2") $ KM.lookup (K.fromString "flag") v
+  itsKey <- (m2ms $ MatchFailure "data error3") $ asBool itsKey
+  if itsKey
+     then
+        do
+          r <- thinContextFreeMatch a (KM.lookup (K.fromString "value") v)
+          return $ bimap (const True) OptionalNodeValue r
+      else
+        do
+          return $ (True, OptionalNodeEmpty a)
+{-
        NoMatch _ -> MatchSuccess (xs, OptionalNodeEmpty a)
        MatchFailure s -> MatchFailure s
        MatchSuccess (xs', subresult) -> MatchSuccess (xs', OptionalNodeValue subresult)-}
@@ -1212,32 +1204,79 @@ qc4 = do
 qc5 = do
   quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable s; _ -> False)
 
-{-
-ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1)]))
-Just (Number 1.0)
-ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1), (K.fromString "b", KeyOpt $ Match]))
-Match                         MatchBoolExactF               MatchFunnelResult             MatchNumberExact              MatchOrResult                 MatchStringAnyF
-MatchAny                      MatchBoolExactResult          MatchFunnelResultF            MatchNumberExactF             MatchOrResultF                MatchStringAnyResult
-MatchAnyF                     MatchBoolExactResultF         MatchIfThen                   MatchNumberExactResult        MatchPath                     MatchStringAnyResultF
-MatchAnyResult                MatchFailure                  MatchIfThenF                  MatchNumberExactResultF       MatchPattern                  MatchStringExact
-MatchAnyResultF               MatchFunnel                   MatchIfThenResult             MatchObjectFull               MatchPatternF                 MatchStringExactF
-MatchArrayContextFree         MatchFunnelF                  MatchIfThenResultF            MatchObjectFullF              MatchQ                        MatchStringExactResult
-MatchArrayContextFreeF        MatchFunnelKeys               MatchNull                     MatchObjectFullResult         MatchRef                      MatchStringExactResultF
-MatchArrayContextFreeResult   MatchFunnelKeysF              MatchNullF                    MatchObjectFullResultF        MatchRefF                     MatchSuccess
-MatchArrayContextFreeResultF  MatchFunnelKeysResult         MatchNullResult               MatchObjectPartial            MatchRefResult                MatchedVal
-MatchBoolAny                  MatchFunnelKeysResultF        MatchNullResultF              MatchObjectPartialF           MatchRefResultF
-MatchBoolAnyF                 MatchFunnelKeysU              MatchNumberAny                MatchObjectPartialResult      MatchResult
-MatchBoolAnyResult            MatchFunnelKeysUF             MatchNumberAnyF               MatchObjectPartialResultF     MatchResultF
-MatchBoolAnyResultF           MatchFunnelKeysUResult        MatchNumberAnyResult          MatchOr                       MatchStatus
-MatchBoolExact                MatchFunnelKeysUResultF       MatchNumberAnyResultF         MatchOrF                      MatchStringAny
-ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1), (K.fromString "b", KeyOpt $ MatchNumberAnyResult 2)]))
-Just (Object (fromList [("a",Number 1.0),("b",Number 2.0)]))
-ghci> matchResultToThinValue (MatchObjectFullResult (KM.fromList []) (KM.fromList [(K.fromString "a", KeyReq $ MatchNumberAnyResult 1), (K.fromString "b", KeyOpt $ MatchNumberExactResult 2)]))
-Just (Number 1.0)
--}
-
 -- Different matches for or example (trivial and normal)
+-- p[attern] v[alue] r[esult] t[hin value]
+
+tVIs :: MatchPattern -> Value -> Expectation
+tVIs p v = 
+      let r = extract $ matchPattern p v
+          t' = matchResultToThinValue r
+          r' = extract (fmap snd (thinPattern p t'))
+      in r `shouldBe` r'
+      --t `shouldBe` t'
+
+test :: IO ()
+test = hspec $ do
+  describe "handles MatchPattern nodes correctly" $ do
+    it "Handles trivial MatchOr correctly. Nothing case" $ do
+      let p = (MatchOr (KM.fromList [
+            (K.fromString "option1", (MatchNumberExact 1)),
+            (K.fromString "option2", (MatchNumberExact 2))]))
+          v = Number 1
+      tVIs p v
+    it "Handles trivial MatchOr correctly. Nothing case" $ do
+      let p = (MatchOr (KM.fromList [
+            (K.fromString "option1", (MatchNumberExact 1)),
+            (K.fromString "option2", (MatchNumberExact 2))]))
+          v = Number 2
+      tVIs p v
+    it "Handles actual MatchOr correctly. Nothing case" $ do
+      let p = (MatchOr (KM.fromList [
+            (K.fromString "option1", (MatchNumberExact 1)),
+            (K.fromString "option2", (MatchNumberAny))]))
+          v = Number 1
+      tVIs p v
+    it "Handles actual MatchOr correctly. Just case" $ do
+      let p = (MatchOr (KM.fromList [
+            (K.fromString "option1", (MatchNumberExact 1)),
+            (K.fromString "option2", (MatchNumberAny))]))
+          v = Number 2
+      tVIs p v
+  describe "handles ContextFreeGrammar nodes correctly" $ do
+    it "Handles trivial Optional correctly. thin value = Just" $ do
+      let p = MatchArrayContextFree (Seq [(Optional (Char $ MatchNumberExact 44))])
+          v = Array $ V.fromList [Number 44]
+      tVIs p v
+    it "Handles trivial Optional correctly. thin value = Nothing" $ do
+      let p = MatchArrayContextFree (Seq [(Optional (Char $ MatchNumberExact 44))])
+          v = Array $ V.fromList []
+      tVIs p v
+    it "Handles actual Optional correctly. thin value = Just" $ do
+      let p = MatchArrayContextFree (Seq [(Optional (Char $ MatchNumberAny))])
+          v = Array $ V.fromList [Number 44]
+      tVIs p v
+    it "Handles actual Optional correctly. thin value = Nothing" $ do
+      let p = MatchArrayContextFree (Seq [(Optional (Char $ MatchNumberAny))])
+          v = Array $ V.fromList []
+      tVIs p v
+
 {-
+fmap matchResultToThinValue  $ matchPattern or1 $ Number 2
+uccess (Just (Object (fromList [("key",String "option2"),("type",String "OrTrivial")])))
+or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
+mor2 = matchPattern or1 $ Number 44
+mor2
+NoMatch "or fail"
+ghci> mor2 = matchPattern or2 $ Number 44
+
+<interactive>:164:1: warning: [-Wname-shadowing]
+    This binding for ‘mor2’ shadows the existing binding
+      defined at <interactive>:162:1
+ghci> mor2
+MatchSuccess (MatchOrResult (fromList [("option1",MatchNumberExact 1.0)]) "option2" (MatchNumberAnyResult 44.0))
+ghci> fmap matchResultToThinValue mor2
+MatchSuccess (Just (Object (fromList [("key",String "option2"),("type",String "Or"),("value",Number 44.0)])))
+
 ghci> or1 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", (MatchNumberExact 2))]))
 ghci> mor1 = matchPattern or1 $ Number 2
 ghci> fmap matchResultToThinValue  $ matchPattern or1 $ Number 2
@@ -1272,4 +1311,31 @@ ghci> thinPattern (MatchArrayContextFree $ (Seq [Char $ MatchNumberExact 1, Char
 MatchFailure "bb fail"
 
 
+or1 = MatchArrayContextFree (Seq [Or $ fromList [(fromString "opt1", Char $ MatchNumberExact 1), (fromString "opt2", Char $ MatchNumberAny)]])
+
+ghci> matchPattern or1 (Array [Number 2])
+MatchSuccess (MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt1",Char (MatchNumberExact 1.0))]) "opt2" (CharNode (MatchNumberAnyResult 2.0))]))
+
+ghci> ror1 = matchPattern or1 (Array [Number 2])
+ghci> fmap matchResultToThinValue ror1
+MatchSuccess (Just (Object (fromList [("key",String "opt2"),("type",String "OrNode"),("value",Number 2.0)])))
+
+ortv1 = Just (Object (fromList [("key",String "opt2"),("type",String "OrNode"),("value",Number 2.0)]))
+
+ghci> thinPattern or1 ortv1
+MatchSuccess (True,MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt1",Char (MatchNumberExact 1.0))]) "opt2" (CharNode (MatchNumberAnyResult 2.0))]))
+
+ghci> ror2 = matchPattern or1 (Array [Number 1])
+ghci> ror2
+MatchSuccess (MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt2",Char MatchNumberAny)]) "opt1" (CharNode (MatchNumberExactResult 1.0))]))
+
+ghci> fmap matchResultToThinValue ror2
+MatchSuccess (Just (Object (fromList [("key",String "opt1"),("type",String "OrNodeTrivial")])))
+
+ortv2 = Just (Object (fromList [("key",String "opt1"),("type",String "OrNodeTrivial")]))
+
+-}
+
+{-
+optional_grammar_1 = MatchArrayContextFree (Seq [Optional $ Char $ MatchNumberExact 1])
 -}

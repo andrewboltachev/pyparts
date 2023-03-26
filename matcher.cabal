@@ -46,6 +46,7 @@ library
     , comonad
     , containers
     , data-fix
+    , hspec
     , recursion-schemes
     , scientific
     , template-haskell
@@ -73,6 +74,7 @@ executable matcher-exe
     , comonad
     , containers
     , data-fix
+    , hspec
     , matcher
     , recursion-schemes
     , scientific
@@ -102,6 +104,7 @@ test-suite matcher-test
     , comonad
     , containers
     , data-fix
+    , hspec
     , matcher
     , recursion-schemes
     , scientific

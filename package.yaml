@@ -37,6 +37,7 @@ dependencies:
   - template-haskell
   - th-abstraction
   - comonad
+  - hspec
 
 ghc-options:
   - -Wall
