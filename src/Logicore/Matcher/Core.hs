@@ -963,9 +963,43 @@ thinContextFreeMatch (Seq as) (Just v) = do
           case thinContextFreeMatch a xs of
                NoMatch _ -> b
                MatchFailure s -> MatchFailure s
-               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode (KM.delete opt as) opt r)
+               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode (KM.delete opt as) opt r)-}
 
-thinContextFreeMatch (Star a) xs = (fmap . fmap) c $ f (MatchSuccess (xs, mempty))
+{-
+or1 = MatchArrayContextFree (Seq [Or $ fromList [(fromString "opt1", Char $ MatchNumberExact 1), (fromString "opt2", Char $ MatchNumberAny)]])
+
+ghci> matchPattern or1 (Array [Number 2])
+MatchSuccess (MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt1",Char (MatchNumberExact 1.0))]) "opt2" (CharNode (MatchNumberAnyResult 2.0))]))
+
+ghci> ror1 = matchPattern or1 (Array [Number 2])
+ghci> fmap matchResultToThinValue ror1
+MatchSuccess (Just (Object (fromList [("key",String "opt2"),("type",String "OrNode"),("value",Number 2.0)])))
+
+ortv1 = Just (Object (fromList [("key",String "opt2"),("type",String "OrNode"),("value",Number 2.0)]))
+
+ghci> thinPattern or1 ortv1
+MatchSuccess (True,MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt1",Char (MatchNumberExact 1.0))]) "opt2" (CharNode (MatchNumberAnyResult 2.0))]))
+
+ghci> ror2 = matchPattern or1 (Array [Number 1])
+ghci> ror2
+MatchSuccess (MatchArrayContextFreeResult (SeqNode [OrNode (fromList [("opt2",Char MatchNumberAny)]) "opt1" (CharNode (MatchNumberExactResult 1.0))]))
+
+ghci> fmap matchResultToThinValue ror2
+MatchSuccess (Just (Object (fromList [("key",String "opt1"),("type",String "OrNodeTrivial")])))
+
+ortv2 = Just (Object (fromList [("key",String "opt1"),("type",String "OrNodeTrivial")]))
+
+-}
+
+thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
+  itsType <- (m2ms $ MatchFailure "data error1") $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
+  itsKey <- (m2ms $ MatchFailure "data error2") $ KM.lookup (K.fromString "key") v
+  itsKey <- (m2ms $ MatchFailure "data error3") $ asString itsKey
+  let itsK = (K.fromString . T.unpack) itsKey
+  itsMatch <- (m2ms $ MatchFailure "data error4") $ KM.lookup itsK ms
+  fmap ((\a -> (True, a)) . (OrNode (KM.delete itsK ms) itsK) . snd) (thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v))
+
+{-thinContextFreeMatch (Star a) xs = (fmap . fmap) c $ f (MatchSuccess (xs, mempty))
   where --f :: MatchStatus ([b], ContextFreeGrammar a) -> MatchStatus ([b], ContextFreeGrammar a)
         c [] = StarNodeEmpty a
         c xs = StarNodeValue xs
