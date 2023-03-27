@@ -245,6 +245,9 @@ asString _ = Nothing
 asBool (Bool x) = Just x
 asBool _ = Nothing
 
+asNumber (Number x) = Just x
+asNumber _ = Nothing
+
 --- Helper types
 
 --- Indicating if matching a key in an Object is obligatory
@@ -872,7 +875,7 @@ contextFreeGrammarResultToThinValue = cata go
                                then tMap "StarNodeTrivial" $ Number $ Sci.scientific (toInteger (P.length r)) 0
                                else tMap "StarNode" $ Array $ V.fromList $ P.map fromJust r
     go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then tMap "PlusNodeTrivial" $ Number 0
+                               then tMap "PlusNodeTrivial" $ Number $ Sci.scientific (toInteger (P.length r)) 0
                                else tMap "PlusNode" $ Array $ V.fromList $ P.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
                             then tMapK "OrNodeTrivial" k
@@ -979,24 +982,34 @@ thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance
   itsMatch <- (m2ms $ MatchFailure "data error4") $ KM.lookup itsK ms
   fmap ((\a -> (True, a)) . (OrNode (KM.delete itsK ms) itsK) . snd) (thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v))
 
-{-thinContextFreeMatch (Star a) (Just (Object v)) = do
+thinContextFreeMatch (Star a) (Just (Object v)) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
   itsType <- (m2ms $ MatchFailure "data error1") $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
   itsValue <- (m2ms $ MatchFailure "data error2") $ KM.lookup (K.fromString "value") v
   if gg a
-     then
+     then -- actual
         do
           itsValue <- (m2ms $ MatchFailure "data error2") $ asArray itsValue
           if P.null itsValue
              then
                 return $ (True, StarNodeEmpty a)
              else
-                return $ (True, StarNodeValue $ _ itsValue)
-      else
+              do
+                aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
+                let ab = (P.map snd aa)
+                return $ (True, StarNodeValue ab)
+      else -- trivial
         do
-          return $ (True, StarNodeEmpty a)
+          itsValue <- (m2ms $ MatchFailure "data error2") $ asNumber itsValue
+          if itsValue == 0
+             then
+                return (True, StarNodeEmpty $ a)
+              else
+                do
+                  (_, aa) <- thinContextFreeMatch a Nothing
+                  return (True, StarNodeValue $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa)
 
-thinContextFreeMatch (Plus a) xs = do
+{-thinContextFreeMatch (Plus a) xs = do
   (xs', subresult) <- thinContextFreeMatch (Seq [a, Star a]) xs
   rs' <- case subresult of
               (SeqNode [r, (StarNodeValue rs)]) -> MatchSuccess (r:rs)
@@ -1218,7 +1231,7 @@ tVIs p v =
       let r = extract $ matchPattern p v
           t' = matchResultToThinValue r
           r' = extract (fmap snd (thinPattern p t'))
-      in r `shouldBe` r'
+      in r' `shouldBe` r
       --t `shouldBe` t'
 
 test :: IO ()
@@ -1265,8 +1278,20 @@ test = hspec $ do
       let p = MatchArrayContextFree (Seq [(Optional (Char $ MatchNumberAny))])
           v = Array $ V.fromList []
       tVIs p v
-    it "Handles trivial Star correctly. thin value = N" $ do
+    it "Handles trivial null Star correctly" $ do
       let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberExact 1))])
+          v = Array $ V.fromList []
+      tVIs p v
+    it "Handles trivial full Star correctly" $ do
+      let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberExact 1))])
+          v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
+      tVIs p v
+    it "Handles actual null Star correctly" $ do
+      let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberAny))])
+          v = Array $ V.fromList []
+      tVIs p v
+    it "Handles actual full Star correctly" $ do
+      let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberAny))])
           v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
       tVIs p v
 
@@ -1293,6 +1318,14 @@ work = do
   -- actual, full
   let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberAny))])
       v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1, Number 1]
+  print $ w1 p v
+  -- trivial, full
+  let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberExact 1))])
+      v = Array $ V.fromList [Number 1, Number 1, Number 1]
+  print $ w1 p v
+  -- actual, full
+  let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
+      v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
   print $ w1 p v
 
 
