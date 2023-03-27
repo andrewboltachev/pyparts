@@ -867,9 +867,9 @@ contextFreeGrammarResultToThinValue = cata go
                  else Just $ tMap "SeqNode" $ Array $ V.fromList $ l
     go (StarNodeEmptyF g) = Just $ if gg g
                                       then tMap "StarNode" $ Array $ V.fromList ([] :: [Value])
-                                      else tMap "StarNodeTrivial" $ Array $ V.fromList ([] :: [Value])
+                                      else tMap "StarNodeTrivial" $ Number 0
     go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then tMap "StarNodeTrivial" $ Number 0
+                               then tMap "StarNodeTrivial" $ Number $ Sci.scientific (toInteger (P.length r)) 0
                                else tMap "StarNode" $ Array $ V.fromList $ P.map fromJust r
     go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
                                then tMap "PlusNodeTrivial" $ Number 0
@@ -979,16 +979,22 @@ thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance
   itsMatch <- (m2ms $ MatchFailure "data error4") $ KM.lookup itsK ms
   fmap ((\a -> (True, a)) . (OrNode (KM.delete itsK ms) itsK) . snd) (thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v))
 
-{-thinContextFreeMatch (Star a) xs = (fmap . fmap) c $ f (MatchSuccess (xs, mempty))
-  where --f :: MatchStatus ([b], ContextFreeGrammar a) -> MatchStatus ([b], ContextFreeGrammar a)
-        c [] = StarNodeEmpty a
-        c xs = StarNodeValue xs
-        f acc = do
-          (xs, result) <- acc
-          case thinContextFreeMatch a xs of
-               NoMatch _ -> acc
-               MatchFailure s -> MatchFailure s
-               MatchSuccess (xs', result') -> f (MatchSuccess (xs', result ++ [result']))
+{-thinContextFreeMatch (Star a) (Just (Object v)) = do
+  let gg = contextFreeGrammarIsMovable matchPatternIsMovable
+  itsType <- (m2ms $ MatchFailure "data error1") $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
+  itsValue <- (m2ms $ MatchFailure "data error2") $ KM.lookup (K.fromString "value") v
+  if gg a
+     then
+        do
+          itsValue <- (m2ms $ MatchFailure "data error2") $ asArray itsValue
+          if P.null itsValue
+             then
+                return $ (True, StarNodeEmpty a)
+             else
+                return $ (True, StarNodeValue $ _ itsValue)
+      else
+        do
+          return $ (True, StarNodeEmpty a)
 
 thinContextFreeMatch (Plus a) xs = do
   (xs', subresult) <- thinContextFreeMatch (Seq [a, Star a]) xs
@@ -1259,6 +1265,36 @@ test = hspec $ do
       let p = MatchArrayContextFree (Seq [(Optional (Char $ MatchNumberAny))])
           v = Array $ V.fromList []
       tVIs p v
+    it "Handles trivial Star correctly. thin value = N" $ do
+      let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberExact 1))])
+          v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
+      tVIs p v
+
+
+w1 p v = 
+      let r = extract $ matchPattern p v
+          t' = matchResultToThinValue r
+      in t'
+
+--work :: 
+work = do
+  -- trivial, null
+  let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberExact 1))])
+      v = Array $ V.fromList []
+  print $ w1 p v
+  -- trivial, full
+  let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberExact 1))])
+      v = Array $ V.fromList [Number 1, Number 1, Number 1]
+  print $ w1 p v
+  -- actual, null
+  let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberAny))])
+      v = Array $ V.fromList []
+  print $ w1 p v
+  -- actual, full
+  let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberAny))])
+      v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1, Number 1]
+  print $ w1 p v
+
 
 {-
 fmap matchResultToThinValue  $ matchPattern or1 $ Number 2
