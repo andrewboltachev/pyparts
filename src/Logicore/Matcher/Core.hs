@@ -1009,13 +1009,22 @@ thinContextFreeMatch (Star a) (Just (Object v)) = do
                   (_, aa) <- thinContextFreeMatch a Nothing
                   return (True, StarNodeValue $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa)
 
-{-thinContextFreeMatch (Plus a) xs = do
-  (xs', subresult) <- thinContextFreeMatch (Seq [a, Star a]) xs
-  rs' <- case subresult of
-              (SeqNode [r, (StarNodeValue rs)]) -> MatchSuccess (r:rs)
-              _ -> NoMatch "impossible"
-  return (xs', (PlusNode rs'))-}
-  
+thinContextFreeMatch (Plus a) (Just (Object v)) = do
+  let gg = contextFreeGrammarIsMovable matchPatternIsMovable
+  itsType <- (m2ms $ MatchFailure "data error1") $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
+  itsValue <- (m2ms $ MatchFailure "data error2") $ KM.lookup (K.fromString "value") v
+  if gg a
+     then -- actual
+        do
+          itsValue <- (m2ms $ MatchFailure "data error2") $ asArray itsValue
+          aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
+          let ab = (P.map snd aa)
+          return $ (True, PlusNode ab)
+      else -- trivial
+        do
+          itsValue <- (m2ms $ MatchFailure "data error2") $ asNumber itsValue
+          (_, aa) <- thinContextFreeMatch a Nothing
+          return (True, PlusNode $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa)
 
 thinContextFreeMatch (Optional a) (Just (Object v)) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
@@ -1292,6 +1301,14 @@ test = hspec $ do
       tVIs p v
     it "Handles actual full Star correctly" $ do
       let p = MatchArrayContextFree (Seq [(Star (Char $ MatchNumberAny))])
+          v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
+      tVIs p v
+    it "Handles trivial full Plus correctly" $ do
+      let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberExact 1))])
+          v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
+      tVIs p v
+    it "Handles actual full Plus correctly" $ do
+      let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
           v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
       tVIs p v
 
