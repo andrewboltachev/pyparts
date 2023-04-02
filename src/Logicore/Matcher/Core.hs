@@ -894,8 +894,6 @@ matchResultToThinValue = cata go
     filterEmpty a = (KM.map fromJust (KM.filter isJust a))
     nonEmptyMap m = if KM.null m then Nothing else Just m
     replaceSingleton (Object m) = if (KM.size m) == 1 then P.head (KM.elems m) else Object m
-    --prepareSeq [] = Nothing
-    --prepareSeq l = Just $ fmap j l where j (Just x) = x
     go :: MatchResultF (Maybe Value) -> Maybe Value
     go (MatchObjectFullResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ (KM.map f r)
       where
@@ -907,7 +905,6 @@ matchResultToThinValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = v
         f (KeyExt v) = Just v
-    --go (MatchArrayContextFreeResultF r) = fmap (Array . V.fromList) $ prepareSeq $ (P.filter isJust) $ contextFreeGrammarResultToThinValue r
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
@@ -1056,19 +1053,27 @@ thinContextFreeMatch a xs = do
 
 thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
 
-{-
-mObj :: Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatus (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
-mObj keepExt m a = do
+tObj :: Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatus (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
+tObj keepExt m a = do
   preResult <- L.foldl' (doKeyMatch m a) (MatchSuccess mempty) (keys m)
   L.foldl' f (MatchSuccess preResult) (keys a)
     where
+      gg = matchPatternIsMovable
       step k r acc req = case KM.lookup k a of
                       -- KeyOpt means key might be missing
-                      Nothing -> if req
-                                      then NoMatch $ "Required key " ++ show k ++ " not found in map"
-                                      else MatchSuccess $ first (KM.insert k r) acc
+                      Nothing -> if gg r
+                                    then -- actual. only might be missing opt key
+                                      if req
+                                        then NoMatch $ "Required key " ++ show k ++ " not found in map"
+                                        else MatchSuccess $ first (KM.insert k r) acc
+                                    else -- trivial. get from grammar
+                                      do
+                                        rr <- thinPattern r Nothing
+                                        ll <- return $ snd rr
+                                        el <- return $ if req then (KeyReq ll) else (KeyOpt ll)
+                                        return $ second (KM.insert k el) acc
                       -- if it exists, it must match
-                      Just n -> case thinPattern r n of
+                      Just n -> case fmap snd $ thinPattern r (Just n) of
                                      NoMatch s -> NoMatch s
                                      MatchFailure s -> MatchFailure s
                                      MatchSuccess s -> MatchSuccess $ second (KM.insert k el) acc
@@ -1091,9 +1096,12 @@ mObj keepExt m a = do
                                             Nothing -> MatchFailure "impossible"
                                             Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
 
-thinPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
-thinPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
--}
+thinPattern (MatchObjectFull m) (Just (Object a)) = (fmap $ (\x -> (True, uncurry MatchObjectFullResult x))) (tObj False m a)
+thinPattern (MatchObjectPartial m) (Just (Object a)) = (fmap $ (\x -> (True, uncurry MatchObjectFullResult x))) (tObj True m a)
+
+thinPattern (MatchObjectFull m) Nothing = thinPattern (MatchObjectFull m) (Just $ Object $ KM.empty)
+thinPattern (MatchObjectPartial m) Nothing = thinPattern (MatchObjectPartial m) (Just $ Object $ KM.empty)
+
 
 {-
 
@@ -1269,6 +1277,20 @@ test = hspec $ do
             (K.fromString "option1", (MatchNumberExact 1)),
             (K.fromString "option2", (MatchNumberAny))]))
           v = Number 2
+      tVIs p v
+    it "Handles actual MatchObjectFull correctly. Some nothing, some Just case. Some opts exist, some don't" $ do
+      let p = (MatchObjectFull (KM.fromList [
+            (K.fromString "a", KeyReq (MatchNumberExact 1)),
+            (K.fromString "b", KeyOpt (MatchNumberExact 2)),
+            (K.fromString "b1", KeyOpt (MatchNumberExact 3)),
+            (K.fromString "c", KeyReq (MatchNumberAny)),
+            (K.fromString "d", KeyOpt (MatchNumberAny)),
+            (K.fromString "d1", KeyOpt (MatchNumberAny))]))
+          v = Object (KM.fromList [
+            (K.fromString "a", Number 1),
+            (K.fromString "a", Number 2),
+            (K.fromString "c", Number 4),
+            (K.fromString "d", Number 5)])
       tVIs p v
   describe "handles ContextFreeGrammar nodes correctly" $ do
     it "Handles trivial Optional correctly. thin value = Just" $ do
