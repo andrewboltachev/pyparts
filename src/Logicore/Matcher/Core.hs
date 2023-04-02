@@ -925,15 +925,18 @@ matchResultToThinValue = cata go
                       True -> Just $ tMapT "KeyOpt"
                       False -> Just $ Bool False
         u = KM.union (KM.map f r) (fmap optf g)
-    {-go (MatchObjectPartialResultF g r) = fmap Object $ filterEmpty $ u
+    go (MatchObjectPartialResultF g r) = Just $ Object $ filterEmpty $ u
       where
         f (KeyReq v) = v
         f (KeyOpt v) = case v of
                             Nothing -> Just $ Bool True
-                            Just a -> Just a
-        f (KeyExt v) = Just v
-        os = fmap (const $ Just $ Bool False) $ KM.filter matchPatternIsMovable g
-        u = KM.union (KM.map f r) os-}
+                            Just a -> Just $ tMap "KeyOpt" a
+        f (KeyExt _) = error "must not be here"
+        optf :: MatchPattern -> Maybe Value
+        optf x = case matchPatternIsMovable x of
+                      True -> Just $ tMapT "KeyOpt"
+                      False -> Just $ Bool False
+        u = KM.union (KM.map f r) (fmap optf g)
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
