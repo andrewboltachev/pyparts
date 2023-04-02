@@ -1130,7 +1130,7 @@ thinPattern (MatchObjectPartial m) Nothing = thinPattern (MatchObjectPartial m) 
 --thinPatternMap m a allowExt = undefined
 
 
-thinPatternMap' :: KeyMap (ObjectKeyMatch MatchPattern) -> Maybe Value -> Bool -> MatchStatus (Bool, MatchResult)
+{-thinPatternMap' :: KeyMap (ObjectKeyMatch MatchPattern) -> Maybe Value -> Bool -> MatchStatus (Bool, MatchResult)
 thinPatternMap' m a allowExt = do
   let ggg (KeyReq v) = v
       ggg (KeyOpt v) = v
@@ -1188,10 +1188,83 @@ thinPatternMap' m a allowExt = do
                       tObj allowExt prepared ab
   o1 <- return $ KM.union theOpts a1
   o2 <- return $ KM.union matched a2
-  return $ (KM.size prepared > 0, (if allowExt then MatchObjectPartialResult else MatchObjectFullResult) o1 o2)
+  return $ (KM.size prepared > 0, (if allowExt then MatchObjectPartialResult else MatchObjectFullResult) o1 o2)-}
 
-thinPattern (MatchObjectFull m) a = thinPatternMap' m a False
-thinPattern (MatchObjectPartial m) a = thinPatternMap' m a True
+thinPatternMap allowExt m a = do
+  let f1 (KeyReq x) = matchPatternIsMovable x
+      f1 (KeyOpt _) = True
+      f1 (KeyExt _) = error "must not be here"
+  let ms = KM.map f1 m
+  let mm = P.any id (KM.elems ms)
+
+  let f2 (KeyReq x) = matchPatternIsMovable x
+      f2 (KeyOpt x) = matchPatternIsMovable x
+      f2 (KeyExt _) = error "must not be here"
+  let vs = KM.map f2 m
+
+  na <- case (KM.size (KM.filter id ms), allowExt) of
+             (0, _) -> do
+               case a of
+                    Nothing -> return $ KM.empty
+                    (Just _) -> MatchFailure "must not be here"
+             (1, False) -> do -- very special case (replaceSingleton)
+                     aa <- (m2ms $ MatchFailure "must not be such") a
+                     return $ KM.singleton (P.head (KM.keys m)) aa
+             _ -> do
+                     aa <- (m2ms $ MatchFailure "must not be such") a
+                     (m2ms $ MatchFailure "must not be such") $ asKeyMap aa
+
+  let f acc' k = do
+        acc <- acc'
+        mk <- (m2ms $ MatchFailure "impossible") $ KM.lookup k vs
+        v <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+        case (v, mk) of
+             -- trivial
+             (KeyReq v, False) -> case KM.lookup k na of
+                                       Nothing -> do
+                                         e <- (fmap snd) $ thinPattern v Nothing
+                                         return $ second (KM.insert k $ KeyReq e) acc
+                                       Just x -> MatchFailure "must not be here"
+             (KeyOpt v, False) -> do
+               vv <- (m2ms $ MatchFailure "doesn't exist1") $ KM.lookup k na
+               flg <- (m2ms $ MatchFailure "doesn't exist5") $ asBool vv
+               case flg of
+                    False -> return $ first (KM.insert k v) acc
+                    True -> do
+                      e <- (fmap snd) $ thinPattern v Nothing
+                      return $ second (KM.insert k $ KeyOpt e) acc
+             -- movable
+             (KeyReq v, True) -> do
+               case KM.lookup k na of
+                    Nothing -> NoMatch "Key not found"
+                    Just x -> do
+                      e <- (fmap snd) $ thinPattern v (Just x)
+                      return $ second (KM.insert k $ KeyReq e) acc
+             (KeyOpt v, True) -> do
+               vv <- (m2ms $ MatchFailure "doesn't exist6") $ KM.lookup k na
+               vv1 <- (m2ms $ MatchFailure $ "doesn't exist7: " ++ show vv) $ asKeyMap vv
+               tt1 <- (m2ms $ MatchFailure "doesn't exist8") $ KM.lookup (fromString "type") vv1
+               --vv2 <- (m2ms $ MatchFailure "doesn't exist8") $ 
+               _ <- if (tt1 == String "KeyOpt") then MatchSuccess () else MatchFailure "incorrect type"
+               case KM.lookup (fromString "value") vv1 of
+                    Nothing -> return $ first (KM.insert k v) acc
+                    Just x -> do
+                      e <- (fmap snd) $ thinPattern v (Just x)
+                      return $ second (KM.insert k $ KeyOpt e) acc
+             -- error
+             (KeyExt v, _) -> MatchFailure "must not be here"
+
+  (os, xs) <- L.foldl' f (MatchSuccess mempty) (KM.keys m)
+  let rst = KM.filterWithKey (\kk _ -> not $ KM.member kk m) na
+  xs <- if allowExt && (not $ KM.null rst)
+          then NoMatch "might not have extra"
+          else return $ KM.union xs $ (KM.map KeyExt) rst
+
+  let c = if allowExt then MatchObjectPartialResult else MatchObjectFullResult
+  return $ (True, c os xs)
+
+thinPattern (MatchObjectFull m) a = thinPatternMap False m a
+thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
 
 {-
 
