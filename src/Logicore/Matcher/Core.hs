@@ -98,8 +98,8 @@ instance Monad MatchStatus where
 
 instance Comonad MatchStatus where
   extract (MatchSuccess s) = s
-  extract (MatchFailure _) = error "cannot extract"
-  extract (NoMatch _) = error "cannot extract"
+  extract (MatchFailure e) = error $ "cannot extract: " ++ e
+  extract (NoMatch e) = error $ "cannot extract: " ++ e
   duplicate (MatchSuccess s) = MatchSuccess (MatchSuccess s)
   duplicate (MatchFailure m) = MatchFailure m
   duplicate (NoMatch m) = NoMatch m
@@ -722,8 +722,11 @@ contextFreeGrammarResultIsMovable gf rf = cata go
 matchPatternIsMovable :: MatchPattern -> Bool
 matchPatternIsMovable = cata go
   where
-    go (MatchObjectFullF g) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
-    go (MatchObjectPartialF g) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
+    go (MatchObjectFullF g) = L.foldl' f False (KM.elems g)
+      where
+        f acc (KeyOpt _) = True
+        f acc (KeyReq x) = x || acc
+    go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
     go (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable id g
     go (MatchStringExactF _) = False
     go (MatchNumberExactF _) = False
@@ -740,10 +743,25 @@ matchPatternIsMovable = cata go
     go MatchFunnelKeysUF = True
     --go MatchRef String =
 
+isKeyReq (KeyReq _) = True
+isKeyReq _ = False
+
+getKeyReqs :: [ObjectKeyMatch b] -> [b]
+getKeyReqs xs = fmap (extractObjectKeyMatch $ error "must not be here") $ P.filter isKeyReq xs
+
+isKeyOpt (KeyOpt _) = True
+isKeyOpt _ = False
+
+getKeyOpts :: [ObjectKeyMatch b] -> [b]
+getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here") $ P.filter isKeyOpt xs
+
 matchResultIsMovableAlg :: MatchResultF Bool -> Bool
 matchResultIsMovableAlg = check where
-    check (MatchObjectFullResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsMovable g
-    check (MatchObjectPartialResultF g r) = P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsMovable g
+    check (MatchObjectFullResultF g r) = (
+      (not $ KM.null g)
+      || (not $ P.null $ getKeyOpts $ KM.elems r)
+      || (P.any id $ getKeyReqs $ KM.elems r))
+    check (MatchObjectPartialResultF g r) = True --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsMovable g
     check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsMovable matchPatternIsMovable id g
     check (MatchStringExactResultF _) = False
     check (MatchNumberExactResultF _) = False
@@ -895,16 +913,24 @@ matchResultToThinValue = cata go
     nonEmptyMap m = if KM.null m then Nothing else Just m
     replaceSingleton (Object m) = if (KM.size m) == 1 then P.head (KM.elems m) else Object m
     go :: MatchResultF (Maybe Value) -> Maybe Value
-    go (MatchObjectFullResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ (KM.map f r)
+    go (MatchObjectFullResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ u
       where
         f (KeyReq v) = v
-        f (KeyOpt v) = v
+        f (KeyOpt v) = case v of
+                            Nothing -> Just $ Bool True
+                            v -> v
         f (KeyExt _) = error "must not be here"
-    go (MatchObjectPartialResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ (KM.map f r)
+        os = fmap (const $ Just $ Bool False) $ KM.filter matchPatternIsMovable g
+        u = KM.union (KM.map f r) os
+    go (MatchObjectPartialResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ u
       where
         f (KeyReq v) = v
-        f (KeyOpt v) = v
+        f (KeyOpt v) = case v of
+                            Nothing -> Just $ Bool True
+                            v -> v
         f (KeyExt v) = Just v
+        os = fmap (const $ Just $ Bool False) $ KM.filter matchPatternIsMovable g
+        u = KM.union (KM.map f r) os
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
@@ -1100,26 +1126,61 @@ thinPattern (MatchObjectPartial m) Nothing = thinPattern (MatchObjectPartial m) 
 
 thinPatternMap' :: KeyMap (ObjectKeyMatch MatchPattern) -> Maybe Value -> Bool -> MatchStatus (Bool, MatchResult)
 thinPatternMap' m a allowExt = do
+  let ggg (KeyReq v) = v
+      ggg (KeyOpt v) = v
+      ggs = fmap (matchPatternIsMovable . ggg) m
+  normalA <- case KM.size (KM.filter id ggs) of
+                      0 -> do
+                        case a of
+                             Nothing -> return $ KM.empty
+                             (Just _) -> MatchFailure "must not be here"
+                      1 -> do
+                              aa <- (m2ms $ MatchFailure "must not be such") a
+                              return $ KM.singleton (P.head (KM.keys m)) aa
+                      _ -> do
+                              aa <- (m2ms $ MatchFailure "must not be such") a
+                              (m2ms $ MatchFailure "must not be such") $ asKeyMap aa
+  error $ show normalA
   let f acc' k = do
       acc <- acc'
       v' <- (m2ms $ MatchFailure "impossible") (KM.lookup k m)
       (req, v) <- return $ case v' of
                             KeyReq v -> (True, v)
                             KeyOpt v -> (False, v)
-      case matchPatternIsMovable v of
+      gg' <- (m2ms $ MatchFailure "impossible") (KM.lookup k ggs)
+      case gg' of
            True -> return $ first (KM.insert k $ (if req then (KeyReq v) else (KeyOpt v))) acc
-           False -> do
-             (_, curr) <- thinPattern v $ ((KM.lookup k) =<< asKeyMap =<< a)
-             return $ second (KM.insert k $ (if req then (KeyReq curr) else (KeyOpt curr))) acc
-  (prepared, matched) <- L.foldl' f (MatchSuccess mempty) (KM.keys m)
-  (a1, a2) <- if KM.null prepared
-                 then return (KM.empty, KM.empty)
-                 else
+           False -> return $ second (KM.insert k $ (if req then (KeyReq v) else (KeyOpt v))) acc
+  (prepared, matched1) <- L.foldl' f (MatchSuccess mempty) (KM.keys m)
+
+  let f2 acc' k = do
+      acc <- acc'
+      v' <- (m2ms $ MatchFailure "impossible") (KM.lookup k matched1)
+      let (req, v) = case v' of
+                          KeyReq v -> (True, v)
+                          KeyOpt v -> (False, v)
+      let gg' = KM.member k normalA
+      case gg' || req of
+           False -> return $ first (KM.insert k v) acc
+           True -> 
+            do
+              (_, curr) <- thinPattern v $ ((KM.lookup k) =<< asKeyMap =<< a)
+              return $ second (KM.insert k $ (if req then (KeyReq curr) else (KeyOpt curr))) acc
+  (theOpts, matched) <- L.foldl' f2 (MatchSuccess mempty) (KM.keys matched1)
+
+  (a1, a2) <- case KM.size (KM.filter id ggs) of
+                 0 -> return (KM.empty, KM.empty)
+                 1 ->
+                    do
+                      aa <- (m2ms $ MatchFailure "must not be such") a
+                      let ab = KM.singleton (P.head (KM.keys prepared)) aa
+                      tObj allowExt prepared ab
+                 _ ->
                     do
                       aa <- (m2ms $ MatchFailure "must not be such") a
                       ab <- (m2ms $ MatchFailure "must not be such") $ asKeyMap aa
                       tObj allowExt prepared ab
-  o1 <- return $ a1
+  o1 <- return $ KM.union theOpts a1
   o2 <- return $ KM.union matched a2
   return $ (KM.size prepared > 0, (if allowExt then MatchObjectPartialResult else MatchObjectFullResult) o1 o2)
 
@@ -1312,17 +1373,17 @@ test = hspec $ do
             , (K.fromString "b", KeyOpt (MatchNumberExact 2))
             , (K.fromString "b1", KeyOpt (MatchNumberExact 3))
             , (K.fromString "c", KeyReq (MatchNumberAny))
-            --, (K.fromString "d", KeyOpt (MatchNumberAny))
-            --, (K.fromString "d1", KeyOpt (MatchNumberAny))
+            , (K.fromString "d", KeyOpt (MatchNumberAny))
+            , (K.fromString "d1", KeyOpt (MatchNumberAny))
             ]))
           v = Object (KM.fromList [
             (K.fromString "a", Number 1)
             , (K.fromString "b", Number 2)
-            --, (K.fromString "c", Number 4)
-            --, (K.fromString "d", Number 5)
+            , (K.fromString "c", Number 4)
+            , (K.fromString "d", Number 5)
             ])
-      --tVIs p v
-      2 + 2 `shouldBe` 4
+      tVIs p v
+      --2 + 2 `shouldBe` 4
   describe "matchResultToThinValue works correctly" $ do
     it "case a a" $ do
       let p = (MatchObjectFull (KM.fromList [
