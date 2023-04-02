@@ -868,7 +868,7 @@ instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
 
 tMap t v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "value", v)]
-tMapT t v = Object $ KM.fromList [(K.fromString "type", String t)]
+tMapT t = Object $ KM.fromList [(K.fromString "type", String t)]
 tMapK t k = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k)]
 tMapF t f = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "flag", Bool f)]
 tMapKV t k v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k), (K.fromString "value", v)]
@@ -918,19 +918,22 @@ matchResultToThinValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = case v of
                             Nothing -> Just $ Bool True
-                            v -> v
+                            Just a -> Just $ tMap "KeyOpt" a
         f (KeyExt _) = error "must not be here"
-        os = fmap (const $ Just $ Bool False) $ KM.filter matchPatternIsMovable g
-        u = KM.union (KM.map f r) os
-    go (MatchObjectPartialResultF g r) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ u
+        optf :: MatchPattern -> Maybe Value
+        optf x = case matchPatternIsMovable x of
+                      True -> Just $ tMapT "KeyOpt"
+                      False -> Just $ Bool False
+        u = KM.union (KM.map f r) (fmap optf g)
+    {-go (MatchObjectPartialResultF g r) = fmap Object $ filterEmpty $ u
       where
         f (KeyReq v) = v
         f (KeyOpt v) = case v of
                             Nothing -> Just $ Bool True
-                            v -> v
+                            Just a -> Just a
         f (KeyExt v) = Just v
         os = fmap (const $ Just $ Bool False) $ KM.filter matchPatternIsMovable g
-        u = KM.union (KM.map f r) os
+        u = KM.union (KM.map f r) os-}
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
