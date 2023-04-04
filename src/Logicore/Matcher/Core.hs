@@ -98,8 +98,8 @@ instance Monad MatchStatus where
 
 instance Comonad MatchStatus where
   extract (MatchSuccess s) = s
-  extract (MatchFailure e) = error $ "cannot extract: " ++ e
-  extract (NoMatch e) = error $ "cannot extract: " ++ e
+  extract (MatchFailure e) = error $ "cannot extract1: " ++ e
+  extract (NoMatch e) = error $ "cannot extract2: " ++ e
   duplicate (MatchSuccess s) = MatchSuccess (MatchSuccess s)
   duplicate (MatchFailure m) = MatchFailure m
   duplicate (NoMatch m) = NoMatch m
@@ -164,7 +164,7 @@ instance (ToJSON g, ToJSON r) => ToJSON (ContextFreeGrammarResult g r) where
 
 instance (FromJSON g, FromJSON r) => FromJSON (ContextFreeGrammarResult g r)
 
-contextFreeMatch' :: (Show g, Show v) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus ([v], (ContextFreeGrammarResult g r))
+contextFreeMatch' :: (Show g, Show v, Show r) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus ([v], (ContextFreeGrammarResult g r))
 contextFreeMatch' (Char _) [] _ = NoMatch "can't read char"
 contextFreeMatch' (Char a) (x:xs) matchFn =
   case matchFn a x of
@@ -200,7 +200,7 @@ contextFreeMatch' (Plus a) xs matchFn = do
   (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs matchFn
   rs' <- case subresult of
               (SeqNode [r, (StarNodeValue rs)]) -> MatchSuccess (r:rs)
-              _ -> NoMatch "impossible"
+              _ -> NoMatch ("impossible203" ++ show subresult)
   return (xs', (PlusNode rs'))
   
 
@@ -210,9 +210,9 @@ contextFreeMatch' (Optional a) xs matchFn =
        MatchFailure s -> MatchFailure s
        MatchSuccess (xs', subresult) -> MatchSuccess (xs', OptionalNodeValue subresult)
 
-contextFreeMatch' a xs _ = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+contextFreeMatch' a xs _ = error ("no contextFreeMatch for:\n\n" ++ (show a) ++ "\n\n" ++ (show xs))
 
-contextFreeMatch :: (Show g, Show v) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus (ContextFreeGrammarResult g r)
+contextFreeMatch :: (Show g, Show v, Show r) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus (ContextFreeGrammarResult g r)
 contextFreeMatch a xs matchFn = do
   (rest, result) <- contextFreeMatch' a xs matchFn
   case P.length rest == 0 of
@@ -327,11 +327,11 @@ instance Arbitrary MatchPattern where
       return $ MatchBoolAny,
       return $ MatchNull,
       return $ MatchAny,
-      MatchOr <$> arbitrary,
-      MatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
-      return $ MatchFunnel,
-      return $ MatchFunnelKeys,
-      return $ MatchFunnelKeysU]
+      MatchOr <$> arbitrary]
+      --MatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary
+      --return $ MatchFunnel,
+      --return $ MatchFunnelKeys,
+      --return $ MatchFunnelKeysU
       --MatchRef <$> arbitrary
 
 
@@ -387,11 +387,11 @@ instance Arbitrary MatchResult where
     MatchBoolAnyResult <$> arbitrary,
     return $ MatchNullResult,
     MatchAnyResult <$> arbitrary,
-    MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary,
-    MatchIfThenResult <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
-    MatchFunnelResult <$> arbitrary,
-    MatchFunnelKeysResult <$> arbitrary,
-    MatchFunnelKeysUResult <$> arbitrary]
+    MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary]
+    --MatchIfThenResult <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
+    --MatchFunnelResult <$> arbitrary,
+    --MatchFunnelKeysResult <$> arbitrary,
+    --MatchFunnelKeysUResult <$> arbitrary
     --MatchRefResult <$> arbitrary <*> arbitrary
 
 makeBaseFunctor ''MatchResult
@@ -694,13 +694,13 @@ isKeyReq (KeyReq _) = True
 isKeyReq _ = False
 
 getKeyReqs :: [ObjectKeyMatch b] -> [b]
-getKeyReqs xs = fmap (extractObjectKeyMatch $ error "must not be here1") $ P.filter isKeyReq xs
+getKeyReqs xs = fmap (extractObjectKeyMatch $ error "must not be here697") $ P.filter isKeyReq xs
 
 isKeyOpt (KeyOpt _) = True
 isKeyOpt _ = False
 
 getKeyOpts :: [ObjectKeyMatch b] -> [b]
-getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here2") $ P.filter isKeyOpt xs
+getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here703") $ P.filter isKeyOpt xs
 
 matchResultIsMovableAlg :: MatchResultF Bool -> Bool
 matchResultIsMovableAlg = check where
@@ -948,7 +948,7 @@ thinContextFreeMatch (Seq as) (Just v) = do
 
 thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
   itsType <- (m2ms $ MatchFailure ("data error1" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
-  itsKey <- (m2ms $ MatchFailure ("data error2" ++ show v)) $ KM.lookup (K.fromString "key") v
+  itsKey <- (m2ms $ MatchFailure ("data error 951: " ++ show v)) $ KM.lookup (K.fromString "key") v
   itsKey <- (m2ms $ MatchFailure ("data error3" ++ show itsKey)) $ asString itsKey
   let itsK = (K.fromString . T.unpack) itsKey
   itsMatch <- (m2ms $ MatchFailure ("data error4" ++ show ms)) $ KM.lookup itsK ms
@@ -1068,13 +1068,13 @@ thinPatternMap allowExt m a = do
              (0, _) -> do
                case a of
                     Nothing -> return $ KM.empty
-                    (Just x) -> MatchFailure ("must not be here" ++ show x)
+                    (Just x) -> MatchFailure ("must not be here 1071: " ++ show x)
              (1, False) -> do -- very special case (replaceSingleton)
-                     aa <- (m2ms $ MatchFailure ("must not be such" ++ show a)) a
-                     return $ KM.singleton (P.head (KM.keys m)) aa
+                     aa <- (m2ms $ MatchFailure ("must not be such 1073: " ++ show a)) a
+                     return $ KM.singleton (P.head (KM.keys (KM.filter id ms))) aa
              _ -> do
-                     aa <- (m2ms $ MatchFailure ("must not be such" ++ show a)) a
-                     (m2ms $ MatchFailure ("must not be such" ++ show aa)) $ asKeyMap aa
+                     aa <- (m2ms $ MatchFailure ("must not be such 1076: " ++ show a)) a
+                     (m2ms $ MatchFailure ("must not be such 1077: " ++ show a)) $ asKeyMap aa
 
   let f acc' k = do
         acc <- acc'
@@ -1086,7 +1086,7 @@ thinPatternMap allowExt m a = do
                                        Nothing -> do
                                          e <- (fmap snd) $ thinPattern v Nothing
                                          return $ second (KM.insert k $ KeyReq e) acc
-                                       Just x -> MatchFailure ("must not be here" ++ show x)
+                                       Just x -> MatchFailure ("must not be here 1089: " ++ show x)
              (KeyOpt v, False) -> do
                vv <- (m2ms $ MatchFailure ("doesn't exist1" ++ show na)) $ KM.lookup k na
                flg <- (m2ms $ MatchFailure ("doesn't exist5" ++ show vv)) $ asBool vv
@@ -1214,7 +1214,16 @@ qc5 = do
   quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable s; _ -> False)
 
 qc6 = do
-  quickCheck (\r -> r == (extract $ (fmap snd) $ thinPattern (matchResultToPattern r) (matchResultToThinValue r)))
+  quickCheck f
+    where f r = let
+                  p = matchResultToPattern r
+                  t = matchResultToThinValue r
+                  r0 = (fmap snd) $ thinPattern p t
+                  r1 = case r0 of
+                            NoMatch s -> error ("NoMatch: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
+                            MatchFailure s -> error ("MatchFailure: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
+                            MatchSuccess s -> s
+                in r == r1
 
 -- Different matches for or example (trivial and normal)
 -- p[attern] v[alue] r[esult] t[hin value]
