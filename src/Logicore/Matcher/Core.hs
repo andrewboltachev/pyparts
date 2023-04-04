@@ -644,6 +644,38 @@ extractObjectKeyMatch ext (KeyReq a) = a
 extractObjectKeyMatch ext (KeyOpt a) = a
 extractObjectKeyMatch ext (KeyExt v) = ext
 
+contextFreeGrammarIsWellFormed f g = para go
+  where
+    go :: ContextFreeGrammarF MatchPattern (ContextFreeGrammar MatchPattern, Bool) -> Bool
+    go (CharF c) = f c
+    go (SeqF a) = P.any id (fmap snd a)
+    go (OrF a) = P.any id (fmap snd (KM.elems a))
+    go (StarF (p, a)) = True
+    go (PlusF (p, a)) = True
+    go (OptionalF (p, a)) = True
+
+matchPatternIsWellFormed :: MatchPattern -> Bool
+matchPatternIsWellFormed = para go
+  where
+    go :: MatchPatternF Bool -> Bool
+    go (MatchObjectFullF g) = P.all id (KM.elems g)
+    go (MatchObjectPartialF g) = P.all id (KM.elems g)
+    --go (MatchArrayContextFreeF (pg, g)) = contextFreeGrammarIsWellFormed id g
+    go (MatchStringExactF _) = True
+    go (MatchNumberExactF _) = True
+    go (MatchBoolExactF _) = True
+    go MatchStringAnyF = True
+    go MatchNumberAnyF = True
+    go MatchBoolAnyF = True
+    go MatchNullF = False
+    go MatchAnyF = True
+    go (MatchOrF (pg, g)) = P.all id (KM.elems g)
+    go (MatchIfThenF (pp, p) e (pg, g)) = True -- XXX: not checkable
+    go MatchFunnelF = True
+    go MatchFunnelKeysF = True
+    go MatchFunnelKeysUF = True
+    --go MatchRef String =
+
 contextFreeGrammarIsMovable :: (a -> Bool) -> ContextFreeGrammar a -> Bool
 contextFreeGrammarIsMovable f = cata go
   where
@@ -1398,5 +1430,3 @@ work = do
   let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
       v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
   print $ w1 p v
-
-
