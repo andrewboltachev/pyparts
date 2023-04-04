@@ -334,7 +334,6 @@ instance Arbitrary MatchPattern where
       --return $ MatchFunnelKeysU
       --MatchRef <$> arbitrary
 
-
 makeBaseFunctor ''MatchPattern
 
 instance ToJSON MatchPattern where
@@ -531,7 +530,7 @@ matchPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
 --contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
 --contextFreeGrammarResultToGrammar :: (Data.Functor.Foldable.Recursive t1, Data.Functor.Foldable.Base t1 ~ ContextFreeGrammarResultF a t2) => (t2 -> a) -> t1 -> ContextFreeGrammar a
-contextFreeGrammarResultToGrammar f = cata go
+contextFreeGrammarResultToGrammarAlg f = go
   where
     --go :: ContextFreeGrammarResultF (ContextFreeGrammar p) r (ContextFreeGrammar p) -> ContextFreeGrammar p
     go (CharNodeF r) = Char (f r)
@@ -542,6 +541,9 @@ contextFreeGrammarResultToGrammar f = cata go
     go (OrNodeF g k r) = Or (KM.insert k r g)
     go (OptionalNodeValueF r) = Optional r
     go (OptionalNodeEmptyF g) = Optional g
+
+contextFreeGrammarResultToGrammar f = cata $ contextFreeGrammarResultToGrammarAlg f
+  where
 
 contextFreeGrammarResultToSource :: (r -> a) -> ContextFreeGrammarResult g r -> [a]
 contextFreeGrammarResultToSource f = cata go
@@ -644,37 +646,98 @@ extractObjectKeyMatch ext (KeyReq a) = a
 extractObjectKeyMatch ext (KeyOpt a) = a
 extractObjectKeyMatch ext (KeyExt v) = ext
 
-contextFreeGrammarIsWellFormed f g = para go
+
+--contextFreeGrammarIsWellFormed
+
+isStarLikePattern :: ContextFreeGrammar a -> Bool
+isStarLikePattern (Star _) = True
+isStarLikePattern (Plus _) = True
+isStarLikePattern (Optional _) = True
+isStarLikePattern _ = False
+
+isSeq :: ContextFreeGrammar a -> Bool
+isSeq (Seq _) = True
+isSeq _ = False
+
+contextFreeGrammarIsWellFormed :: Show a => (a -> Bool) -> ContextFreeGrammar a -> Bool
+contextFreeGrammarIsWellFormed f = para go
   where
-    go :: ContextFreeGrammarF MatchPattern (ContextFreeGrammar MatchPattern, Bool) -> Bool
+    --go :: Show a => ContextFreeGrammarF a (ContextFreeGrammar a, Bool) -> Bool
     go (CharF c) = f c
-    go (SeqF a) = P.any id (fmap snd a)
-    go (OrF a) = P.any id (fmap snd (KM.elems a))
-    go (StarF (p, a)) = True
-    go (PlusF (p, a)) = True
-    go (OptionalF (p, a)) = True
+    go (SeqF a) = P.all id (fmap snd a)
+    go (OrF a) = P.all id (fmap snd (KM.elems a))
+    go (StarF (p, a)) = (not (isStarLikePattern p)) && a
+    go (PlusF (p, a)) = (not (isStarLikePattern p)) && a
+    go (OptionalF (p, a)) = (not (isStarLikePattern p)) && a
+
+-- is well-formed
 
 matchPatternIsWellFormed :: MatchPattern -> Bool
-matchPatternIsWellFormed = para go
+matchPatternIsWellFormed = cata go
   where
-    go :: MatchPatternF Bool -> Bool
-    go (MatchObjectFullF g) = P.all id (KM.elems g)
-    go (MatchObjectPartialF g) = P.all id (KM.elems g)
-    --go (MatchArrayContextFreeF (pg, g)) = contextFreeGrammarIsWellFormed id g
+    go (MatchObjectFullF g) = L.foldl' f True (KM.elems g)
+      where
+        f acc (KeyOpt x) = acc && x
+        f acc (KeyReq x) = acc && x
+    go (MatchObjectFullF g) = L.foldl' f True (KM.elems g)
+      where
+        f acc (KeyOpt x) = acc && x
+        f acc (KeyReq x) = acc && x
+    go (MatchArrayContextFreeF g) = isSeq g && contextFreeGrammarIsWellFormed id g
     go (MatchStringExactF _) = True
     go (MatchNumberExactF _) = True
     go (MatchBoolExactF _) = True
     go MatchStringAnyF = True
     go MatchNumberAnyF = True
     go MatchBoolAnyF = True
-    go MatchNullF = False
+    go MatchNullF = True
     go MatchAnyF = True
-    go (MatchOrF (pg, g)) = P.all id (KM.elems g)
-    go (MatchIfThenF (pp, p) e (pg, g)) = True -- XXX: not checkable
+    go (MatchOrF g) = P.all id (KM.elems g)
+    go (MatchIfThenF _ _ _) = False -- TODO
     go MatchFunnelF = True
     go MatchFunnelKeysF = True
     go MatchFunnelKeysUF = True
     --go MatchRef String =
+
+contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
+-- ContextFreeGrammarResultF g r Bool -> Bool
+contextFreeGrammarResultIsWellFormed gf rf = zygo undefined go
+  where
+    go (CharNodeF r) = rf r
+    go (SeqNodeF r) = P.any id (fmap snd r)
+    go (StarNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
+    go (StarNodeValueF r) = ((fst . P.head) r) && ((snd . P.head) r)
+    go (PlusNodeF r) = ((fst . P.head) r) && ((snd . P.head) r)
+    --go (OrNodeF g k (gr, r)) = gr && r && (not $ KM.member k g)
+    go (OptionalNodeValueF (g, r)) = g && r
+    go (OptionalNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
+
+{-matchResultIsWellFormedAlg :: MatchResultF Bool -> Bool
+matchResultIsWellFormedAlg = check where
+    check (MatchObjectFullResultF g r) = (
+      (not $ KM.null g)
+      || (not $ P.null $ getKeyOpts $ KM.elems r)
+      || (P.any id $ getKeyReqs $ KM.elems r))
+    check (MatchObjectPartialResultF g r) = True
+    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed id g
+    check (MatchStringExactResultF _) = False
+    check (MatchNumberExactResultF _) = False
+    check (MatchBoolExactResultF _) = False
+    check (MatchStringAnyResultF _) = True
+    check (MatchNumberAnyResultF _) = True
+    check (MatchBoolAnyResultF _) = True
+    check MatchNullResultF = False
+    check (MatchAnyResultF _) = True
+    check (MatchOrResultF g _ r) = r || P.any matchPatternIsWellFormed (KM.elems g)
+    check (MatchIfThenResultF _ _ g) = g
+    check (MatchFunnelResultF _) = True
+    check (MatchFunnelKeysResultF _) = True
+    check (MatchFunnelKeysUResultF _) = True
+
+matchResultIsWellFormed :: MatchResult -> Bool
+matchResultIsWellFormed = cata matchResultIsWellFormedAlg-}
+
+-- is movable
 
 contextFreeGrammarIsMovable :: (a -> Bool) -> ContextFreeGrammar a -> Bool
 contextFreeGrammarIsMovable f = cata go
