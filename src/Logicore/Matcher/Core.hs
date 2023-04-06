@@ -377,7 +377,7 @@ instance Arbitrary MatchResult where
   arbitrary = oneof [
     MatchObjectFullResult <$> arbitrary <*> arbitrary,
     MatchObjectPartialResult <$> arbitrary <*> arbitrary,
-    MatchArrayContextFreeResult <$> arbitrary,
+    MatchArrayContextFreeResult <$> (SeqNode <$> arbitrary),
     MatchStringExactResult <$> T.pack <$> arbitrary,
     MatchNumberExactResult <$> (Sci.scientific <$> arbitrary <*> arbitrary),
     MatchBoolExactResult <$> arbitrary,
@@ -679,10 +679,12 @@ matchPatternIsWellFormed = cata go
       where
         f acc (KeyOpt x) = acc && x
         f acc (KeyReq x) = acc && x
-    go (MatchObjectFullF g) = L.foldl' f True (KM.elems g)
+        f acc (KeyExt _) = False
+    go (MatchObjectPartialF g) = L.foldl' f True (KM.elems g)
       where
         f acc (KeyOpt x) = acc && x
         f acc (KeyReq x) = acc && x
+        f acc (KeyExt _) = False
     go (MatchArrayContextFreeF g) = isSeq g && contextFreeGrammarIsWellFormed id g
     go (MatchStringExactF _) = True
     go (MatchNumberExactF _) = True
@@ -727,11 +729,20 @@ contextFreeGrammarResultIsWellFormed gf rf = para go
 matchResultIsWellFormed :: MatchResult -> Bool
 matchResultIsWellFormed = cata check
   where
-    check (MatchObjectFullResultF g r) = (
-      (not $ KM.null g)
-      || (not $ P.null $ getKeyOpts $ KM.elems r)
-      || (P.any id $ getKeyReqs $ KM.elems r))
-    check (MatchObjectPartialResultF g r) = True
+    check (MatchObjectFullResultF g r) = gc && rc
+      where
+        f acc (KeyOpt x) = acc && x
+        f acc (KeyReq x) = acc && x
+        f acc (KeyExt _) = False
+        rc = L.foldl' f True (KM.elems r)
+        gc = P.all matchPatternIsWellFormed (KM.elems g)
+    check (MatchObjectPartialResultF g r) = gc && rc
+      where
+        f acc (KeyOpt x) = acc && x
+        f acc (KeyReq x) = acc && x
+        f acc (KeyExt _) = False
+        rc = L.foldl' f True (KM.elems r)
+        gc = P.all matchPatternIsWellFormed (KM.elems g)
     check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed id g
     check (MatchStringExactResultF _) = True
     check (MatchNumberExactResultF _) = True
@@ -741,7 +752,7 @@ matchResultIsWellFormed = cata check
     check (MatchBoolAnyResultF _) = True
     check MatchNullResultF = True
     check (MatchAnyResultF _) = True
-    check (MatchOrResultF g _ r) = r || P.any matchPatternIsWellFormed (KM.elems g)
+    check (MatchOrResultF g k r) = r && P.all matchPatternIsWellFormed (KM.elems g) && (not $ KM.member k g)
     check (MatchIfThenResultF _ _ g) = g
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
@@ -1013,17 +1024,19 @@ or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.
 
 thinSeq as v = do
         let gs = fmap (contextFreeGrammarIsMovable matchPatternIsMovable) as
-        let isOne = P.length (P.filter id gs) == 1
-        v <- if not isOne
-                then
-                  do
-                    v <- (m2ms $ MatchFailure $ "data error7" ++ show v) $ asKeyMap v
-                    itsType <- (m2ms $ MatchFailure $ "data error8" ++ show v) $ KM.lookup "type" v
-                    itsValue <- (m2ms $ MatchFailure $ "data error9" ++ show v) $ KM.lookup "value" v
-                    (m2ms $ MatchFailure $ "data error10" ++ show v) $ asArray itsValue
-                else
-                  do
-                    return $ [v]
+        v <- case P.length (P.filter id gs) of
+                  0 ->
+                    do
+                      return $ []
+                  1 ->
+                    do
+                      return $ [v]
+                  _ ->
+                    do
+                      v <- (m2ms $ MatchFailure $ "data error7" ++ show v) $ asKeyMap v
+                      itsType <- (m2ms $ MatchFailure $ "data error8" ++ show v) $ KM.lookup "type" v
+                      itsValue <- (m2ms $ MatchFailure $ "data error9" ++ show v) $ KM.lookup "value" v
+                      (m2ms $ MatchFailure $ "data error10" ++ show v) $ asArray itsValue
         let f acc' (a, gg) = do
             (ii, acc) <- acc'
             let (i:is) = ii
@@ -1318,18 +1331,20 @@ qc4 = do
 qc5 = do
   quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable s; _ -> False)
 
+
+c6f r = let
+        p = matchResultToPattern r
+        t = matchResultToThinValue r
+        r0 = (fmap snd) $ thinPattern p t
+        r1 = case r0 of
+                  NoMatch s -> error ("NoMatch: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
+                  MatchFailure s -> error ("MatchFailure: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
+                  MatchSuccess s -> s
+      in r == r1
+
 qc6 = do
-  quickCheck matchResultIsWellFormed
-    where c r = if matchResultIsWellFormed r then f r else True
-          f r = let
-                  p = matchResultToPattern r
-                  t = matchResultToThinValue r
-                  r0 = (fmap snd) $ thinPattern p t
-                  r1 = case r0 of
-                            NoMatch s -> error ("NoMatch: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
-                            MatchFailure s -> error ("MatchFailure: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
-                            MatchSuccess s -> s
-                in r == r1
+  quickCheck c
+    where c r = if matchResultIsWellFormed r then c6f r else True
 
 -- Different matches for or example (trivial and normal)
 -- p[attern] v[alue] r[esult] t[hin value]
