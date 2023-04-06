@@ -649,11 +649,11 @@ extractObjectKeyMatch ext (KeyExt v) = ext
 
 --contextFreeGrammarIsWellFormed
 
-isStarLikePattern :: ContextFreeGrammar a -> Bool
-isStarLikePattern (Star _) = True
-isStarLikePattern (Plus _) = True
-isStarLikePattern (Optional _) = True
-isStarLikePattern _ = False
+isStarLike :: ContextFreeGrammar a -> Bool
+isStarLike (Star _) = True
+isStarLike (Plus _) = True
+isStarLike (Optional _) = True
+isStarLike _ = False
 
 isSeq :: ContextFreeGrammar a -> Bool
 isSeq (Seq _) = True
@@ -666,9 +666,9 @@ contextFreeGrammarIsWellFormed f = para go
     go (CharF c) = f c
     go (SeqF a) = P.all id (fmap snd a)
     go (OrF a) = P.all id (fmap snd (KM.elems a))
-    go (StarF (p, a)) = (not (isStarLikePattern p)) && a
-    go (PlusF (p, a)) = (not (isStarLikePattern p)) && a
-    go (OptionalF (p, a)) = (not (isStarLikePattern p)) && a
+    go (StarF (p, a)) = (not (isStarLike p)) && a
+    go (PlusF (p, a)) = (not (isStarLike p)) && a
+    go (OptionalF (p, a)) = (not (isStarLike p)) && a
 
 -- is well-formed
 
@@ -699,21 +699,34 @@ matchPatternIsWellFormed = cata go
     go MatchFunnelKeysUF = True
     --go MatchRef String =
 
+
+isStarNodeLike :: ContextFreeGrammarResult g r -> Bool
+isStarNodeLike (StarNodeValue _) = True
+isStarNodeLike (StarNodeEmpty _) = True
+isStarNodeLike (PlusNode _) = True
+isStarNodeLike (OptionalNodeValue _) = True
+isStarNodeLike (OptionalNodeEmpty _) = True
+isStarNodeLike _ = False
+
 contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
 -- ContextFreeGrammarResultF g r Bool -> Bool
-contextFreeGrammarResultIsWellFormed gf rf = zygo undefined go
+contextFreeGrammarResultIsWellFormed gf rf = para go
   where
     go (CharNodeF r) = rf r
-    go (SeqNodeF r) = P.any id (fmap snd r)
+    go (SeqNodeF r) = P.all id (fmap snd r)
     go (StarNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
-    go (StarNodeValueF r) = ((fst . P.head) r) && ((snd . P.head) r)
-    go (PlusNodeF r) = ((fst . P.head) r) && ((snd . P.head) r)
-    --go (OrNodeF g k (gr, r)) = gr && r && (not $ KM.member k g)
-    go (OptionalNodeValueF (g, r)) = g && r
+    go (StarNodeValueF r) = (not $ isStarNodeLike (fst $ P.head r)) && (snd $ P.head r)
+    go (PlusNodeF r) = (not $ isStarNodeLike (fst $ P.head r)) && (snd $ P.head r)
+    go (OrNodeF g k (_, r)) = 
+      P.all (contextFreeGrammarIsWellFormed gf) (KM.elems g)
+      && (not $ KM.member k g)
+      && r
     go (OptionalNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
+    go (OptionalNodeValueF r) = (not $ isStarNodeLike (fst r)) && (snd r)
 
-{-matchResultIsWellFormedAlg :: MatchResultF Bool -> Bool
-matchResultIsWellFormedAlg = check where
+matchResultIsWellFormed :: MatchResult -> Bool
+matchResultIsWellFormed = cata check
+  where
     check (MatchObjectFullResultF g r) = (
       (not $ KM.null g)
       || (not $ P.null $ getKeyOpts $ KM.elems r)
@@ -733,9 +746,6 @@ matchResultIsWellFormedAlg = check where
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
     check (MatchFunnelKeysUResultF _) = True
-
-matchResultIsWellFormed :: MatchResult -> Bool
-matchResultIsWellFormed = cata matchResultIsWellFormedAlg-}
 
 -- is movable
 
