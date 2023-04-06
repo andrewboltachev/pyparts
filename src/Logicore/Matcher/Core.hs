@@ -57,6 +57,7 @@ import Data.Functor.Foldable
 import Data.Bifunctor
 import Data.Maybe (isJust, fromJust)
 import Data.Monoid
+import qualified Data.Set                     as S
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
@@ -729,20 +730,22 @@ contextFreeGrammarResultIsWellFormed gf rf = para go
 matchResultIsWellFormed :: MatchResult -> Bool
 matchResultIsWellFormed = cata check
   where
-    check (MatchObjectFullResultF g r) = gc && rc
+    check (MatchObjectFullResultF g r) = gc && rc && nck
       where
         f acc (KeyOpt x) = acc && x
         f acc (KeyReq x) = acc && x
         f acc (KeyExt _) = False
         rc = L.foldl' f True (KM.elems r)
         gc = P.all matchPatternIsWellFormed (KM.elems g)
-    check (MatchObjectPartialResultF g r) = gc && rc
+        nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
+    check (MatchObjectPartialResultF g r) = gc && rc && nck
       where
         f acc (KeyOpt x) = acc && x
         f acc (KeyReq x) = acc && x
         f acc (KeyExt _) = False
         rc = L.foldl' f True (KM.elems r)
         gc = P.all matchPatternIsWellFormed (KM.elems g)
+        nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
     check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed id g
     check (MatchStringExactResultF _) = True
     check (MatchNumberExactResultF _) = True
@@ -789,6 +792,7 @@ matchPatternIsMovable = cata go
       where
         f acc (KeyOpt _) = True
         f acc (KeyReq x) = x || acc
+        f acc (KeyReq x) = error $ "must not be here"
     go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
     go (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable id g
     go (MatchStringExactF _) = False
@@ -987,8 +991,9 @@ matchResultToThinValue = cata go
         optf x = case matchPatternIsMovable x of
                       True -> Just $ tMapT "KeyOpt"
                       False -> Just $ Bool False
-        u = KM.union (KM.map f r) (fmap optf g)
-    go (MatchObjectPartialResultF g r) = fmap Object $ nonEmptyMap $ filterEmpty $ u
+        u = error $ "it's here man:\n\n" ++ show (KM.map f r) ++ "\n\n" ++ show (fmap optf g)
+        --u = KM.union (KM.map f r) (fmap optf g)
+    go (MatchObjectPartialResultF g r) = fmap Object $ Just $ filterEmpty $ u
       where
         f (KeyReq v) = v
         f (KeyOpt v) = case v of
