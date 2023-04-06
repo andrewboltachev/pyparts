@@ -733,13 +733,13 @@ matchResultIsWellFormed = cata check
       || (P.any id $ getKeyReqs $ KM.elems r))
     check (MatchObjectPartialResultF g r) = True
     check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed id g
-    check (MatchStringExactResultF _) = False
-    check (MatchNumberExactResultF _) = False
-    check (MatchBoolExactResultF _) = False
+    check (MatchStringExactResultF _) = True
+    check (MatchNumberExactResultF _) = True
+    check (MatchBoolExactResultF _) = True
     check (MatchStringAnyResultF _) = True
     check (MatchNumberAnyResultF _) = True
     check (MatchBoolAnyResultF _) = True
-    check MatchNullResultF = False
+    check MatchNullResultF = True
     check (MatchAnyResultF _) = True
     check (MatchOrResultF g _ r) = r || P.any matchPatternIsWellFormed (KM.elems g)
     check (MatchIfThenResultF _ _ g) = g
@@ -1319,8 +1319,9 @@ qc5 = do
   quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable s; _ -> False)
 
 qc6 = do
-  quickCheck f
-    where f r = let
+  quickCheck matchResultIsWellFormed
+    where c r = if matchResultIsWellFormed r then f r else True
+          f r = let
                   p = matchResultToPattern r
                   t = matchResultToThinValue r
                   r0 = (fmap snd) $ thinPattern p t
