@@ -1187,7 +1187,7 @@ thinPatternMap allowExt m a = do
   let vs = KM.map f2 m
 
   na <- case (KM.size (KM.filter id ms), allowExt) of
-             (0, _) -> do
+             (0, False) -> do
                case a of
                     Nothing -> return $ KM.empty
                     (Just x) -> MatchFailure ("must not be here 1071: " ++ show x)
