@@ -991,8 +991,7 @@ matchResultToThinValue = cata go
         optf x = case matchPatternIsMovable x of
                       True -> Just $ tMapT "KeyOpt"
                       False -> Just $ Bool False
-        u = error $ "it's here man:\n\n" ++ show (KM.map f r) ++ "\n\n" ++ show (fmap optf g)
-        --u = KM.union (KM.map f r) (fmap optf g)
+        u = KM.union (KM.map f r) (fmap optf g)
     go (MatchObjectPartialResultF g r) = fmap Object $ Just $ filterEmpty $ u
       where
         f (KeyReq v) = v
