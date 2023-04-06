@@ -755,7 +755,10 @@ matchResultIsWellFormed = cata check
     check (MatchBoolAnyResultF _) = True
     check MatchNullResultF = True
     check (MatchAnyResultF _) = True
-    check (MatchOrResultF g k r) = r && P.all matchPatternIsWellFormed (KM.elems g) && (not $ KM.member k g)
+    check (MatchOrResultF g k r) = 
+      P.all matchPatternIsWellFormed (KM.elems g)
+      && (not $ KM.member k g)
+      && r
     check (MatchIfThenResultF _ _ g) = g
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
@@ -781,7 +784,7 @@ contextFreeGrammarResultIsMovable gf rf = cata go
     go (StarNodeEmptyF g) = True
     go (StarNodeValueF r) = True
     go (PlusNodeF r) = True
-    go (OrNodeF g k r) = r || P.any (contextFreeGrammarIsMovable gf) (KM.elems g)
+    go (OrNodeF g k r) = True -- r || P.any (contextFreeGrammarIsMovable gf) (KM.elems g)
     go (OptionalNodeValueF r) = True
     go (OptionalNodeEmptyF g) = True
 
@@ -803,7 +806,7 @@ matchPatternIsMovable = cata go
     go MatchBoolAnyF = True
     go MatchNullF = False
     go MatchAnyF = True
-    go (MatchOrF g) = P.any id (KM.elems g)
+    go (MatchOrF g) = True --P.any id (KM.elems g)
     go (MatchIfThenF _ _ g) = g
     go MatchFunnelF = True
     go MatchFunnelKeysF = True
@@ -1065,7 +1068,7 @@ thinContextFreeMatch (Seq as) Nothing = if not $ contextFreeGrammarIsMovable mat
                                            else NoMatch "data error5"
 thinContextFreeMatch (Seq as) (Just v) = do
   if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
-     then NoMatch "data error6"
+     then NoMatch ("data error6:\n\n" ++ show as ++ "\n\n" ++ show v ++ "\n\n")
      else thinSeq as v
 
 thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
@@ -1122,8 +1125,10 @@ thinContextFreeMatch (Plus a) (Just (Object v)) = do
 
 thinContextFreeMatch (Optional a) (Just (Object v)) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
-  itsType <- (m2ms $ MatchFailure ("data error5" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
-  itsKey <- (m2ms $ MatchFailure ("data error6" ++ show v)) $ KM.lookup (K.fromString "flag") v
+  itsType <- (m2ms $ NoMatch ("data error5" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
+  itsType <- (m2ms $ NoMatch ("data error1129" ++ show v)) $ asString itsType -- OrNodeTrivial or OrNode
+  _ <- if itsType == "OptionalNode" || itsType == "OptionalNodeTrivial" then MatchSuccess () else NoMatch ("type mismatch: "  ++ T.unpack itsType)
+  itsKey <- (m2ms $ MatchFailure ("data error6" ++ (show . TL.unpack . TL.decodeUtf8 . encode) v)) $ KM.lookup (K.fromString "flag") v
   itsKey <- (m2ms $ MatchFailure ("data error7" ++ show v)) $ asBool itsKey
   if itsKey
      then
@@ -1346,9 +1351,9 @@ c6f r = let
                   MatchSuccess s -> s
       in r == r1
 
-qc6 = do
-  quickCheck c
-    where c r = if matchResultIsWellFormed r then c6f r else True
+c6c r = if matchResultIsWellFormed r then c6f r else True
+
+qc6 = quickCheck c6c
 
 -- Different matches for or example (trivial and normal)
 -- p[attern] v[alue] r[esult] t[hin value]
