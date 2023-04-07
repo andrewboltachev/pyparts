@@ -711,42 +711,53 @@ isStarNodeLike (OptionalNodeValue _) = True
 isStarNodeLike (OptionalNodeEmpty _) = True
 isStarNodeLike _ = False
 
-contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
--- ContextFreeGrammarResultF g r Bool -> Bool
+allTheSame [] = True
+allTheSame (x:xs) = P.all (== x) xs
+
+--contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
+--contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
+contextFreeGrammarResultIsWellFormed :: (MatchPattern -> Bool) -> (Bool -> Bool) -> ContextFreeGrammarResult MatchPattern (MatchResult, Bool) -> Bool
 contextFreeGrammarResultIsWellFormed gf rf = para go
   where
-    go (CharNodeF r) = rf r
+    --go :: ContextFreeGrammarResultF MatchPattern MatchResult (MatchResult, Bool) -> Bool
+    go (CharNodeF (_, r)) = rf r
     go (SeqNodeF r) = P.all id (fmap snd r)
     go (StarNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
-    go (StarNodeValueF r) = (not $ isStarNodeLike (fst $ P.head r)) && (snd $ P.head r)
-    go (PlusNodeF r) = (not $ isStarNodeLike (fst $ P.head r)) && (snd $ P.head r)
+    go (StarNodeValueF r) =
+      (not $ isStarNodeLike (fst $ P.head r))
+      && (snd $ P.head r)
+      && (allTheSame $ (fmap (contextFreeGrammarResultToGrammar (matchResultToPattern . fst))) $ (fmap fst r))
+    go (PlusNodeF r) =
+      (not $ isStarNodeLike (fst $ P.head r))
+      && (snd $ P.head r)
+      && (allTheSame $ (fmap (contextFreeGrammarResultToGrammar (matchResultToPattern . fst))) $ (fmap fst r))
     go (OrNodeF g k (_, r)) = 
       P.all (contextFreeGrammarIsWellFormed gf) (KM.elems g)
       && (not $ KM.member k g)
       && r
     go (OptionalNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
-    go (OptionalNodeValueF r) = (not $ isStarNodeLike (fst r)) && (snd r)
+    go (OptionalNodeValueF r) = (not $ isStarNodeLike (fst r)) && (snd r) {--}
 
 matchResultIsWellFormed :: MatchResult -> Bool
-matchResultIsWellFormed = cata check
+matchResultIsWellFormed = para check
   where
+    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed id g
     check (MatchObjectFullResultF g r) = gc && rc && nck
       where
-        f acc (KeyOpt x) = acc && x
-        f acc (KeyReq x) = acc && x
+        f acc (KeyOpt (_, x)) = acc && x
+        f acc (KeyReq (_, x)) = acc && x
         f acc (KeyExt _) = False
         rc = L.foldl' f True (KM.elems r)
         gc = P.all matchPatternIsWellFormed (KM.elems g)
         nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
     check (MatchObjectPartialResultF g r) = gc && rc && nck
       where
-        f acc (KeyOpt x) = acc && x
-        f acc (KeyReq x) = acc && x
+        f acc (KeyOpt (_, x)) = acc && x
+        f acc (KeyReq (_, x)) = acc && x
         f acc (KeyExt _) = False
         rc = L.foldl' f True (KM.elems r)
         gc = P.all matchPatternIsWellFormed (KM.elems g)
         nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
-    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed id g
     check (MatchStringExactResultF _) = True
     check (MatchNumberExactResultF _) = True
     check (MatchBoolExactResultF _) = True
@@ -755,11 +766,11 @@ matchResultIsWellFormed = cata check
     check (MatchBoolAnyResultF _) = True
     check MatchNullResultF = True
     check (MatchAnyResultF _) = True
-    check (MatchOrResultF g k r) = 
+    check (MatchOrResultF g k (_, r)) = 
       P.all matchPatternIsWellFormed (KM.elems g)
       && (not $ KM.member k g)
       && r
-    check (MatchIfThenResultF _ _ g) = g
+    check (MatchIfThenResultF _ _ _) = False -- TODO
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
     check (MatchFunnelKeysUResultF _) = True
@@ -771,7 +782,7 @@ contextFreeGrammarIsMovable f = cata go
   where
     go (CharF a) = f a
     go (SeqF a) = P.any id a
-    go (OrF a) = P.any id (KM.elems a)
+    go (OrF a) = True --P.any id (KM.elems a)
     go (StarF a) = True
     go (PlusF a) = True
     go (OptionalF a) = True
@@ -1354,6 +1365,7 @@ c6f r = let
 c6c r = if matchResultIsWellFormed r then c6f r else True
 
 qc6 = quickCheck c6c
+qq = quickCheck (withMaxSuccess 10000 c6c)
 
 -- Different matches for or example (trivial and normal)
 -- p[attern] v[alue] r[esult] t[hin value]
