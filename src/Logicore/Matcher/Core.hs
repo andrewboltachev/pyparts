@@ -149,11 +149,11 @@ instance (Arbitrary g, Arbitrary r) => Arbitrary (ContextFreeGrammarResult g r) 
       do
         h <- arbitrary
         t <- arbitrary
-        return $ StarNodeValue (h:t),
+        return $ StarNodeValue (P.take (max t 1) $ P.repeat h),
       do
         h <- arbitrary
         t <- arbitrary
-        return $ PlusNode (h:t),
+        return $ PlusNode (P.take (max t 1) $ P.repeat h),
       OrNode <$> arbitrary <*> arbitrary <*> arbitrary,
       OptionalNodeEmpty <$> arbitrary,
       OptionalNodeValue <$> arbitrary]
