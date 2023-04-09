@@ -1056,11 +1056,11 @@ thinSeq as v = do
                       itsValue <- (m2ms $ MatchFailure $ "data error9" ++ show v) $ KM.lookup "value" v
                       (m2ms $ MatchFailure $ "data error10" ++ show v) $ asArray itsValue
         let f acc' (a, gg) = do
-            (ii, acc) <- acc'
-            let (i:is) = ii
-            if gg -- movable
-              then fmap (\x -> (is, acc <> (bimap All L.singleton x))) (thinContextFreeMatch a (Just i))
-              else fmap (\x -> (ii, acc <> (bimap (const mempty) L.singleton x))) (thinContextFreeMatch a Nothing)
+                (ii, acc) <- acc'
+                let (i:is) = ii
+                if gg -- movable
+                  then fmap (\x -> (is, acc <> (bimap All L.singleton x))) (thinContextFreeMatch a (Just i))
+                  else fmap (\x -> (ii, acc <> (bimap (const mempty) L.singleton x))) (thinContextFreeMatch a Nothing)
         r <- L.foldl' f (MatchSuccess (v, mempty)) $ P.zip as gs
         _ <- if P.null $ fst r then MatchSuccess () else MatchFailure $ "not all consumed" ++ show (fst r)
         let r1@(bb, _) = bimap getAll SeqNode (snd r)

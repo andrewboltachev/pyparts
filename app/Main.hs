@@ -35,6 +35,7 @@ main = do
       , post "/matchPattern" (fnEndpoint mkMatchPattern)
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
+      , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
       , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
       ]
@@ -83,6 +84,16 @@ mkMatchResultToValue e = do
   mr <- (m2ms $ MatchFailure "Cannot decode MatchResult from presented result") $ (((decode . encode) result) :: Maybe MatchResult) -- TODO
   output <- return $ matchResultToValue mr
   return $ Object $ (KM.fromList [(K.fromString "value", output)])
+
+mkMatchResultToThinValue :: (Object -> MatchStatus Value)
+mkMatchResultToThinValue e = do
+  result <- (m2ms $ MatchFailure "JSON root element must have result") $ KM.lookup (K.fromString "result") e
+  mr <- (m2ms $ MatchFailure "Cannot decode MatchResult from presented result") $ (((decode . encode) result) :: Maybe MatchResult) -- TODO
+  output <- return $ matchResultToThinValue mr
+  let res = case output of
+                 Just x -> x
+                 Nothing -> Null
+  return $ Object $ (KM.fromList [(K.fromString "thinValue", res)])
 
 mkValueToExactGrammar :: (Object -> MatchStatus Value)
 mkValueToExactGrammar e = do
