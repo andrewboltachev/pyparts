@@ -999,11 +999,11 @@ matchResultToThinValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = case v of
                             Nothing -> Just $ Bool True
-                            Just a -> Just $ tMap "KeyOpt" a
+                            Just a -> Just a
         f (KeyExt _) = error "must not be here4"
         optf :: MatchPattern -> Maybe Value
         optf x = case matchPatternIsMovable x of
-                      True -> Just $ tMapT "KeyOpt"
+                      True -> Nothing
                       False -> Just $ Bool False
         u = KM.union (KM.map f r) (fmap optf g)
     go (MatchObjectPartialResultF g r) = fmap Object $ Just $ filterEmpty $ u
@@ -1241,12 +1241,7 @@ thinPatternMap allowExt m a = do
                       e <- (fmap snd) $ thinPattern v (Just x)
                       return $ second (KM.insert k $ KeyReq e) acc
              (KeyOpt v, True) -> do
-               vv <- (m2ms $ MatchFailure ("doesn't exist6" ++ show na)) $ KM.lookup k na
-               vv1 <- (m2ms $ MatchFailure $ "doesn't exist7: " ++ show vv) $ asKeyMap vv
-               tt1 <- (m2ms $ MatchFailure $ "doesn't exist8: " ++ show vv1) $ KM.lookup (fromString "type") vv1
-               --vv2 <- (m2ms $ MatchFailure "doesn't exist8") $ 
-               _ <- if (tt1 == String "KeyOpt") then MatchSuccess () else MatchFailure "incorrect type"
-               case KM.lookup (fromString "value") vv1 of
+               case KM.lookup k na of
                     Nothing -> return $ first (KM.insert k v) acc
                     Just x -> do
                       e <- (fmap snd) $ thinPattern v (Just x)
