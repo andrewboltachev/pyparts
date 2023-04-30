@@ -1535,3 +1535,13 @@ work = do
   let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
       v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
   print $ w1 p v
+
+valueToPythonGrammar :: Value -> MatchPattern
+valueToPythonGrammar = para go
+  where
+    go (ObjectF a) = MatchObjectFull (fmap KeyReq a)
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
+    go (StringF a) = MatchStringExact a
+    go (NumberF a) = MatchNumberExact a
+    go (BoolF a) = MatchBoolExact a
+    go NullF = MatchNull

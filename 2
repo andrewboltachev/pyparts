@@ -127,10 +127,10 @@ mkPythonStep1 e = do
   prePattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   pattern <- return $ valueToPythonGrammar prePattern
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
-  mr <- matchPattern mp value
-  return $ Object $ case matchResultToThinValue mr of
-                         Just x -> KM.fromList [(K.fromString "thinValue", x)]
-                         Nothing -> KM.empty
+  output <- matchPattern mp value
+  output <- return $ matchResultToThinValue output
+  outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
+  return $ Object $ (KM.fromList [(K.fromString "thinValue", outputValue)])
 
 fnEndpoint :: (Object -> MatchStatus Value) -> ResponderM b
 fnEndpoint f = do
