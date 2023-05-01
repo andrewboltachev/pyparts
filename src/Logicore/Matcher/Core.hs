@@ -946,13 +946,8 @@ instance ToJSON a => ToJSON (ThickContextFreeGrammar a) where
 instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
 k2s = (String . T.pack . K.toString)
-tMap t v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "value", v)]
-tMapT t = Object $ KM.fromList [(K.fromString "type", String t)]
-tMapK t k = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k)]
-tMapF t f = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "flag", Bool f)]
-tMapKV t k v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k), (K.fromString "value", v)]
+tMapK1 k = Object $ KM.fromList [(K.fromString "k", k2s k)]
 tMapKV1 k v = Object $ KM.fromList [(K.fromString "k", k2s k), (K.fromString "v", v)]
-tMapFV t f v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "flag", Bool f), (K.fromString "value", v)]
 
 contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
 contextFreeGrammarResultToThinValue = cata go
@@ -976,7 +971,7 @@ contextFreeGrammarResultToThinValue = cata go
                                then Number $ Sci.scientific (toInteger (P.length r)) 0
                                else Array $ V.fromList $ P.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
-                            then k2s k
+                            then tMapK1 k
                             else tMapKV1 k (fromJust r)
     go (OptionalNodeValueF r) = Just $ if r == Nothing
                             then Bool True
@@ -1030,7 +1025,7 @@ matchResultToThinValue = cata go
     go MatchNullResultF = Nothing
     go (MatchAnyResultF r) = Just $ r
     go (MatchOrResultF g k r) = Just $ if r == Nothing
-                                   then k2s k
+                                   then tMapK1 k
                                    else tMapKV1 k (fromJust r)
     go (MatchIfThenResultF p errorMsg r) = r
     go (MatchFunnelResultF r) = Just $ r
@@ -1285,14 +1280,15 @@ thinPattern (MatchIfThen baseMatch failMsg match) v =
 
 thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
 
-thinPattern (MatchOr ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
-  itsType <- (m2ms $ MatchFailure ("data error1" ++ show v)) $ KM.lookup (K.fromString "type") v
-  itsKey <- (m2ms $ MatchFailure ("data error2" ++ show v)) $ KM.lookup (K.fromString "key") v
-  itsKey <- (m2ms $ MatchFailure ("data error3" ++ show v)) $ asString itsKey
-  let itsK = (K.fromString . T.unpack) itsKey
-  itsMatch <- (m2ms $ MatchFailure ("data error4" ++ show v)) $ KM.lookup itsK ms
-  fmap ((\a -> (True, a)) . (MatchOrResult (KM.delete itsK ms) itsK) . snd) (thinPattern itsMatch (KM.lookup (K.fromString "value") v))
-
+thinPattern (MatchOr ms) (Just (Object v)) = do
+  itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ (KM.lookup "k") v
+  itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ asString itsK
+  itsK <- return $ K.fromString $ T.unpack $ itsK
+  let itsV = KM.lookup "v" v
+  aa <- (m2ms $ NoMatch $ "Wrong k" ++ show itsK) $ (KM.lookup itsK) ms
+  (_, r) <- thinPattern aa itsV
+  rr <- return $ MatchOrResult (KM.delete itsK ms) itsK r
+  return $ (True, rr)
 
 -- specific (aka exact)
 thinPattern (MatchStringExact m) Nothing = MatchSuccess (False, MatchStringExactResult m)
