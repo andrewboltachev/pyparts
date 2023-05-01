@@ -144,17 +144,6 @@ withoutPythonUnsignificantKeys = cata go
     go (NumberF a) = Number a
     go (BoolF a) = Bool a
     go NullF = Null
-  
-
-valueToPythonGrammar :: Value -> MatchPattern
-valueToPythonGrammar = cata go
-  where
-    go (ObjectF a) = MatchObjectFull (fmap KeyReq a)
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
-    go (StringF a) = MatchStringExact a
-    go (NumberF a) = MatchNumberExact a
-    go (BoolF a) = MatchBoolExact a
-    go NullF = MatchNull
 
 --
 matchArrayOne x = MatchArrayContextFree $ Seq [Char x]
@@ -222,7 +211,67 @@ simple_or_grammar = MatchObjectFull (fromList [
     )
   ])
 
-pythonStep0Grammar = simple_or_grammar
+star_grammar = MatchObjectFull (fromList [
+    (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
+    (fromString "orelse", KeyReq $ MatchNull), -- bottom
+    (fromString "test",
+      KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
+        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
+      ])
+    ),
+    (fromString "body", KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
+        (fromString "body", KeyReq $ MatchAny)
+      ]))
+  ])
+
+plus_grammar = MatchObjectFull (fromList [
+    (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
+    (fromString "orelse", KeyReq $ MatchNull), -- bottom
+    (fromString "test",
+      KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
+        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
+      ])
+    ),
+    (fromString "body", KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
+        (fromString "body", KeyReq $ MatchAny)
+      ]))
+  ])
+
+optional_grammar = MatchObjectFull (fromList [
+    (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
+    (fromString "orelse", KeyReq $ MatchNull), -- bottom
+    (fromString "test",
+      KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
+        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
+      ])
+    ),
+    (fromString "body", KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
+        (fromString "body", KeyReq $ MatchAny)
+      ]))
+  ])
+
+item_grammar = MatchObjectFull (fromList [
+  (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
+  (fromString "value", KeyReq $ MatchStringExact $ T.pack "__1")
+  ])
+
+pythonStep0Grammar = item_grammar
+
+valueToPythonGrammar :: Value -> MatchPattern
+valueToPythonGrammar = cata go
+  where
+    go (ObjectF a) = MatchObjectFull (fmap KeyReq a)
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
+    go (StringF a) = MatchStringExact a
+    go (NumberF a) = MatchNumberExact a
+    go (BoolF a) = MatchBoolExact a
+    go NullF = MatchNull
 
 {-
 
