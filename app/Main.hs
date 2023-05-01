@@ -40,6 +40,7 @@ main = do
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
       , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
       , post "/pythonStep1" (fnEndpoint mkPythonStep1)
+      , post "/pythonStep0" (fnEndpoint mkPythonStep0)
       ]
 
 
@@ -120,6 +121,18 @@ mkValueToExactResult e = do
   output <- valueToExactResult value
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
+
+mkPythonStep0 :: (Object -> MatchStatus Value)
+mkPythonStep0 e = do
+  pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
+  pattern <- (m2ms $ MatchFailure "err1") $ asKeyMap pattern
+  pattern <- (m2ms $ MatchFailure "err2") $ KM.lookup (K.fromString "body") pattern
+  pattern <- (m2ms $ MatchFailure "err3") $ asArray pattern
+  pattern <- (m2ms $ MatchFailure "err4") $ safeHead pattern
+  mr <- matchPattern pythonStep0Grammar pattern
+  return $ Object $ case matchResultToThinValue mr of
+                         Just x -> KM.fromList [(K.fromString "thinValue", x)]
+                         Nothing -> KM.empty
 
 mkPythonStep1 :: (Object -> MatchStatus Value)
 mkPythonStep1 e = do

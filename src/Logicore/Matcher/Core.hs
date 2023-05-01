@@ -472,7 +472,7 @@ mObj keepExt m a = do
             case KM.member k m of
                  True -> MatchSuccess acc
                  False -> case keepExt of
-                               False -> NoMatch "extra key in arg"
+                               False -> NoMatch $ ("extra key in arg: " ++ show k)
                                True -> case KM.lookup k a of
                                             Nothing -> MatchFailure "impossible"
                                             Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
@@ -1013,11 +1013,14 @@ matchResultToThinValue = cata go
                             Nothing -> Just $ Bool True
                             Just a -> Just $ tMap "KeyOpt" a
         f (KeyExt _) = error "must not be here5"
+        ff (KeyReq v) = True
+        ff (KeyOpt v) = True
+        ff (KeyExt v) = False
         optf :: MatchPattern -> Maybe Value
         optf x = case matchPatternIsMovable x of
                       True -> Just $ tMapT "KeyOpt"
                       False -> Just $ Bool False
-        u = KM.union (KM.map f r) (fmap optf g)
+        u = KM.union (KM.map f (KM.filter ff r)) (fmap optf g)
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
@@ -1535,13 +1538,3 @@ work = do
   let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
       v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
   print $ w1 p v
-
-valueToPythonGrammar :: Value -> MatchPattern
-valueToPythonGrammar = para go
-  where
-    go (ObjectF a) = MatchObjectFull (fmap KeyReq a)
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
-    go (StringF a) = MatchStringExact a
-    go (NumberF a) = MatchNumberExact a
-    go (BoolF a) = MatchBoolExact a
-    go NullF = MatchNull
