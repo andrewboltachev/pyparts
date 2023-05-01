@@ -129,6 +129,7 @@ mkPythonStep0 e = do
   pattern <- (m2ms $ MatchFailure "err2") $ KM.lookup (K.fromString "body") pattern
   pattern <- (m2ms $ MatchFailure "err3") $ asArray pattern
   pattern <- (m2ms $ MatchFailure "err4") $ safeHead pattern
+  pattern <- return $ withoutPythonUnsignificantKeys pattern
   mr <- matchPattern pythonStep0Grammar pattern
   return $ Object $ case matchResultToThinValue mr of
                          Just x -> KM.fromList [(K.fromString "thinValue", x)]

@@ -55,8 +55,8 @@ import Logicore.Matcher.Additional
 import Logicore.Matcher.Experimental
 -- python
 
-pythonUnsignificantKeys :: [String]
-pythonUnsignificantKeys = [
+pythonUnsignificantKeys :: [Key]
+pythonUnsignificantKeys = fmap fromString [
   "lpar",
   "rpar",
   "first_line",
@@ -138,7 +138,7 @@ pythonUnsignificantKeys = [
 withoutPythonUnsignificantKeys :: Value -> Value
 withoutPythonUnsignificantKeys = cata go
   where
-    --go (ObjectF a) = KM.filterWithKey (\k v -> False) a
+    go (ObjectF a) = Object $ KM.filterWithKey (\k v -> not $ P.elem k pythonUnsignificantKeys) a
     go (ArrayF a) = Array a
     go (StringF a) = String a
     go (NumberF a) = Number a
@@ -160,17 +160,29 @@ valueToPythonGrammar = cata go
 
 matchArrayOne x = MatchArrayContextFree $ Seq [Char x]
 
+if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectFull (fromList [
+    (fromString "comma", KeyReq $ MatchStringExact "MaybeSentinel.DEFAULT")
+  , (fromString "equal", KeyReq $ MatchStringExact "MaybeSentinel.DEFAULT")
+  , (fromString "keyword", KeyReq $ MatchNull)
+  , (fromString "star", KeyReq $ MatchStringExact "")
+  , (fromString "type", KeyReq $ MatchStringExact "Arg")
+  , (fromString "value", KeyReq $ MatchObjectFull (fromList [
+      (fromString "type", KeyReq $ MatchStringExact "SimpleString")
+      , (fromString "value", KeyReq $ MatchStringAny)
+  ]))
+  ]))
+
 simple_or_grammar = MatchObjectFull (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
       KeyReq $ MatchObjectFull (fromList [ -- top
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Call"),
-        (fromString "func", KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Call")
+        , (fromString "func", KeyReq $ MatchObjectFull (fromList [
           (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
           (fromString "value", KeyReq $ MatchStringExact $ T.pack "__simpleor")
         ]))
-        --,(fromString "args", matchArrayOne $ MatchAny) -- TODO
+        , if_arg -- TODO
       ])
     ),
     (fromString "body",
@@ -179,6 +191,7 @@ simple_or_grammar = MatchObjectFull (fromList [
         (fromString "body", KeyReq $ MatchArrayContextFree $ Seq [
           (Plus (Char $ MatchObjectFull (fromList [
               (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"),
+              (fromString "orelse", KeyReq $ MatchNull), -- bottom
               (fromString "test",
                 KeyReq $ MatchObjectFull (fromList [ -- top
                   (fromString "type", KeyReq $ MatchStringExact $ T.pack "Call"),
@@ -186,13 +199,13 @@ simple_or_grammar = MatchObjectFull (fromList [
                     (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
                     (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
                   ]))
-                  --,(fromString "args", matchArrayOne $ MatchAny) -- TODO
+                  , if_arg -- TODO
                 ])
               ),
               (fromString "body",
                 KeyReq $ MatchObjectFull (fromList [
                   (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
-                  (fromString "body", KeyReq $ matchArrayOne $ MatchAny)
+                  (fromString "body", KeyReq $ MatchAny)
                 ]))
             ])
           ))      
