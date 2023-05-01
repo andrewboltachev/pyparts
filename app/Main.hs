@@ -40,6 +40,7 @@ main = do
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
       , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
       , post "/pythonStep1" (fnEndpoint mkPythonStep1)
+      , post "/pythonStep2" (fnEndpoint mkPythonStep2)
       , post "/pythonStep0" (fnEndpoint mkPythonStep0)
       ]
 
@@ -138,13 +139,28 @@ mkPythonStep0 e = do
 mkPythonStep1 :: (Object -> MatchStatus Value)
 mkPythonStep1 e = do
   value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
-  prePattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
-  pattern <- return $ valueToPythonGrammar prePattern
+  pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
+  pattern <- return $ withoutPythonUnsignificantKeys pattern
+  value <- return $ withoutPythonUnsignificantKeys value
+  pattern <- return $ valueToPythonGrammar pattern
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   mr <- matchPattern mp value
   return $ Object $ case matchResultToThinValue mr of
                          Just x -> KM.fromList [(K.fromString "thinValue", x)]
                          Nothing -> KM.empty
+
+mkPythonStep2 :: (Object -> MatchStatus Value)
+mkPythonStep2 e = do
+  thinGrammar <- (m2ms $ MatchFailure "JSON root element must have thin grammar") $ KM.lookup (K.fromString "thinGrammar") e
+  pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
+  pattern <- return $ withoutPythonUnsignificantKeys pattern
+  pattern <- return $ valueToPythonGrammar pattern
+  mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
+  --mr <- matchPattern mp value
+  return $ Object $ case thinPattern mp (Just thinGrammar) of
+                         MatchSuccess (_, s) -> (KM.singleton "code" $ matchResultToValue $ s)
+                         NoMatch s -> (KM.singleton "error" $ (String . T.pack) $ "NoMatch: " ++ s)
+                         MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "MatchFailure: " ++ s)
 
 fnEndpoint :: (Object -> MatchStatus Value) -> ResponderM b
 fnEndpoint f = do

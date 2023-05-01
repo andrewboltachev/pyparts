@@ -264,10 +264,17 @@ item_grammar = MatchObjectFull (fromList [
 pythonStep0Grammar = item_grammar
 
 valueToPythonGrammar :: Value -> MatchPattern
-valueToPythonGrammar = cata go
+valueToPythonGrammar = para go
   where
-    go (ObjectF a) = MatchObjectFull (fmap KeyReq a)
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
+    go :: ValueF (Value, MatchPattern) -> MatchPattern
+    go (ObjectF a) = r where
+      original = Object $ fmap fst a
+      --r = error $ (TL.unpack . TL.decodeUtf8 . encode) original
+      r = case matchPattern item_grammar original of
+           MatchSuccess r -> MatchAny
+           _ -> MatchObjectFull (fmap (KeyReq . snd) a)
+
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ (fmap snd) $ V.toList a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
     go (BoolF a) = MatchBoolExact a
