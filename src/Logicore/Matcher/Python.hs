@@ -157,7 +157,6 @@ valueToPythonGrammar = cata go
     go NullF = MatchNull
 
 --
-
 matchArrayOne x = MatchArrayContextFree $ Seq [Char x]
 
 if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectFull (fromList [
@@ -172,17 +171,26 @@ if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectFull (fromList 
   ]))
   ]))
 
+{-
+    {
+      "value": {
+        "value": "__simpleor",
+        "lpar": [],
+        "rpar": [],
+        "type": "Name"
+      },
+      "semicolon": "MaybeSentinel.DEFAULT",
+      "type": "Expr"
+    }
+-}
+
 simple_or_grammar = MatchObjectFull (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectFull (fromList [ -- top
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Call")
-        , (fromString "func", KeyReq $ MatchObjectFull (fromList [
-          (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
-          (fromString "value", KeyReq $ MatchStringExact $ T.pack "__simpleor")
-        ]))
-        , if_arg -- TODO
+      KeyReq $ MatchObjectFull (fromList [
+        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
+        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__simpleor")
       ])
     ),
     (fromString "body",
@@ -199,7 +207,7 @@ simple_or_grammar = MatchObjectFull (fromList [
                     (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
                     (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
                   ]))
-                  , if_arg -- TODO
+                  , if_arg
                 ])
               ),
               (fromString "body",
