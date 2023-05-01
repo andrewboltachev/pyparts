@@ -945,12 +945,13 @@ instance ToJSON a => ToJSON (ThickContextFreeGrammar a) where
 
 instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
-
+k2s = (String . T.pack . K.toString)
 tMap t v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "value", v)]
 tMapT t = Object $ KM.fromList [(K.fromString "type", String t)]
 tMapK t k = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k)]
 tMapF t f = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "flag", Bool f)]
 tMapKV t k v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "key", (String . T.pack . K.toString) k), (K.fromString "value", v)]
+tMapKV1 k v = Object $ KM.fromList [(K.fromString "k", k2s k), (K.fromString "v", v)]
 tMapFV t f v = Object $ KM.fromList [(K.fromString "type", String t), (K.fromString "flag", Bool f), (K.fromString "value", v)]
 
 contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
@@ -964,25 +965,25 @@ contextFreeGrammarResultToThinValue = cata go
          then Nothing
          else if P.length l == 1
                  then Just $ P.head l
-                 else Just $ tMap "SeqNode" $ Array $ V.fromList $ l
+                 else Just $ Array $ V.fromList $ l
     go (StarNodeEmptyF g) = Just $ if gg g
-                                      then tMap "StarNode" $ Array $ V.fromList ([] :: [Value])
-                                      else tMap "StarNodeTrivial" $ Number 0
+                                      then Array $ V.fromList ([] :: [Value])
+                                      else Number 0
     go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then tMap "StarNodeTrivial" $ Number $ Sci.scientific (toInteger (P.length r)) 0
-                               else tMap "StarNode" $ Array $ V.fromList $ P.map fromJust r
+                               then Number $ Sci.scientific (toInteger (P.length r)) 0
+                               else Array $ V.fromList $ P.map fromJust r
     go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then tMap "PlusNodeTrivial" $ Number $ Sci.scientific (toInteger (P.length r)) 0
-                               else tMap "PlusNode" $ Array $ V.fromList $ P.map fromJust r
+                               then Number $ Sci.scientific (toInteger (P.length r)) 0
+                               else Array $ V.fromList $ P.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
-                            then tMapK "OrNodeTrivial" k
-                            else tMapKV "OrNode" k (fromJust r)
+                            then k2s k
+                            else tMapKV1 k (fromJust r)
     go (OptionalNodeValueF r) = Just $ if r == Nothing
-                            then tMapF "OptionalNodeTrivial" True
-                            else tMapFV "OptionalNode" True (fromJust r)
+                            then Bool True
+                            else Array $ V.fromList [(fromJust r)]
     go (OptionalNodeEmptyF g) = Just $ if not $ gg g
-                            then tMapF "OptionalNodeTrivial" False
-                            else tMapF "OptionalNode" False
+                            then Bool False
+                            else Array $ V.fromList []
 
 
 matchResultToThinValue :: MatchResult -> Maybe Value
@@ -1009,14 +1010,14 @@ matchResultToThinValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = case v of
                             Nothing -> Just $ Bool True
-                            Just a -> Just $ tMap "KeyOpt" a
+                            Just a -> Just $ a
         f (KeyExt _) = error "must not be here5"
         ff (KeyReq v) = True
         ff (KeyOpt v) = True
         ff (KeyExt v) = False
         optf :: MatchPattern -> Maybe Value
         optf x = case matchPatternIsMovable x of
-                      True -> Just $ tMapT "KeyOpt"
+                      True -> Just $ Bool True
                       False -> Just $ Bool False
         u = KM.union (KM.map f (KM.filter ff r)) (fmap optf g)
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
@@ -1029,8 +1030,8 @@ matchResultToThinValue = cata go
     go MatchNullResultF = Nothing
     go (MatchAnyResultF r) = Just $ r
     go (MatchOrResultF g k r) = Just $ if r == Nothing
-                                   then tMapK "OrTrivial" k
-                                   else tMapKV "Or" k (fromJust r)
+                                   then k2s k
+                                   else tMapKV1 k (fromJust r)
     go (MatchIfThenResultF p errorMsg r) = r
     go (MatchFunnelResultF r) = Just $ r
     go (MatchFunnelKeysResultF r) = Just $ Object r
@@ -1091,10 +1092,8 @@ thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance
   itsMatch <- (m2ms $ MatchFailure ("data error4" ++ show ms)) $ KM.lookup itsK ms
   fmap ((\a -> (True, a)) . (OrNode (KM.delete itsK ms) itsK) . snd) (thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v))
 
-thinContextFreeMatch (Star a) (Just (Object v)) = do
+thinContextFreeMatch (Star a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
-  itsType <- (m2ms $ MatchFailure ("data error1" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
-  itsValue <- (m2ms $ MatchFailure ("data error2" ++ show v)) $ KM.lookup (K.fromString "value") v
   if gg a
      then -- actual
         do
@@ -1118,38 +1117,36 @@ thinContextFreeMatch (Star a) (Just (Object v)) = do
                   (_, aa) <- thinContextFreeMatch a Nothing
                   return (True, StarNodeValue $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa)
 
-thinContextFreeMatch (Plus a) (Just (Object v)) = do
+thinContextFreeMatch (Plus a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
-  itsType <- (m2ms $ MatchFailure ("data error1" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
-  itsValue <- (m2ms $ MatchFailure ("data error2" ++ show v)) $ KM.lookup (K.fromString "value") v
   if gg a
      then -- actual
         do
-          itsValue <- (m2ms $ MatchFailure ("data error3" ++ show v)) $ asArray itsValue
+          itsValue <- (m2ms $ MatchFailure ("data error3" ++ show itsValue)) $ asArray itsValue
           aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
           let ab = (P.map snd aa)
           return $ (True, PlusNode ab)
       else -- trivial
         do
-          itsValue <- (m2ms $ MatchFailure ("data error4" ++ show v)) $ asNumber itsValue
+          itsValue <- (m2ms $ MatchFailure ("data error4" ++ show itsValue)) $ asNumber itsValue
           (_, aa) <- thinContextFreeMatch a Nothing
           return (True, PlusNode $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa)
 
-thinContextFreeMatch (Optional a) (Just (Object v)) = do
+thinContextFreeMatch (Optional a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
-  itsType <- (m2ms $ NoMatch ("data error5" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
-  itsType <- (m2ms $ NoMatch ("data error1129" ++ show v)) $ asString itsType -- OrNodeTrivial or OrNode
-  _ <- if itsType == "OptionalNode" || itsType == "OptionalNodeTrivial" then MatchSuccess () else NoMatch ("type mismatch: "  ++ T.unpack itsType)
-  itsKey <- (m2ms $ MatchFailure ("data error6" ++ (show . TL.unpack . TL.decodeUtf8 . encode) v)) $ KM.lookup (K.fromString "flag") v
-  itsKey <- (m2ms $ MatchFailure ("data error7" ++ show v)) $ asBool itsKey
-  if itsKey
+  if gg a
      then
-        do
-          r <- thinContextFreeMatch a (KM.lookup (K.fromString "value") v)
-          return $ bimap (const True) OptionalNodeValue r
-      else
-        do
-          return $ (True, OptionalNodeEmpty a)
+      do
+        itsValue <- (m2ms $ MatchFailure ("data error1141" ++ show itsValue)) $ asArray itsValue
+        if not (P.null itsValue)
+           then fmap (bimap (const True) OptionalNodeValue) (thinContextFreeMatch a (Just (P.head itsValue)))
+           else return $ (True, OptionalNodeEmpty a)
+     else
+      do
+        itsValue <- (m2ms $ MatchFailure ("data error1144" ++ show itsValue)) $ asBool itsValue
+        if itsValue
+           then fmap (bimap (const True) OptionalNodeValue) (thinContextFreeMatch a Nothing)
+           else return $ (True, OptionalNodeEmpty a)
 
 thinContextFreeMatch a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
 
