@@ -47,6 +47,7 @@ import Language.Haskell.TH.Datatype as TH.Abs
 import Language.Haskell.TH.Datatype.TyVarBndr
 import Language.Haskell.TH.Syntax (mkNameG_tc, mkNameG_v)
 
+import Logicore.Matcher.ValueBaseFunctor
 import Logicore.Matcher.Core
 import Logicore.Matcher.Helpers
 
@@ -133,6 +134,17 @@ pythonUnsignificantKeys = [
   "whitespace_before_walrus",
   "whitespace_between"]
 
+
+withoutPythonUnsignificantKeys :: Value -> Value
+withoutPythonUnsignificantKeys = cata go
+  where
+    --go (ObjectF a) = KM.filterWithKey (\k v -> False) a
+    go (ArrayF a) = Array a
+    go (StringF a) = String a
+    go (NumberF a) = Number a
+    go (BoolF a) = Bool a
+    go NullF = Null
+  
 
 valueToPythonGrammar :: Value -> MatchPattern
 valueToPythonGrammar = cata go

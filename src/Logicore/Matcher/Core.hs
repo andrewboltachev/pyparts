@@ -68,6 +68,7 @@ import Language.Haskell.TH.Datatype as TH.Abs
 import Language.Haskell.TH.Datatype.TyVarBndr
 import Language.Haskell.TH.Syntax (mkNameG_tc, mkNameG_v)
 
+import Logicore.Matcher.ValueBaseFunctor
 import Logicore.Matcher.Helpers
 
 --
@@ -624,9 +625,6 @@ matchResultToValue = cata go
     go (MatchFunnelKeysResultF r) = Object r
     go (MatchFunnelKeysUResultF r) = Object r
     go (MatchRefResultF ref r) = r
-
-
-makeBaseFunctor ''Value
 
 valueToExactGrammar :: Value -> MatchPattern
 valueToExactGrammar = cata go
