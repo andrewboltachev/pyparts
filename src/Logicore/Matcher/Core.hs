@@ -287,6 +287,7 @@ instance FromJSON a => FromJSON (ArrayValMatch a)
 
                   -- structures - object
 data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
+                  | MatchObjectOnly (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
                   -- structures - array
                   -- | MatchArrayAll MatchPattern
@@ -483,6 +484,7 @@ mObj keepExt m a = do
                                             Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
 
 matchPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
+matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m (KM.filterWithKey (\k v -> KM.member k m) a))
 matchPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
 
 

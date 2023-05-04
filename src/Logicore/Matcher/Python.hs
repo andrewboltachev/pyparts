@@ -148,13 +148,13 @@ withoutPythonUnsignificantKeys = cata go
 --
 matchArrayOne x = MatchArrayContextFree $ Seq [Char x]
 
-if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectFull (fromList [
+if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectOnly (fromList [
     (fromString "comma", KeyReq $ MatchStringExact "MaybeSentinel.DEFAULT")
   , (fromString "equal", KeyReq $ MatchStringExact "MaybeSentinel.DEFAULT")
   , (fromString "keyword", KeyReq $ MatchNull)
   , (fromString "star", KeyReq $ MatchStringExact "")
   , (fromString "type", KeyReq $ MatchStringExact "Arg")
-  , (fromString "value", KeyReq $ MatchObjectFull (fromList [
+  , (fromString "value", KeyReq $ MatchObjectOnly (fromList [
       (fromString "type", KeyReq $ MatchStringExact "SimpleString")
       , (fromString "value", KeyReq $ MatchStringAny)
   ]))
@@ -173,26 +173,26 @@ if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectFull (fromList 
     }
 -}
 
-simple_or_grammar = MatchObjectPartial (fromList [
+simple_or_grammar = MatchObjectOnly (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectPartial (fromList [
+      KeyReq $ MatchObjectOnly (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__simpleor")
       ])
     ),
     (fromString "body",
-      KeyReq $ MatchObjectPartial (fromList [ -- top
+      KeyReq $ MatchObjectOnly (fromList [ -- top
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchArrayContextFree $ Seq [
-          (Plus (Char $ MatchObjectPartial (fromList [
+          (Plus (Char $ MatchObjectOnly (fromList [
               (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"),
               (fromString "orelse", KeyReq $ MatchNull), -- bottom
               (fromString "test",
-                KeyReq $ MatchObjectPartial (fromList [ -- top
+                KeyReq $ MatchObjectOnly (fromList [ -- top
                   (fromString "type", KeyReq $ MatchStringExact $ T.pack "Call"),
-                  (fromString "func", KeyReq $ MatchObjectPartial (fromList [
+                  (fromString "func", KeyReq $ MatchObjectOnly (fromList [
                     (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
                     (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
                   ]))
@@ -200,7 +200,7 @@ simple_or_grammar = MatchObjectPartial (fromList [
                 ])
               ),
               (fromString "body",
-                KeyReq $ MatchObjectPartial (fromList [
+                KeyReq $ MatchObjectOnly (fromList [
                   (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
                   (fromString "body", KeyReq $ MatchAny)
                 ]))
@@ -211,57 +211,57 @@ simple_or_grammar = MatchObjectPartial (fromList [
     )
   ])
 
-star_grammar = MatchObjectPartial (fromList [
+star_grammar = MatchObjectOnly (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectPartial (fromList [
+      KeyReq $ MatchObjectOnly (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectPartial (fromList [
+    (fromString "body", KeyReq $ MatchObjectOnly (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchAny)
       ]))
   ])
 
-plus_grammar = MatchObjectPartial (fromList [
+plus_grammar = MatchObjectOnly (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectPartial (fromList [
+      KeyReq $ MatchObjectOnly (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectPartial (fromList [
+    (fromString "body", KeyReq $ MatchObjectOnly (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchAny)
       ]))
   ])
 
-optional_grammar = MatchObjectPartial (fromList [
+optional_grammar = MatchObjectOnly (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectPartial (fromList [
+      KeyReq $ MatchObjectOnly (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectPartial (fromList [
+    (fromString "body", KeyReq $ MatchObjectOnly (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchAny)
       ]))
   ])
 
-item_grammar = MatchObjectPartial (fromList [
+item_grammar = MatchObjectOnly (fromList [
   (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
   (fromString "value", KeyReq $ MatchStringExact $ T.pack "__1")
   ])
 
-pythonStep0Grammar = item_grammar
+pythonStep0Grammar = star_grammar
 
 s2k = K.fromString . T.unpack
 
@@ -284,7 +284,7 @@ valueToPythonGrammar = para go
                     k <- asString k
                     v <- KM.lookup "body" b
                     return $ KM.insert (s2k k) (valueToPythonGrammar v) acc
-              _ -> MatchObjectFull (fmap (KeyReq . snd) a)
+              _ -> MatchObjectPartial (fmap (KeyReq . snd) a) {-(KM.filterWithKey (\k v -> not $ P.elem k pythonUnsignificantKeys) (fmap (KeyReq . snd) a))-}
 
     go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ (fmap snd) $ V.toList a
     go (StringF a) = MatchStringExact a
