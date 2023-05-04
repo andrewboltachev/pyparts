@@ -306,6 +306,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchNull
                   -- conditions
                   | MatchAny
+                  | MatchDefault Value
                   | MatchOr (KeyMap MatchPattern)
                   | MatchIfThen MatchPattern T.Text MatchPattern
                   -- funnel
@@ -329,6 +330,7 @@ instance Arbitrary MatchPattern where
       return $ MatchBoolAny,
       return $ MatchNull,
       return $ MatchAny,
+      MatchDefault <$> arbitrary,
       MatchOr <$> arbitrary]
       --MatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary
       --return $ MatchFunnel,
@@ -365,6 +367,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchNullResult
                  -- conditions
                  | MatchAnyResult Value
+                 | MatchDefaultResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
                  | MatchIfThenResult MatchPattern T.Text MatchResult
                  -- funnel
@@ -388,6 +391,7 @@ instance Arbitrary MatchResult where
     MatchBoolAnyResult <$> arbitrary,
     return $ MatchNullResult,
     MatchAnyResult <$> arbitrary,
+    MatchDefaultResult <$> arbitrary,
     MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary]
     --MatchIfThenResult <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
     --MatchFunnelResult <$> arbitrary,

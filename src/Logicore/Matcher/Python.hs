@@ -263,16 +263,28 @@ item_grammar = MatchObjectFull (fromList [
 
 pythonStep0Grammar = item_grammar
 
+s2k = K.fromString . T.unpack
+
 valueToPythonGrammar :: Value -> MatchPattern
 valueToPythonGrammar = para go
   where
     go :: ValueF (Value, MatchPattern) -> MatchPattern
     go (ObjectF a) = r where
       original = Object $ fmap fst a
-      --r = error $ (TL.unpack . TL.decodeUtf8 . encode) original
       r = case matchPattern item_grammar original of
            MatchSuccess r -> MatchAny
-           _ -> MatchObjectFull (fmap (KeyReq . snd) a)
+           _ -> case fmap matchResultToThinValue $ matchPattern simple_or_grammar original of
+              -- TODO better approach?
+              MatchSuccess r -> MatchOr $ fromJust $ L.foldl' f (Just mempty) (fromJust (asArray (fromJust r)))
+                where
+                  f acc' b = do
+                    acc <- acc'
+                    b <- asKeyMap b
+                    k <- KM.lookup "test" b
+                    k <- asString k
+                    v <- KM.lookup "body" b
+                    return $ KM.insert (s2k k) (valueToPythonGrammar v) acc
+              _ -> MatchObjectFull (fmap (KeyReq . snd) a)
 
     go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ (fmap snd) $ V.toList a
     go (StringF a) = MatchStringExact a

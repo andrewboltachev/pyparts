@@ -34,6 +34,7 @@ library
       Logicore.Matcher.Python
       Logicore.Matcher.RS
       Logicore.Matcher.Utils
+      Logicore.Matcher.ValueBaseFunctor
   other-modules:
       Paths_matcher
   hs-source-dirs:
