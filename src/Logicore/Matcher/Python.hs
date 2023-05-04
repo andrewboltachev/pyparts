@@ -265,6 +265,17 @@ pythonStep0Grammar = star_grammar
 
 s2k = K.fromString . T.unpack
 
+m1 :: Value -> MatchPattern -> ContextFreeGrammar MatchPattern
+m1 v a = r where
+      r = case matchPattern star_grammar v of
+           MatchSuccess r -> Star $ Seq $ fmap (Char . valueToPythonGrammar) c
+              where
+                t = matchResultToThinValue r
+                j = fromJust t
+                c = fromJust $ asArray j
+           _ -> Char a
+
+
 valueToPythonGrammar :: Value -> MatchPattern
 valueToPythonGrammar = para go
   where
@@ -284,9 +295,9 @@ valueToPythonGrammar = para go
                     k <- asString k
                     v <- KM.lookup "body" b
                     return $ KM.insert (s2k k) (valueToPythonGrammar v) acc
-              _ -> MatchObjectPartial (fmap (KeyReq . snd) a) {-(KM.filterWithKey (\k v -> not $ P.elem k pythonUnsignificantKeys) (fmap (KeyReq . snd) a))-}
+              _ -> MatchObjectFull (fmap (KeyReq . snd) a) {-(KM.filterWithKey (\k v -> not $ P.elem k pythonUnsignificantKeys) (fmap (KeyReq . snd) a))-}
 
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ (fmap snd) $ V.toList a
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap (uncurry m1)) $ V.toList a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
     go (BoolF a) = MatchBoolExact a
