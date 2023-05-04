@@ -173,26 +173,26 @@ if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectFull (fromList 
     }
 -}
 
-simple_or_grammar = MatchObjectFull (fromList [
+simple_or_grammar = MatchObjectPartial (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectFull (fromList [
+      KeyReq $ MatchObjectPartial (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__simpleor")
       ])
     ),
     (fromString "body",
-      KeyReq $ MatchObjectFull (fromList [ -- top
+      KeyReq $ MatchObjectPartial (fromList [ -- top
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchArrayContextFree $ Seq [
-          (Plus (Char $ MatchObjectFull (fromList [
+          (Plus (Char $ MatchObjectPartial (fromList [
               (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"),
               (fromString "orelse", KeyReq $ MatchNull), -- bottom
               (fromString "test",
-                KeyReq $ MatchObjectFull (fromList [ -- top
+                KeyReq $ MatchObjectPartial (fromList [ -- top
                   (fromString "type", KeyReq $ MatchStringExact $ T.pack "Call"),
-                  (fromString "func", KeyReq $ MatchObjectFull (fromList [
+                  (fromString "func", KeyReq $ MatchObjectPartial (fromList [
                     (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
                     (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
                   ]))
@@ -200,7 +200,7 @@ simple_or_grammar = MatchObjectFull (fromList [
                 ])
               ),
               (fromString "body",
-                KeyReq $ MatchObjectFull (fromList [
+                KeyReq $ MatchObjectPartial (fromList [
                   (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
                   (fromString "body", KeyReq $ MatchAny)
                 ]))
@@ -211,52 +211,52 @@ simple_or_grammar = MatchObjectFull (fromList [
     )
   ])
 
-star_grammar = MatchObjectFull (fromList [
+star_grammar = MatchObjectPartial (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectFull (fromList [
+      KeyReq $ MatchObjectPartial (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectFull (fromList [
+    (fromString "body", KeyReq $ MatchObjectPartial (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchAny)
       ]))
   ])
 
-plus_grammar = MatchObjectFull (fromList [
+plus_grammar = MatchObjectPartial (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectFull (fromList [
+      KeyReq $ MatchObjectPartial (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectFull (fromList [
+    (fromString "body", KeyReq $ MatchObjectPartial (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchAny)
       ]))
   ])
 
-optional_grammar = MatchObjectFull (fromList [
+optional_grammar = MatchObjectPartial (fromList [
     (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
     (fromString "orelse", KeyReq $ MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectFull (fromList [
+      KeyReq $ MatchObjectPartial (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
         (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectFull (fromList [
+    (fromString "body", KeyReq $ MatchObjectPartial (fromList [
         (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
         (fromString "body", KeyReq $ MatchAny)
       ]))
   ])
 
-item_grammar = MatchObjectFull (fromList [
+item_grammar = MatchObjectPartial (fromList [
   (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
   (fromString "value", KeyReq $ MatchStringExact $ T.pack "__1")
   ])
