@@ -265,15 +265,20 @@ pythonStep0Grammar = star_grammar
 
 s2k = K.fromString . T.unpack
 
-m1 :: Value -> MatchPattern -> ContextFreeGrammar MatchPattern
+toCharOrNotToChar :: MatchPattern -> [ContextFreeGrammar MatchPattern]
+toCharOrNotToChar (MatchArrayContextFree (Seq a)) = a
+toCharOrNotToChar (MatchArrayContextFree a) = [a]
+toCharOrNotToChar a = [Char a]
+
+m1 :: Value -> MatchPattern -> [ContextFreeGrammar MatchPattern]
 m1 v a = r where
       r = case matchPattern star_grammar v of
-           MatchSuccess r -> Star $ Seq $ fmap (Char . valueToPythonGrammar) c
+           MatchSuccess r -> [Star $ Seq $ P.concat $ fmap (toCharOrNotToChar . valueToPythonGrammar) c]
               where
                 t = matchResultToThinValue r
                 j = fromJust t
                 c = fromJust $ asArray j
-           _ -> Char a
+           _ -> toCharOrNotToChar a
 
 
 valueToPythonGrammar :: Value -> MatchPattern
@@ -297,7 +302,7 @@ valueToPythonGrammar = para go
                     return $ KM.insert (s2k k) (valueToPythonGrammar v) acc
               _ -> MatchObjectFull (fmap (KeyReq . snd) a) {-(KM.filterWithKey (\k v -> not $ P.elem k pythonUnsignificantKeys) (fmap (KeyReq . snd) a))-}
 
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap (uncurry m1)) $ V.toList a
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ P.concat $ (fmap (uncurry m1)) $ V.toList a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
     go (BoolF a) = MatchBoolExact a

@@ -130,7 +130,7 @@ mkPythonStep0 e = do
   pattern <- (m2ms $ MatchFailure "err2") $ KM.lookup (K.fromString "body") pattern
   pattern <- (m2ms $ MatchFailure "err3") $ asArray pattern
   pattern <- (m2ms $ MatchFailure "err4") $ safeHead pattern
-  --pattern <- return $ withoutPythonUnsignificantKeys pattern
+  pattern <- return $ withoutPythonUnsignificantKeys pattern
   mr <- matchPattern pythonStep0Grammar pattern
   return $ Object $ case matchResultToThinValue mr of
                          Just x -> KM.fromList [(K.fromString "thinValue", x)]
@@ -140,8 +140,8 @@ mkPythonStep1 :: (Object -> MatchStatus Value)
 mkPythonStep1 e = do
   value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
-  --pattern <- return $ withoutPythonUnsignificantKeys pattern
-  --value <- return $ withoutPythonUnsignificantKeys value
+  pattern <- return $ withoutPythonUnsignificantKeys pattern
+  value <- return $ withoutPythonUnsignificantKeys value
   pattern <- return $ valueToPythonGrammar pattern
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   mr <- matchPattern mp value
