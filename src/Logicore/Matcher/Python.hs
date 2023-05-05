@@ -265,20 +265,35 @@ pythonStep0Grammar = star_grammar
 
 s2k = K.fromString . T.unpack
 
-toCharOrNotToChar :: MatchPattern -> [ContextFreeGrammar MatchPattern]
-toCharOrNotToChar (MatchArrayContextFree (Seq a)) = a
-toCharOrNotToChar (MatchArrayContextFree a) = [a]
-toCharOrNotToChar a = [Char a]
 
-m1 :: Value -> MatchPattern -> [ContextFreeGrammar MatchPattern]
+{-seqOrIt [a] = a
+seqOrIt a = Seq a
+
+toCharOrNotToChar :: MatchPattern -> [ContextFreeGrammar MatchPattern]
+--toCharOrNotToChar (MatchArrayContextFree (Seq [(Char (MatchOr a))])) = error $ show [Or $ KM.map (seqOrIt . toCharOrNotToChar) a]
+--toCharOrNotToChar (MatchArrayContextFree (Seq a)) = a
+toCharOrNotToChar (MatchArrayContextFree a) = [a]
+toCharOrNotToChar a = [Char a]-}
+
+m1 :: Value -> MatchPattern -> ContextFreeGrammar MatchPattern
 m1 v a = r where
       r = case matchPattern star_grammar v of
-           MatchSuccess r -> [Star $ Seq $ P.concat $ fmap (toCharOrNotToChar . valueToPythonGrammar) c]
+           MatchSuccess r -> Star $ Seq $ fmap (Char . valueToPythonGrammar) c
               where
                 t = matchResultToThinValue r
                 j = fromJust t
                 c = fromJust $ asArray j
-           _ -> toCharOrNotToChar a
+           _ -> case fmap matchResultToThinValue $ matchPattern simple_or_grammar v of
+                  MatchSuccess r -> Or $ fromJust $ L.foldl' f (Just mempty) (fromJust (asArray (fromJust r)))
+                    where
+                      f acc' b = do
+                        acc <- acc'
+                        b <- asKeyMap b
+                        k <- KM.lookup "test" b
+                        k <- asString k
+                        v <- KM.lookup "body" b
+                        return $ KM.insert (s2k k) (Char $ valueToPythonGrammar v) acc
+                  _ -> Char a
 
 
 valueToPythonGrammar :: Value -> MatchPattern
@@ -302,7 +317,7 @@ valueToPythonGrammar = para go
                     return $ KM.insert (s2k k) (valueToPythonGrammar v) acc
               _ -> MatchObjectFull (fmap (KeyReq . snd) a) {-(KM.filterWithKey (\k v -> not $ P.elem k pythonUnsignificantKeys) (fmap (KeyReq . snd) a))-}
 
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ P.concat $ (fmap (uncurry m1)) $ V.toList a
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap (uncurry m1)) $ V.toList a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
     go (BoolF a) = MatchBoolExact a
