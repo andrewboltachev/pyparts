@@ -1000,6 +1000,12 @@ k2s = (String . T.pack . K.toString)
 tMapK1 k = Object $ KM.fromList [(K.fromString "k", k2s k)]
 tMapKV1 k v = Object $ KM.fromList [(K.fromString "k", k2s k), (K.fromString "v", v)]
 
+int2sci :: Integral a => a -> Value
+int2sci x = Number $ Sci.scientific (toInteger x) 0
+
+enumerate :: [Value] -> [Value]
+enumerate a = fmap (\(i, a) -> Array [int2sci i, a]) $ P.zip [1..] a
+
 contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
 contextFreeGrammarResultToThinValue = cata go
   where
@@ -1016,11 +1022,11 @@ contextFreeGrammarResultToThinValue = cata go
                                       then Array $ V.fromList ([] :: [Value])
                                       else Number 0
     go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then Number $ Sci.scientific (toInteger (P.length r)) 0
+                               then int2sci (P.length r)
                                else Array $ V.fromList $ P.map fromJust r
     go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then Number $ Sci.scientific (toInteger (P.length r)) 0
-                               else Array $ V.fromList $ P.map fromJust r
+                               then int2sci (P.length r)
+                               else Array $ V.fromList $ enumerate $ P.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
                             then tMapK1 k
                             else tMapKV1 k (fromJust r)
