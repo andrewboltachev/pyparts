@@ -1309,7 +1309,7 @@ thinPatternMap allowExt m a = do
   let c = if allowExt then MatchObjectPartialResult else MatchObjectFullResult
   return $ (True, c os xs)-}
 
-thinPattern :: MatchPattern -> Maybe Value -> Maybe Value -> MatchStatus (Bool, MatchResult)
+thinPattern :: MatchPattern -> Maybe Value -> Maybe Value -> MatchStatus MatchResult
 {-
 thinPattern (MatchObjectFull m) a = thinPatternMap False m a
 thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
@@ -1319,26 +1319,26 @@ thinPattern (MatchArrayContextFree m) a = do
   case thinContextFreeMatch m a of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
-       MatchSuccess (b, x) -> MatchSuccess (b, (MatchArrayContextFreeResult x))
+       MatchSuccess (b, x) -> MatchSuccess (b, (MatchArrayContextFreeResult x))-}
 
-thinPattern MatchFunnel (Just v) = MatchSuccess (True, MatchFunnelResult v)
+thinPattern MatchFunnel _ (Just v) = MatchSuccess $ MatchFunnelResult v
 
-thinPattern MatchFunnelKeys (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysResult v)
-thinPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object or met Nothing"
+thinPattern MatchFunnelKeys _ (Just (Object v)) = MatchSuccess $ MatchFunnelKeysResult v
+thinPattern MatchFunnelKeys _ _ = MatchFailure "MatchFunnelKeys met not an Object or met Nothing"
 
-thinPattern MatchFunnelKeysU (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysUResult v)
-thinPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object or met Nothing"
+thinPattern MatchFunnelKeysU _ (Just (Object v)) = MatchSuccess $ MatchFunnelKeysUResult v
+thinPattern MatchFunnelKeysU _ _ = MatchFailure "MatchFunnelKeysU met not an Object or met Nothing"
 
-thinPattern (MatchIfThen baseMatch failMsg match) v =
-  case thinPattern baseMatch v of
+thinPattern (MatchIfThen baseMatch failMsg match) o v =
+  case thinPattern baseMatch o v of
        NoMatch x -> NoMatch x
        MatchFailure f -> MatchFailure f
-       MatchSuccess _ -> case thinPattern match v of
+       MatchSuccess _ -> case thinPattern match o v of
                             NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
                             MatchFailure f -> MatchFailure f
-                            MatchSuccess s -> MatchSuccess $ fmap (MatchIfThenResult baseMatch failMsg) s
+                            MatchSuccess s -> MatchSuccess $ MatchIfThenResult baseMatch failMsg s
 
-thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
+thinPattern MatchAny _ (Just a) = MatchSuccess $ MatchAnyResult a
 
 thinPattern (MatchOr ms) o (Just (Object v)) = do
   itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ (KM.lookup "k") v
@@ -1346,20 +1346,19 @@ thinPattern (MatchOr ms) o (Just (Object v)) = do
   itsK <- return $ K.fromString $ T.unpack $ itsK
   let itsV = KM.lookup "v" v
   aa <- (m2ms $ NoMatch $ "Wrong k" ++ show itsK) $ (KM.lookup itsK) ms
-  (_, r) <- thinPattern aa itsV
-  rr <- return $ MatchOrResult (KM.delete itsK ms) itsK r
-  return $ (True, rr)-}
+  r <- thinPattern aa (o >>= asKeyMap >>= KM.lookup itsK) itsV
+  return $ MatchOrResult (KM.delete itsK ms) itsK r
 
 -- specific (aka exact)
-thinPattern (MatchStringExact m) _ Nothing = MatchSuccess (False, MatchStringExactResult m)
-thinPattern (MatchNumberExact m) _ Nothing = MatchSuccess (False, MatchNumberExactResult m)
-thinPattern (MatchBoolExact m) _ Nothing = MatchSuccess (False, MatchBoolExactResult m)
+thinPattern (MatchStringExact m) _ Nothing = MatchSuccess $ MatchStringExactResult m
+thinPattern (MatchNumberExact m) _ Nothing = MatchSuccess $ MatchNumberExactResult m
+thinPattern (MatchBoolExact m) _ Nothing = MatchSuccess $ MatchBoolExactResult m
 -- any (of a type)
-thinPattern MatchStringAny _ (Just (String a)) = MatchSuccess (True, MatchStringAnyResult a)
-thinPattern MatchNumberAny _ (Just (Number a)) = MatchSuccess (True, MatchNumberAnyResult a)
-thinPattern MatchBoolAny _ (Just (Bool a)) = MatchSuccess (True, MatchBoolAnyResult a)
+thinPattern MatchStringAny _ (Just (String a)) = MatchSuccess $ MatchStringAnyResult a
+thinPattern MatchNumberAny _ (Just (Number a)) = MatchSuccess $ MatchNumberAnyResult a
+thinPattern MatchBoolAny _ (Just (Bool a)) = MatchSuccess $ MatchBoolAnyResult a
 -- null is just null
-thinPattern MatchNull _ Nothing = MatchSuccess (False, MatchNullResult)
+thinPattern MatchNull _ Nothing = MatchSuccess MatchNullResult
 -- default ca
 thinPattern m v a = NoMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
