@@ -364,7 +364,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  -- | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
                  -- | MatchArrayOneResult MatchResult
                  -- | MatchArrayExactResult [MatchResult]
-                 | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value)
+                 | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value) (KeyMap Value)
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
@@ -392,9 +392,11 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
 matchObjectWithDefaultsResultArbitrary = do
         m <- arbitrary
         d <- arbitrary
+        v <- arbitrary
         let m' = fmap (bimap (K.fromString . ("m"++)) id) m
         let d' = fmap (bimap (K.fromString . ("d"++)) id) d
-        return $ MatchObjectWithDefaultsResult (fromList m') (fromList d')
+        let v' = fmap (bimap (K.fromString . ("v"++)) id) v
+        return $ MatchObjectWithDefaultsResult (fromList m') (fromList d') (fromList v')
 
 instance Arbitrary MatchResult where
   arbitrary = oneof [
@@ -521,12 +523,12 @@ matchPattern (MatchObjectWithDefaults m d) (Object a) = do
               do
                 d' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k d
                 let ff = if v /= d'
-                           then (KM.insert k d')
+                           then KM.insert k v
                            else id
                 return $ second ff acc
              else NoMatch $ "extra key: " ++ show k
-  (mm, dd) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
-  return $ MatchObjectWithDefaultsResult mm dd
+  (mm, vv) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
+  return $ MatchObjectWithDefaultsResult mm d vv
 
 
 matchPattern (MatchArrayContextFree m) (Array a) = do
@@ -657,6 +659,7 @@ matchResultToValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = v
         f (KeyExt v) = v
+    --go (MatchObjectWithDefaultsResultF r d) = KM.union r d
     go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
     go (MatchStringExactResultF r) = String r
     go (MatchNumberExactResultF r) = Number r
@@ -1424,15 +1427,15 @@ test = hspec $ do
   describe "MatchObjectWithDefaults matchPattern works correctly" $ do
     it "handles correctly the empty case" $ do
       let r = matchPattern (MatchObjectWithDefaults (fromList []) (fromList [])) (Object (fromList []))
-      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList []) (fromList []))
+      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList []) (fromList []) (fromList []))
 
     it "handles correctly the case with default value" $ do
       let r = matchPattern (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
-      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList []))
+      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w", String " ")]) (fromList []))
 
     it "handles correctly the case with different value" $ do
-      let r = matchPattern (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String "   ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
-      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w",String "   ")]))
+      let r = matchPattern (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ "   ")]))
+      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w",String " ")]) (fromList [("w",String "   ")]))
 
   describe "handles MatchPattern nodes correctly" $ do
     it "Handles trivial MatchOr correctly. Nothing case" $ do
