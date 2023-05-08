@@ -1023,7 +1023,7 @@ contextFreeGrammarResultToThinValue = cata go
                                       else Number 0
     go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
                                then int2sci (P.length r)
-                               else Array $ V.fromList $ P.map fromJust r
+                               else Array $ V.fromList $ enumerate $ P.map fromJust r
     go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
                                then int2sci (P.length r)
                                else Array $ V.fromList $ enumerate $ P.map fromJust r
@@ -1311,6 +1311,7 @@ thinPatternMap allowExt m a = do
 thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
 thinPattern (MatchObjectFull m) a = thinPatternMap False m a
 thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
+
 
 thinPattern (MatchArrayContextFree m) a = do
   case thinContextFreeMatch m a of
