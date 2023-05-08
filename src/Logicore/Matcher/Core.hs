@@ -1312,14 +1312,14 @@ thinPatternMap allowExt m a = do
 thinPattern :: MatchPattern -> Maybe Value -> Maybe Value -> MatchStatus MatchResult
 {-
 thinPattern (MatchObjectFull m) a = thinPatternMap False m a
-thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
+thinPattern (MatchObjectPartial m) a = thinPatternMap True m a-}
 
 
-thinPattern (MatchArrayContextFree m) a = do
-  case thinContextFreeMatch m a of
+thinPattern (MatchArrayContextFree m) o a = do
+  case thinContextFreeMatch m (fmap asArray o) a of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
-       MatchSuccess (b, x) -> MatchSuccess (b, (MatchArrayContextFreeResult x))-}
+       MatchSuccess x -> MatchSuccess $ MatchArrayContextFreeResult x
 
 thinPattern MatchFunnel _ (Just v) = MatchSuccess $ MatchFunnelResult v
 
