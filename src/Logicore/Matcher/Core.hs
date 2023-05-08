@@ -629,6 +629,7 @@ matchResultToPattern = cata go where
     where
       f (KeyExt _) = False
       f _ = True
+  go (MatchObjectWithDefaultsResultF r d v) = MatchObjectWithDefaults r d
   go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
   go (MatchStringExactResultF r) = MatchStringExact r
   go (MatchNumberExactResultF r) = MatchNumberExact r
@@ -659,7 +660,7 @@ matchResultToValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = v
         f (KeyExt v) = v
-    --go (MatchObjectWithDefaultsResultF r d) = KM.union r d
+    go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r (KM.union d v)
     go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
     go (MatchStringExactResultF r) = String r
     go (MatchNumberExactResultF r) = Number r
