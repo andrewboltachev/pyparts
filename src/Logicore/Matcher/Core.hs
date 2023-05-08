@@ -319,7 +319,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchRef String
                     deriving (Generic, Eq, Show)
 
-d = do
+matchObjectWithDefaultsArbitrary = do
         v <- arbitrary
         d <- arbitrary
         let v' = fmap (bimap (K.fromString . ("v"++)) id) v
@@ -329,7 +329,7 @@ d = do
 instance Arbitrary MatchPattern where
   arbitrary = oneof [
       MatchObjectFull <$> arbitrary,
-      d,
+      matchObjectWithDefaultsArbitrary,
       MatchObjectPartial <$> arbitrary,
       MatchArrayContextFree <$> arbitrary,
       MatchStringExact <$> T.pack <$> arbitrary,
@@ -364,6 +364,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  -- | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
                  -- | MatchArrayOneResult MatchResult
                  -- | MatchArrayExactResult [MatchResult]
+                 | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value)
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
@@ -388,10 +389,18 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchRefResult String MatchResult
                    deriving (Generic, Eq, Show)
 
+matchObjectWithDefaultsResultArbitrary = do
+        v <- arbitrary
+        d <- arbitrary
+        let v' = fmap (bimap (K.fromString . ("v"++)) id) v
+        let d' = fmap (bimap (K.fromString . ("d"++)) id) d
+        return $ MatchObjectWithDefaultsResult (fromList v') (fromList d')
+
 instance Arbitrary MatchResult where
   arbitrary = oneof [
     MatchObjectFullResult <$> arbitrary <*> arbitrary,
     MatchObjectPartialResult <$> arbitrary <*> arbitrary,
+    matchObjectWithDefaultsResultArbitrary,
     MatchArrayContextFreeResult <$> (SeqNode <$> arbitrary),
     MatchStringExactResult <$> T.pack <$> arbitrary,
     MatchNumberExactResult <$> (Sci.scientific <$> arbitrary <*> arbitrary),
