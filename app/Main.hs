@@ -143,7 +143,7 @@ mkPythonStep1 e = do
   pattern <- return $ withoutPythonUnsignificantKeys pattern
   value <- return $ withoutPythonUnsignificantKeys value
   pattern <- return $ valueToPythonGrammar pattern
-  --_ <- error $ show pattern
+  --_ <- error $ show pattern ++ "\n\n\n" ++ show value
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   mr <- matchPattern mp value
   return $ Object $ case matchResultToThinValue mr of

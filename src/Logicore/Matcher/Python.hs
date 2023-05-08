@@ -256,9 +256,14 @@ optional_grammar = MatchObjectOnly (fromList [
       ]))
   ])
 
-item_grammar = MatchObjectOnly (fromList [
+item_grammar1 = MatchObjectOnly (fromList [
   (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
   (fromString "value", KeyReq $ MatchStringExact $ T.pack "__1")
+  ])
+
+item_grammar2 = MatchObjectOnly (fromList [
+  (fromString "type", KeyReq $ MatchStringExact $ T.pack "Expr"),
+  (fromString "value", KeyReq $ item_grammar1)
   ])
 
 pythonStep0Grammar = star_grammar
@@ -275,10 +280,13 @@ toCharOrNotToChar :: MatchPattern -> [ContextFreeGrammar MatchPattern]
 toCharOrNotToChar (MatchArrayContextFree a) = [a]
 toCharOrNotToChar a = [Char a]-}
 
+addIt :: [Value] -> [(Value, MatchPattern)]
+addIt = fmap (\e -> (e, valueToPythonGrammar e)) 
+
 m1 :: Value -> MatchPattern -> ContextFreeGrammar MatchPattern
 m1 v a = r where
       r = case matchPattern star_grammar v of
-           MatchSuccess r -> Star $ Seq $ fmap (Char . valueToPythonGrammar) c
+           MatchSuccess r -> Star $ handleSeq (addIt c)
               where
                 t = matchResultToThinValue r
                 j = fromJust t
@@ -292,8 +300,12 @@ m1 v a = r where
                         k <- KM.lookup "test" b
                         k <- asString k
                         v <- KM.lookup "body" b
-                        return $ KM.insert (s2k k) (Char $ valueToPythonGrammar v) acc
+                        e <- asArray v
+                        return $ KM.insert (s2k k) (handleSeq $ addIt e) acc
                   _ -> Char a
+
+handleSeq :: [(Value, MatchPattern)] -> ContextFreeGrammar MatchPattern
+handleSeq s = Seq $ P.map (uncurry m1) s
 
 
 valueToPythonGrammar :: Value -> MatchPattern
@@ -302,22 +314,13 @@ valueToPythonGrammar = para go
     go :: ValueF (Value, MatchPattern) -> MatchPattern
     go (ObjectF a) = r where
       original = Object $ fmap fst a
-      r = case matchPattern item_grammar original of
+      r = case matchPattern item_grammar2 original of
            MatchSuccess r -> MatchAny
-           _ -> case fmap matchResultToThinValue $ matchPattern simple_or_grammar original of
-              -- TODO better approach?
-              MatchSuccess r -> MatchOr $ fromJust $ L.foldl' f (Just mempty) (fromJust (asArray (fromJust r)))
-                where
-                  f acc' b = do
-                    acc <- acc'
-                    b <- asKeyMap b
-                    k <- KM.lookup "test" b
-                    k <- asString k
-                    v <- KM.lookup "body" b
-                    return $ KM.insert (s2k k) (valueToPythonGrammar v) acc
-              _ -> MatchObjectFull (fmap (KeyReq . snd) a) {-(KM.filterWithKey (\k v -> not $ P.elem k pythonUnsignificantKeys) (fmap (KeyReq . snd) a))-}
+           _ -> case matchPattern item_grammar1 original of
+                    MatchSuccess r -> MatchAny
+                    _ -> MatchObjectFull $ fmap (KeyReq . snd) a
 
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap (uncurry m1)) $ V.toList a
+    go (ArrayF a) = MatchArrayContextFree $ handleSeq $ V.toList a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
     go (BoolF a) = MatchBoolExact a

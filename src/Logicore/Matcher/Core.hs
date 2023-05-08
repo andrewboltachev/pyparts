@@ -287,6 +287,7 @@ instance FromJSON a => FromJSON (ArrayValMatch a)
 
                   -- structures - object
 data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
+                  | MatchObjectWithDefaults (KeyMap MatchPattern) (KeyMap Value)
                   | MatchObjectOnly (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
                   -- structures - array
@@ -318,9 +319,17 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchRef String
                     deriving (Generic, Eq, Show)
 
+d = do
+        v <- arbitrary
+        d <- arbitrary
+        let v' = fmap (bimap (K.fromString . ("v"++)) id) v
+        let d' = fmap (bimap (K.fromString . ("d"++)) id) d
+        return $ MatchObjectWithDefaults (fromList v') (fromList d')
+
 instance Arbitrary MatchPattern where
   arbitrary = oneof [
       MatchObjectFull <$> arbitrary,
+      d,
       MatchObjectPartial <$> arbitrary,
       MatchArrayContextFree <$> arbitrary,
       MatchStringExact <$> T.pack <$> arbitrary,
@@ -494,7 +503,7 @@ matchPattern (MatchArrayContextFree m) (Array a) = do
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
 
-matchPattern (MatchArrayContextFree m) (Object a) = MatchFailure ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
+matchPattern (MatchArrayContextFree m) (Object a) = NoMatch ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
 
 matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
