@@ -320,11 +320,11 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                     deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsArbitrary = do
+        m <- arbitrary
         v <- arbitrary
-        d <- arbitrary
+        let m' = fmap (bimap (K.fromString . ("m"++)) id) m
         let v' = fmap (bimap (K.fromString . ("v"++)) id) v
-        let d' = fmap (bimap (K.fromString . ("d"++)) id) d
-        return $ MatchObjectWithDefaults (fromList v') (fromList d')
+        return $ MatchObjectWithDefaults (fromList m') (fromList v')
 
 instance Arbitrary MatchPattern where
   arbitrary = oneof [
@@ -390,11 +390,11 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                    deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsResultArbitrary = do
-        v <- arbitrary
+        m <- arbitrary
         d <- arbitrary
-        let v' = fmap (bimap (K.fromString . ("v"++)) id) v
+        let m' = fmap (bimap (K.fromString . ("m"++)) id) m
         let d' = fmap (bimap (K.fromString . ("d"++)) id) d
-        return $ MatchObjectWithDefaultsResult (fromList v') (fromList d')
+        return $ MatchObjectWithDefaultsResult (fromList m') (fromList d')
 
 instance Arbitrary MatchResult where
   arbitrary = oneof [
@@ -504,6 +504,29 @@ mObj keepExt m a = do
 matchPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
 matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m (KM.filterWithKey (\k v -> KM.member k m) a))
 matchPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
+
+
+matchPattern (MatchObjectWithDefaults m d) (Object a) = do
+  let f acc' (k, v) = do
+      acc <- acc' -- (mm, dd)
+      if KM.member k m
+         then
+            do
+              m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+              rr <- matchPattern m' v
+              return $ first (KM.insert k rr) acc
+         else
+          if KM.member k d
+             then
+              do
+                d' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k d
+                let ff = if v /= d'
+                           then (KM.insert k d')
+                           else id
+                return $ second ff acc
+             else NoMatch $ "extra key: " ++ show k
+  (mm, dd) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
+  return $ MatchObjectWithDefaultsResult mm dd
 
 
 matchPattern (MatchArrayContextFree m) (Array a) = do
@@ -1398,6 +1421,19 @@ tIs p v t =
 
 test :: IO ()
 test = hspec $ do
+  describe "MatchObjectWithDefaults matchPattern works correctly" $ do
+    it "handles correctly the empty case" $ do
+      let r = matchPattern (MatchObjectWithDefaults (fromList []) (fromList [])) (Object (fromList []))
+      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList []) (fromList []))
+
+    it "handles correctly the case with default value" $ do
+      let r = matchPattern (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
+      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList []))
+
+    it "handles correctly the case with different value" $ do
+      let r = matchPattern (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String "   ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
+      r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w",String "   ")]))
+
   describe "handles MatchPattern nodes correctly" $ do
     it "Handles trivial MatchOr correctly. Nothing case" $ do
       let p = (MatchOr (KM.fromList [
