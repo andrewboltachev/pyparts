@@ -1094,7 +1094,7 @@ matchResultToThinValue = cata go
 or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
 
 
-thinSeq as v = do
+{-thinSeq as v = do
         let gs = fmap (contextFreeGrammarIsMovable matchPatternIsMovable) as
         v <- case P.length (P.filter id gs) of
                   0 ->
@@ -1235,11 +1235,12 @@ tObj keepExt m a = do
                                False -> NoMatch "extra key in arg"
                                True -> case KM.lookup k a of
                                             Nothing -> MatchFailure "impossible"
-                                            Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
+                                            Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc-}
 
 
 --thinPatternMap m a allowExt = undefined
 
+{-
 thinPatternMap allowExt m a = do
   let f1 (KeyReq x) = matchPatternIsMovable x
       f1 (KeyOpt _) = True
@@ -1306,9 +1307,10 @@ thinPatternMap allowExt m a = do
           else return $ KM.union xs $ (KM.map KeyExt) rst
 
   let c = if allowExt then MatchObjectPartialResult else MatchObjectFullResult
-  return $ (True, c os xs)
+  return $ (True, c os xs)-}
 
-thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
+thinPattern :: MatchPattern -> Maybe Value -> Maybe Value -> MatchStatus (Bool, MatchResult)
+{-
 thinPattern (MatchObjectFull m) a = thinPatternMap False m a
 thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
 
@@ -1338,7 +1340,7 @@ thinPattern (MatchIfThen baseMatch failMsg match) v =
 
 thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
 
-thinPattern (MatchOr ms) (Just (Object v)) = do
+thinPattern (MatchOr ms) o (Just (Object v)) = do
   itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ (KM.lookup "k") v
   itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ asString itsK
   itsK <- return $ K.fromString $ T.unpack $ itsK
@@ -1346,20 +1348,20 @@ thinPattern (MatchOr ms) (Just (Object v)) = do
   aa <- (m2ms $ NoMatch $ "Wrong k" ++ show itsK) $ (KM.lookup itsK) ms
   (_, r) <- thinPattern aa itsV
   rr <- return $ MatchOrResult (KM.delete itsK ms) itsK r
-  return $ (True, rr)
+  return $ (True, rr)-}
 
 -- specific (aka exact)
-thinPattern (MatchStringExact m) Nothing = MatchSuccess (False, MatchStringExactResult m)
-thinPattern (MatchNumberExact m) Nothing = MatchSuccess (False, MatchNumberExactResult m)
-thinPattern (MatchBoolExact m) Nothing = MatchSuccess (False, MatchBoolExactResult m)
+thinPattern (MatchStringExact m) _ Nothing = MatchSuccess (False, MatchStringExactResult m)
+thinPattern (MatchNumberExact m) _ Nothing = MatchSuccess (False, MatchNumberExactResult m)
+thinPattern (MatchBoolExact m) _ Nothing = MatchSuccess (False, MatchBoolExactResult m)
 -- any (of a type)
-thinPattern MatchStringAny (Just (String a)) = MatchSuccess (True, MatchStringAnyResult a)
-thinPattern MatchNumberAny (Just (Number a)) = MatchSuccess (True, MatchNumberAnyResult a)
-thinPattern MatchBoolAny (Just (Bool a)) = MatchSuccess (True, MatchBoolAnyResult a)
+thinPattern MatchStringAny _ (Just (String a)) = MatchSuccess (True, MatchStringAnyResult a)
+thinPattern MatchNumberAny _ (Just (Number a)) = MatchSuccess (True, MatchNumberAnyResult a)
+thinPattern MatchBoolAny _ (Just (Bool a)) = MatchSuccess (True, MatchBoolAnyResult a)
 -- null is just null
-thinPattern MatchNull Nothing = MatchSuccess (False, MatchNullResult)
+thinPattern MatchNull _ Nothing = MatchSuccess (False, MatchNullResult)
 -- default ca
-thinPattern m a = NoMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
+thinPattern m v a = NoMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
 -- Match functions end
 
@@ -1399,6 +1401,7 @@ qc5 = do
   quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable s; _ -> False)
 
 
+{-
 c6f r = let
         p = matchResultToPattern r
         t = matchResultToThinValue r
@@ -1412,11 +1415,12 @@ c6f r = let
 c6c r = if matchResultIsWellFormed r then c6f r else True
 
 qc6 = quickCheck c6c
-qq = quickCheck (withMaxSuccess 10000 c6c)
+qq = quickCheck (withMaxSuccess 10000 c6c)-}
 
 -- Different matches for or example (trivial and normal)
 -- p[attern] v[alue] r[esult] t[hin value]
 
+{-
 tVIs :: MatchPattern -> Value -> Expectation
 tVIs p v = 
       let r = extract $ matchPattern p v
@@ -1546,9 +1550,9 @@ test = hspec $ do
     it "Handles actual full Plus correctly" $ do
       let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
           v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
-      tVIs p v
+      tVIs p v-}
 
-demo1 = do
+{-demo1 = do
   let p = (MatchObjectFull (KM.fromList [
         (K.fromString "a", KeyReq (MatchNumberExact 1))
         , (K.fromString "b", KeyOpt (MatchNumberExact 2))
@@ -1567,7 +1571,7 @@ demo1 = do
       t = matchResultToThinValue r
   putStrLn $ show $ r
   putStrLn $ show $ t
-  putStrLn $ show $ (extract . extract) $ thinPattern p t
+  putStrLn $ show $ (extract . extract) $ thinPattern p t-}
 
 w1 p v = 
       let r = extract $ matchPattern p v
