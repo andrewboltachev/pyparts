@@ -1093,15 +1093,14 @@ matchResultToThinValue = cata go
 -- thin pattern
 or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
 
-thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> Maybe Value -> MatchStatus (ContextFreeGrammarResult MatchPattern MatchResult)
+thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe [Value] -> Maybe Value -> MatchStatus (ContextFreeGrammarResult MatchPattern MatchResult)
 thinContextFreeMatch (Char a) o v = do
-  case thinPattern a o v of
+  case thinPattern' a o v of
        NoMatch s -> NoMatch ("no char match: " ++ s)
        MatchFailure s -> MatchFailure ("thinContextFreeMatch: " ++ s)
        MatchSuccess r -> MatchSuccess $ CharNode r
 
-thinContextFreeMatch (Seq as) o v = do
-  -- assuming o is already a correct match of (Seq as)
+{-thinContextFreeMatch (Seq as) o v = do
   o' <- case o of
       Nothing -> return $ (P.repeat Nothing)
       Just ov -> do
@@ -1133,17 +1132,25 @@ thinContextFreeMatch (Seq as) o v = do
   _ <- if not $ P.null vRest
           then MatchFailure "areMovableRest left"
           else MatchSuccess ()
-  return $ SeqNode $ r
+  return $ SeqNode $ r-}
 
-{-thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
-  itsType <- (m2ms $ MatchFailure ("data error1" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
-  itsKey <- (m2ms $ MatchFailure ("data error 951: " ++ show v)) $ KM.lookup (K.fromString "key") v
+thinContextFreeMatch (Or ms) o (Just (Object v)) = do -- or requires an exsistance of a value (Just)
+  _ <- error $ show o
+  itsKey <- (m2ms $ MatchFailure ("data error 951: " ++ show v)) $ KM.lookup (K.fromString "k") v
   itsKey <- (m2ms $ MatchFailure ("data error3" ++ show itsKey)) $ asString itsKey
   let itsK = (K.fromString . T.unpack) itsKey
   itsMatch <- (m2ms $ MatchFailure ("data error4" ++ show ms)) $ KM.lookup itsK ms
-  fmap ((\a -> (True, a)) . (OrNode (KM.delete itsK ms) itsK) . snd) (thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v))
+  mo <- case o of
+             Nothing -> return $ Nothing
+             Just oo -> do
+               oa <- (m2ms $ MatchFailure "fff") $ asArray oo
+               mo' <- contextFreeMatch (Or ms) oo matchPattern
+               case mo' of
+                   (OrNode _ kOld _) -> return $ if itsK == kOld then Just oo else Nothing
+                   _ -> MatchFailure "aaa"
+  fmap ((\a -> (True, a)) . (OrNode (KM.delete itsK ms) itsK) . snd) (thinContextFreeMatch itsMatch o (KM.lookup (K.fromString "v") v))
 
-thinContextFreeMatch (Star a) (Just itsValue) = do
+{-thinContextFreeMatch (Star a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
   if gg a
      then -- actual
@@ -1213,7 +1220,7 @@ tObj keepExt m a = do
                                     then NoMatch $ "Required key " ++ show k ++ " not found in map"
                                     else MatchSuccess $ first (KM.insert k r) acc
                       -- if it exists, it must match
-                      Just n -> case fmap snd $ thinPattern r (Just n) of
+                      Just n -> case fmap snd $ thinPattern' r (Just n) of
                                      NoMatch s -> NoMatch s
                                      MatchFailure s -> MatchFailure s
                                      MatchSuccess s -> MatchSuccess $ second (KM.insert k el) acc
@@ -1237,10 +1244,10 @@ tObj keepExt m a = do
                                             Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc-}
 
 
---thinPatternMap m a allowExt = undefined
+--thinPattern'Map m a allowExt = undefined
 
 {-
-thinPatternMap allowExt m a = do
+thinPattern'Map allowExt m a = do
   let f1 (KeyReq x) = matchPatternIsMovable x
       f1 (KeyOpt _) = True
       f1 (KeyExt _) = error "must not be here1"
@@ -1272,7 +1279,7 @@ thinPatternMap allowExt m a = do
              -- trivial
              (KeyReq v, False) -> case KM.lookup k na of
                                        Nothing -> do
-                                         e <- (fmap snd) $ thinPattern v Nothing
+                                         e <- (fmap snd) $ thinPattern' v Nothing
                                          return $ second (KM.insert k $ KeyReq e) acc
                                        Just x -> MatchFailure ("must not be here 1089: " ++ show x)
              (KeyOpt v, False) -> do
@@ -1281,20 +1288,20 @@ thinPatternMap allowExt m a = do
                case flg of
                     False -> return $ first (KM.insert k v) acc
                     True -> do
-                      e <- (fmap snd) $ thinPattern v Nothing
+                      e <- (fmap snd) $ thinPattern' v Nothing
                       return $ second (KM.insert k $ KeyOpt e) acc
              -- movable
              (KeyReq v, True) -> do
                case KM.lookup k na of
                     Nothing -> NoMatch "Key not found"
                     Just x -> do
-                      e <- (fmap snd) $ thinPattern v (Just x)
+                      e <- (fmap snd) $ thinPattern' v (Just x)
                       return $ second (KM.insert k $ KeyReq e) acc
              (KeyOpt v, True) -> do
                case KM.lookup k na of
                     Nothing -> return $ first (KM.insert k v) acc
                     Just x -> do
-                      e <- (fmap snd) $ thinPattern v (Just x)
+                      e <- (fmap snd) $ thinPattern' v (Just x)
                       return $ second (KM.insert k $ KeyOpt e) acc
              -- error
              (KeyExt v, _) -> MatchFailure ("must not be here" ++ show v)
@@ -1308,58 +1315,61 @@ thinPatternMap allowExt m a = do
   let c = if allowExt then MatchObjectPartialResult else MatchObjectFullResult
   return $ (True, c os xs)-}
 
-thinPattern :: MatchPattern -> Maybe Value -> Maybe Value -> MatchStatus MatchResult
+-- thinPattern'. "default" information-preserving
+thinPattern' :: MatchResult -> Maybe Value -> MatchStatus MatchResult
 {-
-thinPattern (MatchObjectFull m) a = thinPatternMap False m a
-thinPattern (MatchObjectPartial m) a = thinPatternMap True m a-}
+thinPattern' (MatchObjectFull m) a = thinPattern'Map False m a
+thinPattern' (MatchObjectPartial m) a = thinPattern'Map True m a-}
 
 
-thinPattern (MatchArrayContextFree m) o a = do
-  case thinContextFreeMatch m o a of
+thinPattern' (MatchArrayContextFreeResult m) a = do
+  case thinContextFreeMatch m a of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess $ MatchArrayContextFreeResult x
 
-thinPattern MatchFunnel _ (Just v) = MatchSuccess $ MatchFunnelResult v
+thinPattern' MatchFunnelResult (Just v) = MatchSuccess $ MatchFunnelResult v
 
-thinPattern MatchFunnelKeys _ (Just (Object v)) = MatchSuccess $ MatchFunnelKeysResult v
-thinPattern MatchFunnelKeys _ _ = MatchFailure "MatchFunnelKeys met not an Object or met Nothing"
+thinPattern' MatchFunnelKeysResult (Just (Object v)) = MatchSuccess $ MatchFunnelKeysResult v
+thinPattern' MatchFunnelKeysResult _ = MatchFailure "MatchFunnelKeys met not an Object or met Nothing"
 
-thinPattern MatchFunnelKeysU _ (Just (Object v)) = MatchSuccess $ MatchFunnelKeysUResult v
-thinPattern MatchFunnelKeysU _ _ = MatchFailure "MatchFunnelKeysU met not an Object or met Nothing"
+thinPattern' MatchFunnelKeysUResult (Just (Object v)) = MatchSuccess $ MatchFunnelKeysUResult v
+thinPattern' MatchFunnelKeysUResult _ = MatchFailure "MatchFunnelKeysU met not an Object or met Nothing"
 
-thinPattern (MatchIfThen baseMatch failMsg match) o v =
-  case thinPattern baseMatch o v of
+thinPattern' (MatchIfThenResult baseMatch failMsg match) v =
+  {-case thinPattern' baseMatch v of
        NoMatch x -> NoMatch x
        MatchFailure f -> MatchFailure f
-       MatchSuccess _ -> case thinPattern match o v of
-                            NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
-                            MatchFailure f -> MatchFailure f
-                            MatchSuccess s -> MatchSuccess $ MatchIfThenResult baseMatch failMsg s
+       MatchSuccess _ -> -}
+  -- TODO validate
+  case thinPattern' match v of
+       NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
+       MatchFailure f -> MatchFailure f
+       MatchSuccess s -> MatchSuccess $ MatchIfThenResult baseMatch failMsg s
 
-thinPattern MatchAny _ (Just a) = MatchSuccess $ MatchAnyResult a
+thinPattern' MatchAnyResult (Just a) = MatchSuccess $ MatchAnyResult a
 
-thinPattern (MatchOr ms) o (Just (Object v)) = do
+thinPattern' (MatchOrResult oldMS oldK oldR) (Just (Object v)) = do
   itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ (KM.lookup "k") v
   itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ asString itsK
   itsK <- return $ K.fromString $ T.unpack $ itsK
   let itsV = KM.lookup "v" v
   aa <- (m2ms $ NoMatch $ "Wrong k" ++ show itsK) $ (KM.lookup itsK) ms
-  r <- thinPattern aa (o >>= asKeyMap >>= KM.lookup itsK) itsV
+  r <- thinPattern' aa (o >>= asKeyMap >>= KM.lookup itsK) itsV
   return $ MatchOrResult (KM.delete itsK ms) itsK r
 
 -- specific (aka exact)
-thinPattern (MatchStringExact m) _ Nothing = MatchSuccess $ MatchStringExactResult m
-thinPattern (MatchNumberExact m) _ Nothing = MatchSuccess $ MatchNumberExactResult m
-thinPattern (MatchBoolExact m) _ Nothing = MatchSuccess $ MatchBoolExactResult m
+thinPattern' (MatchStringExact m) _ Nothing = MatchSuccess $ MatchStringExactResult m
+thinPattern' (MatchNumberExact m) _ Nothing = MatchSuccess $ MatchNumberExactResult m
+thinPattern' (MatchBoolExact m) _ Nothing = MatchSuccess $ MatchBoolExactResult m
 -- any (of a type)
-thinPattern MatchStringAny _ (Just (String a)) = MatchSuccess $ MatchStringAnyResult a
-thinPattern MatchNumberAny _ (Just (Number a)) = MatchSuccess $ MatchNumberAnyResult a
-thinPattern MatchBoolAny _ (Just (Bool a)) = MatchSuccess $ MatchBoolAnyResult a
+thinPattern' MatchStringAny _ (Just (String a)) = MatchSuccess $ MatchStringAnyResult a
+thinPattern' MatchNumberAny _ (Just (Number a)) = MatchSuccess $ MatchNumberAnyResult a
+thinPattern' MatchBoolAny _ (Just (Bool a)) = MatchSuccess $ MatchBoolAnyResult a
 -- null is just null
-thinPattern MatchNull _ Nothing = MatchSuccess MatchNullResult
+thinPattern' MatchNull _ Nothing = MatchSuccess MatchNullResult
 -- default ca
-thinPattern m v a = NoMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
+thinPattern' m v a = NoMatch ("thinPattern' bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
 -- Match functions end
 
@@ -1403,7 +1413,7 @@ qc5 = do
 c6f r = let
         p = matchResultToPattern r
         t = matchResultToThinValue r
-        r0 = (fmap snd) $ thinPattern p t
+        r0 = (fmap snd) $ thinPattern' p t
         r1 = case r0 of
                   NoMatch s -> error ("NoMatch: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
                   MatchFailure s -> error ("MatchFailure: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
@@ -1423,7 +1433,7 @@ tVIs :: MatchPattern -> Value -> Expectation
 tVIs p v = 
       let r = extract $ matchPattern p v
           t' = matchResultToThinValue r
-          r' = extract (fmap snd (thinPattern p t'))
+          r' = extract (fmap snd (thinPattern' p t'))
       in r' `shouldBe` r
 
 tIs :: MatchPattern -> Value -> Maybe Value -> Expectation
@@ -1569,7 +1579,9 @@ test = hspec $ do
       t = matchResultToThinValue r
   putStrLn $ show $ r
   putStrLn $ show $ t
-  putStrLn $ show $ (extract . extract) $ thinPattern p t-}
+  putStrLn $ show $ (extract . extract) $ thinPattern' p t-}
+
+thinPattern = undefined ---p v = thinPattern' p Nothing v
 
 w1 p v = 
       let r = extract $ matchPattern p v
