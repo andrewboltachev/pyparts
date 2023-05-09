@@ -35,13 +35,13 @@ main = do
       , post "/matchPattern" (fnEndpoint mkMatchPattern)
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
-      , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
-      , post "/thinPattern" (fnEndpoint mkThinPattern)
+      --, post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
+      --, post "/thinPattern" (fnEndpoint mkThinPattern)
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
       , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
-      , post "/pythonStep1" (fnEndpoint mkPythonStep1)
-      , post "/pythonStep2" (fnEndpoint mkPythonStep2)
-      , post "/pythonStep0" (fnEndpoint mkPythonStep0)
+      --, post "/pythonStep1" (fnEndpoint mkPythonStep1)
+      --, post "/pythonStep2" (fnEndpoint mkPythonStep2)
+      --, post "/pythonStep0" (fnEndpoint mkPythonStep0)
       ]
 
 
@@ -74,7 +74,7 @@ mkMatchPattern e = do
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
-mkThinPattern :: (Object -> MatchStatus Value)
+{-mkThinPattern :: (Object -> MatchStatus Value)
 mkThinPattern e = do
   thinValue <- return $ KM.lookup (K.fromString "thinValue") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
@@ -82,7 +82,7 @@ mkThinPattern e = do
   output <- thinPattern mp thinValue
   output <- return $ snd output
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
-  return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
+  return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])-}
 
 mkMatchResultToPattern :: (Object -> MatchStatus Value)
 mkMatchResultToPattern e = do
@@ -99,7 +99,7 @@ mkMatchResultToValue e = do
   output <- return $ matchResultToValue mr
   return $ Object $ (KM.fromList [(K.fromString "value", output)])
 
-mkMatchResultToThinValue :: (Object -> MatchStatus Value)
+{-mkMatchResultToThinValue :: (Object -> MatchStatus Value)
 mkMatchResultToThinValue e = do
   result <- (m2ms $ MatchFailure "JSON root element must have result") $ KM.lookup (K.fromString "result") e
   mr <- (m2ms $ MatchFailure "Cannot decode MatchResult from presented result") $ (((decode . encode) result) :: Maybe MatchResult) -- TODO
@@ -107,7 +107,7 @@ mkMatchResultToThinValue e = do
   let res = case output of
                  Just x -> x
                  Nothing -> Null
-  return $ Object $ (KM.fromList [(K.fromString "thinValue", res)])
+  return $ Object $ (KM.fromList [(K.fromString "thinValue", res)])-}
 
 mkValueToExactGrammar :: (Object -> MatchStatus Value)
 mkValueToExactGrammar e = do
@@ -136,7 +136,7 @@ mkPythonStep0 e = do
                          Just x -> KM.fromList [(K.fromString "thinValue", x)]
                          Nothing -> KM.empty
 
-mkPythonStep1 :: (Object -> MatchStatus Value)
+{-mkPythonStep1 :: (Object -> MatchStatus Value)
 mkPythonStep1 e = do
   value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
@@ -161,7 +161,7 @@ mkPythonStep2 e = do
   return $ Object $ case thinPattern mp (Just thinValue) of
                          MatchSuccess (_, s) -> (KM.singleton "code" $ matchResultToValue $ s)
                          NoMatch s -> (KM.singleton "error" $ (String . T.pack) $ "NoMatch: " ++ s)
-                         MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "MatchFailure: " ++ s)
+                         MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "MatchFailure: " ++ s)-}
 
 fnEndpoint :: (Object -> MatchStatus Value) -> ResponderM b
 fnEndpoint f = do
