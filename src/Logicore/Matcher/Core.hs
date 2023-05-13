@@ -1004,7 +1004,7 @@ int2sci :: Integral a => a -> Value
 int2sci x = Number $ Sci.scientific (toInteger x) 0
 
 enumerate :: [Value] -> [Value]
-enumerate a = fmap (\(i, a) -> Array [int2sci i, a]) $ P.zip [1..] a
+enumerate a = fmap (\(i, a) -> Array $ V.fromList [int2sci i, a]) $ P.zip [1..] a
 
 contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
 contextFreeGrammarResultToThinValue = cata go
@@ -1105,28 +1105,25 @@ thinSeq as v = do
                       return $ [v]
                   _ ->
                     do
-                      v <- (m2ms $ MatchFailure $ "data error7" ++ show v) $ asKeyMap v
-                      itsType <- (m2ms $ MatchFailure $ "data error8" ++ show v) $ KM.lookup "type" v
-                      itsValue <- (m2ms $ MatchFailure $ "data error9" ++ show v) $ KM.lookup "value" v
-                      (m2ms $ MatchFailure $ "data error10" ++ show v) $ asArray itsValue
+                      (m2ms $ MatchFailure $ "data error10" ++ show v) $ asArray v
         let f acc' (a, gg) = do
+                acc <- acc'
                 (ii, acc) <- acc'
                 let (i:is) = ii
                 if gg -- movable
-                  then fmap (\x -> (is, acc <> (bimap All L.singleton x))) (thinContextFreeMatch a (Just i))
-                  else fmap (\x -> (ii, acc <> (bimap (const mempty) L.singleton x))) (thinContextFreeMatch a Nothing)
-        r <- L.foldl' f (MatchSuccess (v, mempty)) $ P.zip as gs
-        _ <- if P.null $ fst r then MatchSuccess () else MatchFailure $ "not all consumed" ++ show (fst r)
-        let r1@(bb, _) = bimap getAll SeqNode (snd r)
-        if not bb then MatchFailure ("bb fail" ++ show as) else MatchSuccess r1
-        --MatchSuccess r1
+                  then fmap (\x -> (is, acc ++ [x])) (thinContextFreeMatch a (Just i))
+                  else fmap (\x -> (ii, acc ++ [x])) (thinContextFreeMatch a Nothing)
 
-thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> MatchStatus (Bool, ContextFreeGrammarResult MatchPattern MatchResult)
+        r <- L.foldl' f (MatchSuccess (v, [])) $ P.zip as gs
+        _ <- if P.null $ fst r then MatchSuccess () else MatchFailure $ "not all consumed" ++ show (fst r)
+        return $ SeqNode (snd r)
+
+thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> MatchStatus (ContextFreeGrammarResult MatchPattern MatchResult)
 thinContextFreeMatch (Char a) v = do
   case thinPattern a v of
        NoMatch s -> NoMatch ("no char match: " ++ s)
        MatchFailure s -> MatchFailure ("thinContextFreeMatch: " ++ s)
-       MatchSuccess (b, r) -> MatchSuccess (b, CharNode r)
+       MatchSuccess r -> MatchSuccess $ CharNode r
 
 thinContextFreeMatch (Seq as) Nothing = if not $ contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
                                            then thinSeq as (Array $ V.fromList [])
@@ -1142,7 +1139,8 @@ thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance
   itsKey <- (m2ms $ MatchFailure ("data error3" ++ show itsKey)) $ asString itsKey
   let itsK = (K.fromString . T.unpack) itsKey
   itsMatch <- (m2ms $ MatchFailure ("data error4" ++ show ms)) $ KM.lookup itsK ms
-  fmap ((\a -> (True, a)) . (OrNode (KM.delete itsK ms) itsK) . snd) (thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v))
+  mch <- thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v)
+  return $ OrNode (KM.delete itsK ms) itsK mch
 
 thinContextFreeMatch (Star a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
@@ -1152,22 +1150,21 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
           itsValue <- (m2ms $ MatchFailure ("data error2" ++ show itsValue)) $ asArray itsValue
           if P.null itsValue
              then
-                return $ (True, StarNodeEmpty a)
+                return $ StarNodeEmpty a
              else
               do
                 aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
-                let ab = (P.map snd aa)
-                return $ (True, StarNodeValue ab)
+                return $ StarNodeValue aa
       else -- trivial
         do
           itsValue <- (m2ms $ MatchFailure ("data error2" ++ show itsValue)) $ asNumber itsValue
           if itsValue == 0
              then
-                return (True, StarNodeEmpty $ a)
+                return $ StarNodeEmpty $ a
               else
                 do
-                  (_, aa) <- thinContextFreeMatch a Nothing
-                  return (True, StarNodeValue $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa)
+                  aa <- thinContextFreeMatch a Nothing
+                  return $ StarNodeValue $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa
 
 thinContextFreeMatch (Plus a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
@@ -1176,13 +1173,12 @@ thinContextFreeMatch (Plus a) (Just itsValue) = do
         do
           itsValue <- (m2ms $ MatchFailure ("data error3" ++ show itsValue)) $ asArray itsValue
           aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
-          let ab = (P.map snd aa)
-          return $ (True, PlusNode ab)
+          return $ PlusNode aa
       else -- trivial
         do
           itsValue <- (m2ms $ MatchFailure ("data error4" ++ show itsValue)) $ asNumber itsValue
-          (_, aa) <- thinContextFreeMatch a Nothing
-          return (True, PlusNode $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa)
+          aa <- thinContextFreeMatch a Nothing
+          return $ PlusNode $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa
 
 thinContextFreeMatch (Optional a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
@@ -1191,14 +1187,20 @@ thinContextFreeMatch (Optional a) (Just itsValue) = do
       do
         itsValue <- (m2ms $ MatchFailure ("data error1141" ++ show itsValue)) $ asArray itsValue
         if not (P.null itsValue)
-           then fmap (bimap (const True) OptionalNodeValue) (thinContextFreeMatch a (Just (P.head itsValue)))
-           else return $ (True, OptionalNodeEmpty a)
+           then
+            do
+              r <- thinContextFreeMatch a (Just (P.head itsValue))
+              return $ OptionalNodeValue r
+           else return $ OptionalNodeEmpty a
      else
       do
         itsValue <- (m2ms $ MatchFailure ("data error1144" ++ show itsValue)) $ asBool itsValue
         if itsValue
-           then fmap (bimap (const True) OptionalNodeValue) (thinContextFreeMatch a Nothing)
-           else return $ (True, OptionalNodeEmpty a)
+           then
+            do
+              r <- thinContextFreeMatch a Nothing
+              return $ OptionalNodeValue r
+           else return $ OptionalNodeEmpty a
 
 thinContextFreeMatch a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
 
@@ -1214,7 +1216,7 @@ tObj keepExt m a = do
                                     then NoMatch $ "Required key " ++ show k ++ " not found in map"
                                     else MatchSuccess $ first (KM.insert k r) acc
                       -- if it exists, it must match
-                      Just n -> case fmap snd $ thinPattern r (Just n) of
+                      Just n -> case thinPattern r (Just n) of
                                      NoMatch s -> NoMatch s
                                      MatchFailure s -> MatchFailure s
                                      MatchSuccess s -> MatchSuccess $ second (KM.insert k el) acc
@@ -1272,7 +1274,7 @@ thinPatternMap allowExt m a = do
              -- trivial
              (KeyReq v, False) -> case KM.lookup k na of
                                        Nothing -> do
-                                         e <- (fmap snd) $ thinPattern v Nothing
+                                         e <- thinPattern v Nothing
                                          return $ second (KM.insert k $ KeyReq e) acc
                                        Just x -> MatchFailure ("must not be here 1089: " ++ show x)
              (KeyOpt v, False) -> do
@@ -1281,20 +1283,20 @@ thinPatternMap allowExt m a = do
                case flg of
                     False -> return $ first (KM.insert k v) acc
                     True -> do
-                      e <- (fmap snd) $ thinPattern v Nothing
+                      e <- thinPattern v Nothing
                       return $ second (KM.insert k $ KeyOpt e) acc
              -- movable
              (KeyReq v, True) -> do
                case KM.lookup k na of
                     Nothing -> NoMatch "Key not found"
                     Just x -> do
-                      e <- (fmap snd) $ thinPattern v (Just x)
+                      e <- thinPattern v (Just x)
                       return $ second (KM.insert k $ KeyReq e) acc
              (KeyOpt v, True) -> do
                case KM.lookup k na of
                     Nothing -> return $ first (KM.insert k v) acc
                     Just x -> do
-                      e <- (fmap snd) $ thinPattern v (Just x)
+                      e <- thinPattern v (Just x)
                       return $ second (KM.insert k $ KeyOpt e) acc
              -- error
              (KeyExt v, _) -> MatchFailure ("must not be here" ++ show v)
@@ -1306,9 +1308,9 @@ thinPatternMap allowExt m a = do
           else return $ KM.union xs $ (KM.map KeyExt) rst
 
   let c = if allowExt then MatchObjectPartialResult else MatchObjectFullResult
-  return $ (True, c os xs)
+  return $ c os xs
 
-thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
+thinPattern :: MatchPattern -> Maybe Value -> MatchStatus MatchResult
 thinPattern (MatchObjectFull m) a = thinPatternMap False m a
 thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
 thinPattern (MatchObjectWithDefaults m d) a = do
@@ -1326,14 +1328,14 @@ thinPattern (MatchArrayContextFree m) a = do
   case thinContextFreeMatch m a of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
-       MatchSuccess (b, x) -> MatchSuccess (b, (MatchArrayContextFreeResult x))
+       MatchSuccess x -> MatchSuccess $ MatchArrayContextFreeResult x
 
-thinPattern MatchFunnel (Just v) = MatchSuccess (True, MatchFunnelResult v)
+thinPattern MatchFunnel (Just v) = MatchSuccess $ MatchFunnelResult v
 
-thinPattern MatchFunnelKeys (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysResult v)
+thinPattern MatchFunnelKeys (Just (Object v)) = MatchSuccess $ MatchFunnelKeysResult v
 thinPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object or met Nothing"
 
-thinPattern MatchFunnelKeysU (Just (Object v)) = MatchSuccess (True, MatchFunnelKeysUResult v)
+thinPattern MatchFunnelKeysU (Just (Object v)) = MatchSuccess $ MatchFunnelKeysUResult v
 thinPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object or met Nothing"
 
 thinPattern (MatchIfThen baseMatch failMsg match) v =
@@ -1343,9 +1345,9 @@ thinPattern (MatchIfThen baseMatch failMsg match) v =
        MatchSuccess _ -> case thinPattern match v of
                             NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
                             MatchFailure f -> MatchFailure f
-                            MatchSuccess s -> MatchSuccess $ fmap (MatchIfThenResult baseMatch failMsg) s
+                            MatchSuccess s -> MatchSuccess $ MatchIfThenResult baseMatch failMsg s
 
-thinPattern MatchAny (Just a) = MatchSuccess (True, MatchAnyResult a)
+thinPattern MatchAny (Just a) = MatchSuccess $ MatchAnyResult a
 
 thinPattern (MatchOr ms) (Just (Object v)) = do
   itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ (KM.lookup "k") v
@@ -1353,20 +1355,20 @@ thinPattern (MatchOr ms) (Just (Object v)) = do
   itsK <- return $ K.fromString $ T.unpack $ itsK
   let itsV = KM.lookup "v" v
   aa <- (m2ms $ NoMatch $ "Wrong k" ++ show itsK) $ (KM.lookup itsK) ms
-  (_, r) <- thinPattern aa itsV
+  r <- thinPattern aa itsV
   rr <- return $ MatchOrResult (KM.delete itsK ms) itsK r
-  return $ (True, rr)
+  return $ rr
 
 -- specific (aka exact)
-thinPattern (MatchStringExact m) Nothing = MatchSuccess (False, MatchStringExactResult m)
-thinPattern (MatchNumberExact m) Nothing = MatchSuccess (False, MatchNumberExactResult m)
-thinPattern (MatchBoolExact m) Nothing = MatchSuccess (False, MatchBoolExactResult m)
+thinPattern (MatchStringExact m) Nothing = MatchSuccess $ MatchStringExactResult m
+thinPattern (MatchNumberExact m) Nothing = MatchSuccess $ MatchNumberExactResult m
+thinPattern (MatchBoolExact m) Nothing = MatchSuccess $ MatchBoolExactResult m
 -- any (of a type)
-thinPattern MatchStringAny (Just (String a)) = MatchSuccess (True, MatchStringAnyResult a)
-thinPattern MatchNumberAny (Just (Number a)) = MatchSuccess (True, MatchNumberAnyResult a)
-thinPattern MatchBoolAny (Just (Bool a)) = MatchSuccess (True, MatchBoolAnyResult a)
+thinPattern MatchStringAny (Just (String a)) = MatchSuccess $ MatchStringAnyResult a
+thinPattern MatchNumberAny (Just (Number a)) = MatchSuccess $ MatchNumberAnyResult a
+thinPattern MatchBoolAny (Just (Bool a)) = MatchSuccess $ MatchBoolAnyResult a
 -- null is just null
-thinPattern MatchNull Nothing = MatchSuccess (False, MatchNullResult)
+thinPattern MatchNull Nothing = MatchSuccess $ MatchNullResult
 -- default ca
 thinPattern m a = NoMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
@@ -1416,7 +1418,7 @@ qc5 = do
 c6f r = let
         p = matchResultToPattern r
         t = matchResultToThinValue r
-        r0 = (fmap snd) $ thinPattern p t
+        r0 = thinPattern p t
         r1 = case r0 of
                   NoMatch s -> error ("NoMatch: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
                   MatchFailure s -> error ("MatchFailure: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
@@ -1435,7 +1437,7 @@ tVIs :: MatchPattern -> Value -> Expectation
 tVIs p v = 
       let r = extract $ matchPattern p v
           t' = matchResultToThinValue r
-          r' = extract (fmap snd (thinPattern p t'))
+          r' = extract $ thinPattern p t'
       in r' `shouldBe` r
 
 tIs :: MatchPattern -> Value -> Maybe Value -> Expectation
@@ -1581,7 +1583,7 @@ demo1 = do
       t = matchResultToThinValue r
   putStrLn $ show $ r
   putStrLn $ show $ t
-  putStrLn $ show $ (extract . extract) $ thinPattern p t
+  putStrLn $ show $ extract $ thinPattern p t
 
 w1 p v = 
       let r = extract $ matchPattern p v
