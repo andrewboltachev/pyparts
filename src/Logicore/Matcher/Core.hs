@@ -1118,6 +1118,18 @@ thinSeq as v = do
         _ <- if P.null $ fst r then MatchSuccess () else MatchFailure $ "not all consumed" ++ show (fst r)
         return $ SeqNode (snd r)
 
+throwAwayIndexes :: MatchStatus [Value] -> Value -> MatchStatus [Value]
+throwAwayIndexes err (Array a') = do
+  a <- return $ V.toList a'
+  let f acc' x = do
+        acc <- acc'
+        x' <- (m2ms err) $ asArray x
+        -- array of pairs
+        _ <- if P.length x' == 2 then MatchSuccess mempty else err
+        return $ acc ++ [P.head $ P.tail $ x']
+  L.foldl' f (MatchSuccess mempty) a
+throwAwayIndexes err _ = err
+
 thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> MatchStatus (ContextFreeGrammarResult MatchPattern MatchResult)
 thinContextFreeMatch (Char a) v = do
   case thinPattern a v of
@@ -1147,7 +1159,7 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
   if gg a
      then -- actual
         do
-          itsValue <- (m2ms $ MatchFailure ("data error2" ++ show itsValue)) $ asArray itsValue
+          itsValue <- (throwAwayIndexes $ MatchFailure ("data error2" ++ show itsValue)) $ itsValue
           if P.null itsValue
              then
                 return $ StarNodeEmpty a
@@ -1171,7 +1183,7 @@ thinContextFreeMatch (Plus a) (Just itsValue) = do
   if gg a
      then -- actual
         do
-          itsValue <- (m2ms $ MatchFailure ("data error3" ++ show itsValue)) $ asArray itsValue
+          itsValue <- (throwAwayIndexes $ MatchFailure ("data error3" ++ show itsValue)) $ itsValue
           aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
           return $ PlusNode aa
       else -- trivial
