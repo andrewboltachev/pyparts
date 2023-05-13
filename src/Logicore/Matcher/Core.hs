@@ -5,6 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 
 
 module Logicore.Matcher.Core where
@@ -1139,12 +1140,12 @@ getIndexes _ (Array a') = do
         acc <- acc'
         x' <- (m2ms (MatchFailure "index problem")) $ asArray x
         -- array of pairs
-        _ <- if P.length x' == 2 then MatchSuccess [] else (MatchFailure "index problem")
+        _ <- if P.length x' == 2 then MatchSuccess ([] :: [Int]) else (MatchFailure "index problem")
         let i' :: Value
             i' = P.head $ x'
         i <- (m2ms $ (MatchFailure "index problem")) $ asNumber i'
         return $ acc ++ [fromInteger $ Sci.coefficient i]
-  L.foldl' f (MatchSuccess []) a
+  L.foldl' f (MatchSuccess mempty) a
 getIndexes _ _ = (MatchFailure "index problem")
 
 thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> MatchStatus (ContextFreeGrammarResult MatchPattern MatchResult)
@@ -1711,3 +1712,8 @@ work = do
   let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
       v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
   print $ w1 p v
+
+-- the thin case
+the = l where
+  v = Array [(Object (fromList [(fromString "type", String "Node")]))]
+  l = 0
