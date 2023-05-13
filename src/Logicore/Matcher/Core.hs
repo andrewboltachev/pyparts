@@ -1396,7 +1396,7 @@ applyOriginalValueDefaultsCF x _ = x
 applyOriginalValueDefaults :: MatchResult -> Maybe MatchResult -> MatchResult
 applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObjectWithDefaultsResult m' _ a)) = l
   where
-    m'' = KM.mapWithKey (\k e -> applyOriginalValueDefaults e (fromJust $ KM.lookup k m'))
+    m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m'
     l = MatchObjectWithDefaultsResult m'' d a
 applyOriginalValueDefaults o@(MatchOrResult ms k m) (Just (MatchOrResult ms' k' m')) = l
   where
