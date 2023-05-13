@@ -510,23 +510,23 @@ matchPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPart
 
 matchPattern (MatchObjectWithDefaults m d) (Object a) = do
   let f acc' (k, v) = do
-      acc <- acc' -- (mm, dd)
-      if KM.member k m
-         then
-            do
-              m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
-              rr <- matchPattern m' v
-              return $ first (KM.insert k rr) acc
-         else
-          if KM.member k d
-             then
-              do
-                d' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k d
-                let ff = if v /= d'
-                           then KM.insert k v
-                           else id
-                return $ second ff acc
-             else NoMatch $ "extra key: " ++ show k
+          acc <- acc' -- (mm, dd)
+          if KM.member k m
+            then
+                do
+                  m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+                  rr <- matchPattern m' v
+                  return $ first (KM.insert k rr) acc
+            else
+              if KM.member k d
+                then
+                  do
+                    d' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k d
+                    let ff = if v /= d'
+                              then KM.insert k v
+                              else id
+                    return $ second ff acc
+                else NoMatch $ "extra key: " ++ show k
   (mm, vv) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
   return $ MatchObjectWithDefaultsResult mm d vv
 
@@ -1385,9 +1385,35 @@ thinPattern MatchNull Nothing = MatchSuccess $ MatchNullResult
 thinPattern m a = NoMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
 -- thin pattern R
+{-
 thinPatternR (MatchObjectFullResult _ _) = error "not implemented"
 thinPatternR (MatchObjectPartialResult _ _) = error "not implemented"
---thinPatternR (MatchObjectWithDefaultsResult r d o) = L.foldl' f (MatchStatus mempty) r
+--thinPatternR (MatchObjectWithDefaultsResult r d o) = L.foldl' f (MatchStatus mempty) r-}
+
+applyOriginalValueDefaultsCF :: ContextFreeGrammarResult MatchPattern MatchResult -> Maybe (ContextFreeGrammarResult MatchPattern MatchResult) -> ContextFreeGrammarResult MatchPattern MatchResult
+applyOriginalValueDefaultsCF x _ = x
+
+applyOriginalValueDefaults :: MatchResult -> Maybe MatchResult -> MatchResult
+applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObjectWithDefaultsResult m' _ a)) = l
+  where
+    m'' = KM.mapWithKey (\k e -> applyOriginalValueDefaults e (fromJust $ KM.lookup k m'))
+    l = MatchObjectWithDefaultsResult m'' d a
+applyOriginalValueDefaults o@(MatchOrResult ms k m) (Just (MatchOrResult ms' k' m')) = l
+  where
+    l = if k == k' then MatchOrResult ms k (applyOriginalValueDefaults m (Just m'))
+                   else o
+applyOriginalValueDefaults x _ = x
+
+-- The most useful
+-- Value -> MatchPattern -> MatchResult
+-- MatchResult -> Thin Value
+-- Thin Value, MatchPattern -> 
+-- Thin Value, Original MatchResult -> 
+thinPatternWithDefaults :: MatchResult -> Maybe Value -> MatchStatus MatchResult
+thinPatternWithDefaults r v = do
+  let p = matchResultToPattern r
+  vr <- thinPattern p v
+  return $ applyOriginalValueDefaults vr (Just r)
 
 -- Match functions end
 
