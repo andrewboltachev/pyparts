@@ -1311,6 +1311,15 @@ thinPatternMap allowExt m a = do
 thinPattern :: MatchPattern -> Maybe Value -> MatchStatus (Bool, MatchResult)
 thinPattern (MatchObjectFull m) a = thinPatternMap False m a
 thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
+thinPattern (MatchObjectWithDefaults m d) a = do
+  let mm = KM.map KeyReq m
+  r <- thinPattern (MatchObjectFull mm) a
+  rr <- case r of
+             (MatchObjectFullResult _ e) -> return $ e
+             _ -> MatchFailure "should be impossible"
+  let extractKeyReq (KeyReq a) = a
+  let getReqs a = (KM.map extractKeyReq (KM.filter isKeyReq a))
+  return $ MatchObjectWithDefaultsResult (getReqs rr) d (KM.empty)
 
 
 thinPattern (MatchArrayContextFree m) a = do
@@ -1360,6 +1369,11 @@ thinPattern MatchBoolAny (Just (Bool a)) = MatchSuccess (True, MatchBoolAnyResul
 thinPattern MatchNull Nothing = MatchSuccess (False, MatchNullResult)
 -- default ca
 thinPattern m a = NoMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
+
+-- thin pattern R
+thinPatternR (MatchObjectFullResult _ _) = error "not implemented"
+thinPatternR (MatchObjectPartialResult _ _) = error "not implemented"
+--thinPatternR (MatchObjectWithDefaultsResult r d o) = L.foldl' f (MatchStatus mempty) r
 
 -- Match functions end
 
