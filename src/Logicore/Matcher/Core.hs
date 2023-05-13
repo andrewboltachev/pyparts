@@ -136,7 +136,9 @@ data ContextFreeGrammarResult g r = CharNode r
                                   | SeqNode [(ContextFreeGrammarResult g r)]
                                   | StarNodeEmpty (ContextFreeGrammar g)
                                   | StarNodeValue [(ContextFreeGrammarResult g r)]
+                                  | StarNodeIndexed [(ContextFreeGrammarResult g r)] [Int]
                                   | PlusNode [(ContextFreeGrammarResult g r)]
+                                  | PlusNodeIndexed [(ContextFreeGrammarResult g r)] [Int]
                                   | OrNode (KeyMap (ContextFreeGrammar g)) Key (ContextFreeGrammarResult g r)
                                   | OptionalNodeValue (ContextFreeGrammarResult g r)
                                   | OptionalNodeEmpty (ContextFreeGrammar g)
@@ -1130,6 +1132,21 @@ throwAwayIndexes err (Array a') = do
   L.foldl' f (MatchSuccess mempty) a
 throwAwayIndexes err _ = err
 
+getIndexes :: a -> Value -> MatchStatus [Int]
+getIndexes _ (Array a') = do
+  a <- return $ V.toList a'
+  let f acc' x = do
+        acc <- acc'
+        x' <- (m2ms (MatchFailure "index problem")) $ asArray x
+        -- array of pairs
+        _ <- if P.length x' == 2 then MatchSuccess [] else (MatchFailure "index problem")
+        let i' :: Value
+            i' = P.head $ x'
+        i <- (m2ms $ (MatchFailure "index problem")) $ asNumber i'
+        return $ acc ++ [fromInteger $ Sci.coefficient i]
+  L.foldl' f (MatchSuccess []) a
+getIndexes _ _ = (MatchFailure "index problem")
+
 thinContextFreeMatch :: ContextFreeGrammar MatchPattern -> Maybe Value -> MatchStatus (ContextFreeGrammarResult MatchPattern MatchResult)
 thinContextFreeMatch (Char a) v = do
   case thinPattern a v of
@@ -1159,6 +1176,7 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
   if gg a
      then -- actual
         do
+          is <- (getIndexes $ MatchFailure ("data error2" ++ show itsValue)) $ itsValue
           itsValue <- (throwAwayIndexes $ MatchFailure ("data error2" ++ show itsValue)) $ itsValue
           if P.null itsValue
              then
@@ -1166,7 +1184,7 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
              else
               do
                 aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
-                return $ StarNodeValue aa
+                return $ StarNodeIndexed aa is
       else -- trivial
         do
           itsValue <- (m2ms $ MatchFailure ("data error2" ++ show itsValue)) $ asNumber itsValue
@@ -1175,22 +1193,25 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
                 return $ StarNodeEmpty $ a
               else
                 do
-                  aa <- thinContextFreeMatch a Nothing
-                  return $ StarNodeValue $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa
+                  aa' <- thinContextFreeMatch a Nothing
+                  let aa = P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa'
+                  return $ StarNodeValue aa
 
 thinContextFreeMatch (Plus a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
   if gg a
      then -- actual
         do
+          is <- (getIndexes $ MatchFailure ("data error2" ++ show itsValue)) $ itsValue
           itsValue <- (throwAwayIndexes $ MatchFailure ("data error3" ++ show itsValue)) $ itsValue
           aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
-          return $ PlusNode aa
+          return $ PlusNodeIndexed aa is
       else -- trivial
         do
           itsValue <- (m2ms $ MatchFailure ("data error4" ++ show itsValue)) $ asNumber itsValue
-          aa <- thinContextFreeMatch a Nothing
-          return $ PlusNode $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa
+          aa' <- thinContextFreeMatch a Nothing
+          let aa = P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa'
+          return $ PlusNode aa
 
 thinContextFreeMatch (Optional a) (Just itsValue) = do
   let gg = contextFreeGrammarIsMovable matchPatternIsMovable
@@ -1390,18 +1411,46 @@ thinPatternR (MatchObjectFullResult _ _) = error "not implemented"
 thinPatternR (MatchObjectPartialResult _ _) = error "not implemented"
 --thinPatternR (MatchObjectWithDefaultsResult r d o) = L.foldl' f (MatchStatus mempty) r-}
 
+safeGet :: [a] -> Int -> Maybe a
+safeGet xs n
+  | n < 0     = Nothing
+             -- Definition adapted from GHC.List
+  | otherwise = P.foldr (\x r k -> case k of
+                                   0 -> Just x
+                                   _ -> r (k-1)) (const Nothing) xs n
+
 applyOriginalValueDefaultsCF :: ContextFreeGrammarResult MatchPattern MatchResult -> Maybe (ContextFreeGrammarResult MatchPattern MatchResult) -> ContextFreeGrammarResult MatchPattern MatchResult
-applyOriginalValueDefaultsCF x _ = x
+
+applyOriginalValueDefaultsCF (CharNode x) (Just (CharNode x')) = CharNode $ applyOriginalValueDefaults x (Just x')
+applyOriginalValueDefaultsCF (SeqNode x) (Just (SeqNode x')) = SeqNode $ P.map (\(e, e') -> applyOriginalValueDefaultsCF e (Just e')) $ P.zip x x'
+applyOriginalValueDefaultsCF (SeqNode x) (Just (SeqNode x')) = SeqNode $ P.map (\(e, e') -> applyOriginalValueDefaultsCF e (Just e')) $ P.zip x x'
+-- Or
+-- Star
+-- Plus
+-- Optional
+applyOriginalValueDefaultsCF o@(OrNode ms k m) (Just (OrNode ms' k' m')) = l
+  where
+    l = if k == k' then OrNode ms k (applyOriginalValueDefaultsCF m (Just m'))
+                   else o
+applyOriginalValueDefaultsCF o@(StarNodeIndexed m is) (Just (StarNodeValue m')) = l
+  where
+    l = StarNodeValue $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' i)) $ P.zip m is
 
 applyOriginalValueDefaults :: MatchResult -> Maybe MatchResult -> MatchResult
 applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObjectWithDefaultsResult m' _ a)) = l
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m'
     l = MatchObjectWithDefaultsResult m'' d a
+applyOriginalValueDefaults (MatchArrayContextFreeResult m) (Just (MatchArrayContextFreeResult m')) = l
+  where
+    l = MatchArrayContextFreeResult (applyOriginalValueDefaultsCF m (Just m'))
 applyOriginalValueDefaults o@(MatchOrResult ms k m) (Just (MatchOrResult ms' k' m')) = l
   where
     l = if k == k' then MatchOrResult ms k (applyOriginalValueDefaults m (Just m'))
                    else o
+applyOriginalValueDefaults (MatchIfThenResult b e m) (Just (MatchOrResult b' e' m')) = l
+  where
+    l = MatchIfThenResult b e (applyOriginalValueDefaults m (Just m'))
 applyOriginalValueDefaults x _ = x
 
 -- The most useful
