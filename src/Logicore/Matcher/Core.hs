@@ -1436,6 +1436,10 @@ applyOriginalValueDefaultsCF o@(StarNodeIndexed m is) (Just (StarNodeValue m')) 
   where
     l = StarNodeValue $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' i)) $ P.zip m is
 
+applyOriginalValueDefaultsCF o@(PlusNodeIndexed m is) (Just (PlusNode m')) = l
+  where
+    l = PlusNode $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' i)) $ P.zip m is
+
 applyOriginalValueDefaults :: MatchResult -> Maybe MatchResult -> MatchResult
 applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObjectWithDefaultsResult m' _ a)) = l
   where
