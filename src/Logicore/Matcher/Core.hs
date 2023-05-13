@@ -1075,6 +1075,10 @@ matchResultToThinValue = cata go
                       True -> Just $ Bool True
                       False -> Just $ Bool False
         u = KM.union (KM.map f (KM.filter ff r)) (fmap optf g)
+    go (MatchObjectWithDefaultsResultF r d a) = do
+      b <- go (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
+      b <- asKeyMap b
+      return $ Object $ KM.union (KM.union b d) a
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
@@ -1344,6 +1348,9 @@ thinPatternMap allowExt m a = do
   let c = if allowExt then MatchObjectPartialResult else MatchObjectFullResult
   return $ c os xs
 
+extractKeyReq (KeyReq a) = a
+getReqs a = (KM.map extractKeyReq (KM.filter isKeyReq a))
+
 thinPattern :: MatchPattern -> Maybe Value -> MatchStatus MatchResult
 thinPattern (MatchObjectFull m) a = thinPatternMap False m a
 thinPattern (MatchObjectPartial m) a = thinPatternMap True m a
@@ -1353,8 +1360,6 @@ thinPattern (MatchObjectWithDefaults m d) a = do
   rr <- case r of
              (MatchObjectFullResult _ e) -> return $ e
              _ -> MatchFailure "should be impossible"
-  let extractKeyReq (KeyReq a) = a
-  let getReqs a = (KM.map extractKeyReq (KM.filter isKeyReq a))
   return $ MatchObjectWithDefaultsResult (getReqs rr) d (KM.empty)
 
 
@@ -1714,6 +1719,11 @@ work = do
   print $ w1 p v
 
 -- the thin case
-the = l where
-  v = Array [(Object (fromList [(fromString "type", String "Node")]))]
-  l = 0
+the = do
+  let v = Array [
+            (Object (fromList [("type", String "Node"), ("value", Number 1), ("ws", String " ")])),
+            (Object (fromList [("type", String "Node"), ("value", Number 2), ("ws", String "  ")])),
+            (Object (fromList [("type", String "Node"), ("value", Number 3), ("ws", String "   ")]))]
+  let p = MatchArrayContextFree $ Seq [Star $ Char $ MatchObjectWithDefaults (fromList [("type", MatchStringExact "Node"), ("value", MatchNumberAny)]) (fromList [("ws", String " ")])]
+  r <- matchPattern p v
+  return $ matchResultToThinValue $ r
