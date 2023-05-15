@@ -663,7 +663,7 @@ matchResultToValue = cata go
         f (KeyReq v) = v
         f (KeyOpt v) = v
         f (KeyExt v) = v
-    go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r (KM.union d v)
+    go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r $ KM.union v d
     go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
     go (MatchStringExactResultF r) = String r
     go (MatchNumberExactResultF r) = Number r
@@ -859,6 +859,7 @@ matchPatternIsMovable = cata go
         f acc (KeyOpt _) = True
         f acc (KeyReq x) = x || acc
         f acc (KeyReq x) = error $ "must not be here"
+    go (MatchObjectWithDefaultsF g _) = getAny $ mconcat $ P.map Any (KM.elems g)
     go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
     go (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable id g
     go (MatchStringExactF _) = False
@@ -1075,10 +1076,7 @@ matchResultToThinValue = cata go
                       True -> Just $ Bool True
                       False -> Just $ Bool False
         u = KM.union (KM.map f (KM.filter ff r)) (fmap optf g)
-    go (MatchObjectWithDefaultsResultF r d a) = do
-      b <- go (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
-      b <- asKeyMap b
-      return $ Object $ KM.union (KM.union b d) a
+    go (MatchObjectWithDefaultsResultF r d a) = go (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchStringExactResultF r) = Nothing
     go (MatchNumberExactResultF r) = Nothing
@@ -1429,7 +1427,6 @@ applyOriginalValueDefaultsCF :: ContextFreeGrammarResult MatchPattern MatchResul
 
 applyOriginalValueDefaultsCF (CharNode x) (Just (CharNode x')) = CharNode $ applyOriginalValueDefaults x (Just x')
 applyOriginalValueDefaultsCF (SeqNode x) (Just (SeqNode x')) = SeqNode $ P.map (\(e, e') -> applyOriginalValueDefaultsCF e (Just e')) $ P.zip x x'
-applyOriginalValueDefaultsCF (SeqNode x) (Just (SeqNode x')) = SeqNode $ P.map (\(e, e') -> applyOriginalValueDefaultsCF e (Just e')) $ P.zip x x'
 -- Or
 -- Star
 -- Plus
@@ -1440,18 +1437,27 @@ applyOriginalValueDefaultsCF o@(OrNode ms k m) (Just (OrNode ms' k' m')) = l
                    else o
 applyOriginalValueDefaultsCF o@(StarNodeIndexed m is) (Just (StarNodeValue m')) = l
   where
-    l = StarNodeValue $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' i)) $ P.zip m is
+    l = StarNodeValue $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m is
+
+applyOriginalValueDefaultsCF o@(StarNodeValue m) (Just (StarNodeValue m')) = l
+  where
+    l = StarNodeValue $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m [1..]
 
 applyOriginalValueDefaultsCF o@(PlusNodeIndexed m is) (Just (PlusNode m')) = l
   where
-    l = PlusNode $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' i)) $ P.zip m is
+    l = PlusNode $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m is
+
+applyOriginalValueDefaultsCF o@(PlusNode m) (Just (PlusNode m')) = l
+  where
+    l = PlusNode $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m [1..]
 
 applyOriginalValueDefaultsCF (OptionalNodeValue m) (Just (OptionalNodeValue m')) = l
   where
     l = OptionalNodeValue (applyOriginalValueDefaultsCF m (Just m'))
+applyOriginalValueDefaultsCF x _ = x
 
 applyOriginalValueDefaults :: MatchResult -> Maybe MatchResult -> MatchResult
-applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObjectWithDefaultsResult m' _ a)) = l
+applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObjectWithDefaultsResult m' _ a)) = l --error $ show (m, m', d, a)
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m'
     l = MatchObjectWithDefaultsResult m'' d a
@@ -1719,11 +1725,26 @@ work = do
   print $ w1 p v
 
 -- the thin case
-the = do
+thinWithDefaults1 = do
   let v = Array [
-            (Object (fromList [("type", String "Node"), ("value", Number 1), ("ws", String " ")])),
-            (Object (fromList [("type", String "Node"), ("value", Number 2), ("ws", String "  ")])),
-            (Object (fromList [("type", String "Node"), ("value", Number 3), ("ws", String "   ")]))]
+            (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String " ")])),
+            (Object (fromList [("type", String "Node"), ("value", Number 20), ("ws", String "  ")])),
+            (Object (fromList [("type", String "Node"), ("value", Number 30), ("ws", String "   ")]))]
   let p = MatchArrayContextFree $ Seq [Star $ Char $ MatchObjectWithDefaults (fromList [("type", MatchStringExact "Node"), ("value", MatchNumberAny)]) (fromList [("ws", String " ")])]
   r <- matchPattern p v
-  return $ matchResultToThinValue $ r
+  let t = Just (Array [Array [Number 1.0,Number 10.0],Array [Number 2.0,Number 20.0],Array [Number 0,Number 50.0],Array [Number 3.0,Number 30.0]])
+  --return $ thinPattern p t
+  r' <- thinPatternWithDefaults r t
+  return $ matchResultToValue r'
+
+thinWithDefaults2 = do
+  let v = Array [
+            (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String " ")])),
+            (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String "  ")])),
+            (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String "   ")]))]
+  let p = MatchArrayContextFree $ Seq [Star $ Char $ MatchObjectWithDefaults (fromList [("type", MatchStringExact "Node"), ("value", MatchNumberExact 10.0)]) (fromList [("ws", String " ")])]
+  r <- matchPattern p v
+  --return $ matchResultToThinValue r
+  let t = Just $ Number 5.0
+  r' <- thinPatternWithDefaults r t
+  return $ matchResultToValue r'
