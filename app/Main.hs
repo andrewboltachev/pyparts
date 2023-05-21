@@ -33,6 +33,7 @@ main = do
 
       -- fn endpoints
       , post "/matchPattern" (fnEndpoint mkMatchPattern)
+      , post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel)
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
       , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
@@ -73,6 +74,18 @@ mkMatchPattern e = do
   output <- matchPattern mp value
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
+
+mkMatchPatternWithFunnel :: (Object -> MatchStatus Value)
+mkMatchPatternWithFunnel e = do
+  value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
+  pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
+  mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
+  output <- matchPattern mp value
+  funnelResult <- return $ gatherFunnel output
+  outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
+  return $ Object $ (KM.fromList [
+    (K.fromString "result", outputValue),
+    (K.fromString "funnel", Array $ V.fromList $ funnelResult)])
 
 mkThinPattern :: (Object -> MatchStatus Value)
 mkThinPattern e = do

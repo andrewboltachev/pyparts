@@ -76,6 +76,8 @@ import Logicore.Matcher.Helpers
 -- MatchStatus is a monad for representing match outcome similar to Either
 --
 
+k2s = (String . T.pack . K.toString)
+
 data MatchStatus a = MatchSuccess a
                  | MatchFailure String
                  | NoMatch String
@@ -435,28 +437,39 @@ instance FromJSON MatchResult
 
 data MatchPath = ObjKey Key | ArrKey Int deriving (Generic, Eq, Show)
 
-{-
-gatherFunnel :: [Value] -> MatchPattern -> [Value]
-gatherFunnel acc (MatchObjectPartialResult _ o) = L.foldl' gatherFunnel acc (KM.elems o)
-gatherFunnel acc (MatchObject o) = L.foldl' gatherFunnel acc (KM.elems o) -- FIXME
-gatherFunnel acc (MatchArraySomeResult _ o) = L.foldl' gatherFunnel acc (fmap snd o)
-gatherFunnel acc (MatchArrayResult o) = L.foldl' gatherFunnel acc o
-gatherFunnel acc (MatchArrayContextFreeResult a) = L.foldl' gatherFunnel acc a
-gatherFunnel acc (MatchArrayOneResult o) = gatherFunnel acc o
-gatherFunnel acc (MatchSimpleOrResult o) = gatherFunnel acc o
-gatherFunnel acc (MatchFunnelResult r) = r:acc
-gatherFunnel acc (MatchFunnelResultM r) = case asArray r of
-                                               Nothing -> error ("aaa: " ++ show acc)
-                                               Just a -> L.nub $ a ++ acc
-gatherFunnel acc MatchLiteral = acc
-gatherFunnel acc (MatchAnyResult _) = acc
--- gatherFunnel acc MatchIgnoreResult = acc
-gatherFunnel acc (MatchString _) = acc
-gatherFunnel acc (MatchNumber _) = acc
-gatherFunnel acc MatchNull = acc
-gatherFunnel acc x = error (show x)
---gatherFunnel acc _ = acc
--}
+gatherFunnelContextFree :: ContextFreeGrammarResult MatchPattern [a] -> [a]
+gatherFunnelContextFree = cata go
+  where
+    go (CharNodeF r) = r
+    go (SeqNodeF r) = L.foldl' (++) mempty r
+    go (StarNodeEmptyF g) = []
+    go (StarNodeValueF r) = L.foldl' (++) mempty r
+    go (PlusNodeF r) = L.foldl' (++) mempty r
+    go (OrNodeF g k r) = r
+    go (OptionalNodeValueF r) = r
+    go (OptionalNodeEmptyF g) = []
+
+unique = P.reverse . L.nub . P.reverse
+
+gatherFunnel :: MatchResult -> [Value] -- TODO Monoid?
+gatherFunnel = cata go
+  where
+    go (MatchObjectFullResultF _ r) = L.foldl' f mempty (KM.elems r)
+      where f acc (KeyReq e) = acc ++ e
+            f acc (KeyOpt e) = acc ++ e
+            f acc (KeyExt _) = acc
+    go (MatchObjectPartialResultF _ r) = L.foldl' f mempty (KM.elems r)
+      where f acc (KeyReq e) = acc ++ e
+            f acc (KeyOpt e) = acc ++ e
+            f acc (KeyExt _) = acc
+    go (MatchObjectWithDefaultsResultF r _ _) = L.foldl' (++) mempty (KM.elems r)
+    go (MatchArrayContextFreeResultF c) = gatherFunnelContextFree c
+    go (MatchOrResultF g k r) = r
+    go (MatchIfThenResultF _ _ r) = r
+    go (MatchFunnelResultF r) = [r]
+    go (MatchFunnelKeysResultF m) = fmap k2s (KM.keys m)
+    go (MatchFunnelKeysUResultF m) = unique $ fmap k2s (KM.keys m) -- TODO what idea?
+    go _ = []
 
 --
 -- Convert Maybe to MatchStatus (e.g. a result of KM.lookup)
@@ -1000,7 +1013,6 @@ instance ToJSON a => ToJSON (ThickContextFreeGrammar a) where
 
 instance FromJSON a => FromJSON (ThickContextFreeGrammar a)
 
-k2s = (String . T.pack . K.toString)
 tMapK1 k = Object $ KM.fromList [(K.fromString "k", k2s k)]
 tMapKV1 k v = Object $ KM.fromList [(K.fromString "k", k2s k), (K.fromString "v", v)]
 
