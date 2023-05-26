@@ -696,7 +696,7 @@ matchResultToValue = cata go
 valueToExactGrammar :: Value -> MatchPattern
 valueToExactGrammar = cata go
   where
-    go (ObjectF a) = MatchObjectFull (fmap KeyReq a)
+    go (ObjectF a) = MatchObjectWithDefaults a mempty
     go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
@@ -1178,12 +1178,11 @@ thinContextFreeMatch (Seq as) (Just v) = do
      else thinSeq as v
 
 thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
-  itsType <- (m2ms $ MatchFailure ("data error1" ++ show v)) $ KM.lookup (K.fromString "type") v -- OrNodeTrivial or OrNode
-  itsKey <- (m2ms $ MatchFailure ("data error 951: " ++ show v)) $ KM.lookup (K.fromString "key") v
+  itsKey <- (m2ms $ MatchFailure ("data error 951: " ++ show v)) $ KM.lookup (K.fromString "k") v
   itsKey <- (m2ms $ MatchFailure ("data error3" ++ show itsKey)) $ asString itsKey
   let itsK = (K.fromString . T.unpack) itsKey
   itsMatch <- (m2ms $ MatchFailure ("data error4" ++ show ms)) $ KM.lookup itsK ms
-  mch <- thinContextFreeMatch itsMatch (KM.lookup (K.fromString "value") v)
+  mch <- thinContextFreeMatch itsMatch (KM.lookup (K.fromString "v") v)
   return $ OrNode (KM.delete itsK ms) itsK mch
 
 thinContextFreeMatch (Star a) (Just itsValue) = do
