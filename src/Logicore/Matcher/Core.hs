@@ -293,7 +293,7 @@ instance FromJSON a => FromJSON (ArrayValMatch a)
                   -- structures - object
 data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchObjectWithDefaults (KeyMap MatchPattern) (KeyMap Value)
-                  | MatchObjectOnly (KeyMap (ObjectKeyMatch MatchPattern))
+                  | MatchObjectOnly (KeyMap MatchPattern)
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
                   -- structures - array
                   -- | MatchArrayAll MatchPattern
@@ -313,6 +313,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchNull
                   -- conditions
                   | MatchAny
+                  | MatchIgnore
                   | MatchDefault Value
                   | MatchOr (KeyMap MatchPattern)
                   | MatchIfThen MatchPattern T.Text MatchPattern
@@ -345,6 +346,7 @@ instance Arbitrary MatchPattern where
       return $ MatchBoolAny,
       return $ MatchNull,
       return $ MatchAny,
+      return $ MatchIgnore,
       MatchDefault <$> arbitrary,
       MatchOr <$> arbitrary]
       --MatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary
@@ -383,6 +385,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchNullResult
                  -- conditions
                  | MatchAnyResult Value
+                 | MatchIgnoreResult Value
                  | MatchDefaultResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
                  | MatchIfThenResult MatchPattern T.Text MatchResult
@@ -417,6 +420,7 @@ instance Arbitrary MatchResult where
     MatchBoolAnyResult <$> arbitrary,
     return $ MatchNullResult,
     MatchAnyResult <$> arbitrary,
+    MatchIgnoreResult <$> arbitrary,
     MatchDefaultResult <$> arbitrary,
     MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary]
     --MatchIfThenResult <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
@@ -520,7 +524,7 @@ mObj keepExt m a = do
                                             Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
 
 matchPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
-matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m (KM.filterWithKey (\k v -> KM.member k m) a))
+matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False (fmap KeyReq m) (KM.filterWithKey (\k v -> KM.member k m) a))
 matchPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
 
 
@@ -573,6 +577,7 @@ matchPattern (MatchIfThen baseMatch failMsg match) v =
                             MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
 
 matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
+matchPattern MatchIgnore a = MatchSuccess $ MatchIgnoreResult a
 matchPattern (MatchOr ms) v = do
   let f (k, a) b = case matchPattern a v of
                      MatchSuccess x -> MatchSuccess (k, x)
@@ -619,7 +624,9 @@ contextFreeGrammarResultToSource f = cata go
     go (SeqNodeF r) = P.concat r
     go (StarNodeEmptyF g) = []
     go (StarNodeValueF r) = P.concat r
+    go (StarNodeIndexedF r _) = P.concat r
     go (PlusNodeF r) = P.concat r
+    go (PlusNodeIndexedF r _) = P.concat r
     go (OrNodeF g k r) = r
     go (OptionalNodeValueF r) = r
     go (OptionalNodeEmptyF g) = []
@@ -655,6 +662,7 @@ matchResultToPattern = cata go where
   go (MatchBoolAnyResultF r) = MatchBoolAny
   go MatchNullResultF = MatchNull
   go (MatchAnyResultF r) = MatchAny
+  go (MatchIgnoreResultF r) = MatchIgnore
   go (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
   go (MatchIfThenResultF p errorMsg r) = MatchIfThen p errorMsg r
   go (MatchFunnelResultF r) = MatchFunnel
@@ -686,6 +694,7 @@ matchResultToValue = cata go
     go (MatchBoolAnyResultF r) = Bool r
     go MatchNullResultF = Null
     go (MatchAnyResultF r) = r
+    go (MatchIgnoreResultF r) = r
     go (MatchOrResultF m k r) = r
     go (MatchIfThenResultF p errorMsg r) = r
     go (MatchFunnelResultF r) = r
@@ -760,6 +769,7 @@ matchPatternIsWellFormed = cata go
     go MatchBoolAnyF = True
     go MatchNullF = True
     go MatchAnyF = True
+    go MatchIgnoreF = True
     go (MatchOrF g) = P.all id (KM.elems g)
     go (MatchIfThenF _ _ _) = False -- TODO
     go MatchFunnelF = True
@@ -831,6 +841,7 @@ matchResultIsWellFormed = para check
     check (MatchBoolAnyResultF _) = True
     check MatchNullResultF = True
     check (MatchAnyResultF _) = True
+    check (MatchIgnoreResultF _) = True
     check (MatchOrResultF g k (_, r)) = 
       P.all matchPatternIsWellFormed (KM.elems g)
       && (not $ KM.member k g)
@@ -883,6 +894,7 @@ matchPatternIsMovable = cata go
     go MatchBoolAnyF = True
     go MatchNullF = False
     go MatchAnyF = True
+    go MatchIgnoreF = False
     go (MatchOrF g) = True --P.any id (KM.elems g)
     go (MatchIfThenF _ _ g) = g
     go MatchFunnelF = True
@@ -918,6 +930,7 @@ matchResultIsMovableAlg = check where
     check (MatchBoolAnyResultF _) = True
     check MatchNullResultF = False
     check (MatchAnyResultF _) = True
+    check (MatchIgnoreResultF _) = False
     check (MatchOrResultF g _ r) = r || P.any matchPatternIsMovable (KM.elems g)
     check (MatchIfThenResultF _ _ g) = g
     check (MatchFunnelResultF _) = True
@@ -1098,6 +1111,7 @@ matchResultToThinValue = cata go
     go (MatchBoolAnyResultF r) = Just $ Bool r
     go MatchNullResultF = Nothing
     go (MatchAnyResultF r) = Just $ r
+    go (MatchIgnoreResultF r) = Nothing
     go (MatchOrResultF g k r) = Just $ if r == Nothing
                                    then tMapK1 k
                                    else tMapKV1 k (fromJust r)
@@ -1335,7 +1349,7 @@ thinPatternMap allowExt m a = do
              -- movable
              (KeyReq v, True) -> do
                case KM.lookup k na of
-                    Nothing -> NoMatch "Key not found"
+                    Nothing -> NoMatch ("Key not found: " ++ show k)
                     Just x -> do
                       e <- thinPattern v (Just x)
                       return $ second (KM.insert k $ KeyReq e) acc
@@ -1396,6 +1410,7 @@ thinPattern (MatchIfThen baseMatch failMsg match) v =
                             MatchSuccess s -> MatchSuccess $ MatchIfThenResult baseMatch failMsg s
 
 thinPattern MatchAny (Just a) = MatchSuccess $ MatchAnyResult a
+thinPattern MatchIgnore (Just a) = MatchFailure "thinPattern over Ignore"
 
 thinPattern (MatchOr ms) (Just (Object v)) = do
   itsK <- (m2ms $ MatchFailure $ "data error117" ++ show v) $ (KM.lookup "k") v

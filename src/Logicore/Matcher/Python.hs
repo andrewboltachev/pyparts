@@ -148,15 +148,15 @@ withoutPythonUnsignificantKeys = cata go
 --
 matchArrayOne x = MatchArrayContextFree $ Seq [Char x]
 
-if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectOnly (fromList [
-    (fromString "comma", KeyReq $ MatchStringExact "MaybeSentinel.DEFAULT")
-  , (fromString "equal", KeyReq $ MatchStringExact "MaybeSentinel.DEFAULT")
-  , (fromString "keyword", KeyReq $ MatchNull)
-  , (fromString "star", KeyReq $ MatchStringExact "")
-  , (fromString "type", KeyReq $ MatchStringExact "Arg")
-  , (fromString "value", KeyReq $ MatchObjectOnly (fromList [
-      (fromString "type", KeyReq $ MatchStringExact "SimpleString")
-      , (fromString "value", KeyReq $ MatchStringAny)
+if_arg = (fromString "args", matchArrayOne $ MatchObjectOnly (fromList [
+    (fromString "comma", MatchStringExact "MaybeSentinel.DEFAULT")
+  , (fromString "equal", MatchStringExact "MaybeSentinel.DEFAULT")
+  , (fromString "keyword", MatchNull)
+  , (fromString "star", MatchStringExact "")
+  , (fromString "type", MatchStringExact "Arg")
+  , (fromString "value", MatchObjectOnly (fromList [
+      (fromString "type", MatchStringExact "SimpleString")
+      , (fromString "value", MatchStringAny)
   ]))
   ]))
 
@@ -174,35 +174,35 @@ if_arg = (fromString "args", KeyReq $ matchArrayOne $ MatchObjectOnly (fromList 
 -}
 
 simple_or_grammar = MatchObjectOnly (fromList [
-    (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
-    (fromString "orelse", KeyReq $ MatchNull), -- bottom
+    (fromString "type", MatchStringExact $ T.pack "If"), -- top
+    (fromString "orelse", MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectOnly (fromList [
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
-        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__simpleor")
+      MatchObjectOnly (fromList [
+        (fromString "type", MatchStringExact $ T.pack "Name"),
+        (fromString "value", MatchStringExact $ T.pack "__simpleor")
       ])
     ),
     (fromString "body",
-      KeyReq $ MatchObjectOnly (fromList [ -- top
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
-        (fromString "body", KeyReq $ MatchArrayContextFree $ Seq [
+      MatchObjectOnly (fromList [ -- top
+        (fromString "type", MatchStringExact $ T.pack "IndentedBlock"),
+        (fromString "body", MatchArrayContextFree $ Seq [
           (Plus (Char $ MatchObjectOnly (fromList [
-              (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"),
-              (fromString "orelse", KeyReq $ MatchNull), -- bottom
+              (fromString "type", MatchStringExact $ T.pack "If"),
+              (fromString "orelse", MatchNull), -- bottom
               (fromString "test",
-                KeyReq $ MatchObjectOnly (fromList [ -- top
-                  (fromString "type", KeyReq $ MatchStringExact $ T.pack "Call"),
-                  (fromString "func", KeyReq $ MatchObjectOnly (fromList [
-                    (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
-                    (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
+                MatchObjectOnly (fromList [ -- top
+                  (fromString "type", MatchStringExact $ T.pack "Call"),
+                  (fromString "func", MatchObjectOnly (fromList [
+                    (fromString "type", MatchStringExact $ T.pack "Name"),
+                    (fromString "value", MatchStringExact $ T.pack "__option")
                   ]))
                   , if_arg
                 ])
               ),
               (fromString "body",
-                KeyReq $ MatchObjectOnly (fromList [
-                  (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
-                  (fromString "body", KeyReq $ MatchAny)
+                MatchObjectOnly (fromList [
+                  (fromString "type", MatchStringExact $ T.pack "IndentedBlock"),
+                  (fromString "body", MatchAny)
                 ]))
             ])
           ))      
@@ -212,58 +212,58 @@ simple_or_grammar = MatchObjectOnly (fromList [
   ])
 
 star_grammar = MatchObjectOnly (fromList [
-    (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
-    (fromString "orelse", KeyReq $ MatchNull), -- bottom
+    (fromString "type", MatchStringExact $ T.pack "If"), -- top
+    (fromString "orelse", MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectOnly (fromList [
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
-        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
+      MatchObjectOnly (fromList [
+        (fromString "type", MatchStringExact $ T.pack "Name"),
+        (fromString "value", MatchStringExact $ T.pack "__star")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectOnly (fromList [
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
-        (fromString "body", KeyReq $ MatchAny)
+    (fromString "body", MatchObjectOnly (fromList [
+        (fromString "type", MatchStringExact $ T.pack "IndentedBlock"),
+        (fromString "body", MatchAny)
       ]))
   ])
 
 plus_grammar = MatchObjectOnly (fromList [
-    (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
-    (fromString "orelse", KeyReq $ MatchNull), -- bottom
+    (fromString "type", MatchStringExact $ T.pack "If"), -- top
+    (fromString "orelse", MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectOnly (fromList [
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
-        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__star")
+      MatchObjectOnly (fromList [
+        (fromString "type", MatchStringExact $ T.pack "Name"),
+        (fromString "value", MatchStringExact $ T.pack "__star")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectOnly (fromList [
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
-        (fromString "body", KeyReq $ MatchAny)
+    (fromString "body", MatchObjectOnly (fromList [
+        (fromString "type", MatchStringExact $ T.pack "IndentedBlock"),
+        (fromString "body", MatchAny)
       ]))
   ])
 
 optional_grammar = MatchObjectOnly (fromList [
-    (fromString "type", KeyReq $ MatchStringExact $ T.pack "If"), -- top
-    (fromString "orelse", KeyReq $ MatchNull), -- bottom
+    (fromString "type", MatchStringExact $ T.pack "If"), -- top
+    (fromString "orelse", MatchNull), -- bottom
     (fromString "test",
-      KeyReq $ MatchObjectOnly (fromList [
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
-        (fromString "value", KeyReq $ MatchStringExact $ T.pack "__option")
+      MatchObjectOnly (fromList [
+        (fromString "type", MatchStringExact $ T.pack "Name"),
+        (fromString "value", MatchStringExact $ T.pack "__option")
       ])
     ),
-    (fromString "body", KeyReq $ MatchObjectOnly (fromList [
-        (fromString "type", KeyReq $ MatchStringExact $ T.pack "IndentedBlock"),
-        (fromString "body", KeyReq $ MatchAny)
+    (fromString "body", MatchObjectOnly (fromList [
+        (fromString "type", MatchStringExact $ T.pack "IndentedBlock"),
+        (fromString "body", MatchAny)
       ]))
   ])
 
 item_grammar1 = MatchObjectOnly (fromList [
-  (fromString "type", KeyReq $ MatchStringExact $ T.pack "Name"),
-  (fromString "value", KeyReq $ MatchStringExact $ T.pack "__1")
+  (fromString "type", MatchStringExact $ T.pack "Name"),
+  (fromString "value", MatchStringExact $ T.pack "__1")
   ])
 
 item_grammar2 = MatchObjectOnly (fromList [
-  (fromString "type", KeyReq $ MatchStringExact $ T.pack "Expr"),
-  (fromString "value", KeyReq $ item_grammar1)
+  (fromString "type", MatchStringExact $ T.pack "Expr"),
+  (fromString "value", item_grammar1)
   ])
 
 pythonStep0Grammar = star_grammar
