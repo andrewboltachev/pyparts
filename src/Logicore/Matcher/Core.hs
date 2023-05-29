@@ -317,6 +317,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchIgnore
                   | MatchDefault Value
                   | MatchOr (KeyMap MatchPattern)
+                  | MatchArrayOr (KeyMap MatchPattern)
                   | MatchIfThen MatchPattern T.Text MatchPattern
                   -- funnel
                   | MatchFunnel
@@ -600,6 +601,19 @@ matchPattern (MatchOr ms) v = do
                      _ -> b
   (k, res) <- P.foldr f (NoMatch "or fail") (KM.toList ms)
   return $ MatchOrResult (KM.delete k ms) k res
+
+matchPattern (MatchArrayOr ms) (Array arr) = do
+  let h acc' e = do
+        acc <- acc'
+        case matchPattern (MatchOr ms) e of
+             MatchSuccess s -> return $ acc ++ [s]
+             MatchFailure err -> MatchFailure err
+             NoMatch err -> return $ acc
+  r <- L.foldl' h (MatchSuccess []) (V.toList arr)
+  let inner = if P.null r
+                 then StarNodeEmpty $ Char $ MatchOr ms
+                 else StarNodeValue $ fmap CharNode r
+  return $ MatchArrayContextFreeResult $ SeqNode [inner]
 
 -- specific (aka exact)
 matchPattern (MatchStringExact m) (String a) = if m == a then MatchSuccess $ MatchStringExactResult a else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
