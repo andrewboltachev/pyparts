@@ -1578,7 +1578,7 @@ applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObj
 applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyResult m' a')) = l --error $ show (m, m', d, a)
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
-    l = MatchObjectOnlyResult m'' a
+    l = MatchObjectOnlyResult m'' a'
 applyOriginalValueDefaults (MatchArrayContextFreeResult m) (Just (MatchArrayContextFreeResult m')) = l
   where
     l = MatchArrayContextFreeResult (applyOriginalValueDefaultsCF m (Just m'))
@@ -1664,6 +1664,7 @@ tVIs p v =
           t' = matchResultToThinValue r
           r' = extract $ thinPattern p t'
           r'' = applyOriginalValueDefaults r' (Just r)
+          v2 = matchResultToValue r''
       in r'' `shouldBe` r
 
 tIs :: MatchPattern -> Value -> Maybe Value -> Expectation
@@ -1789,21 +1790,37 @@ test = hspec $ do
       let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
           v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
       tVIs p v
-  describe "Handles Only and Defaults correctly" $ do
-    it "Handles actual MatchObjectOnly correctly 1sp" $ do
+  describe "Handles Defaults correctly" $ do
+    it "Handles actual MatchObjectWithDefaults correctly default" $ do
       let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
           p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String " ")])
           v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5)])]
       tVIs p v
-    it "Handles actual MatchObjectOnly correctly 2sp" $ do
+    it "Handles actual MatchObjectWithDefaults correctly same as default" $ do
       let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
-          p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String "  ")])
+          p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String " ")])
+          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5), ("w", String " ")])]
+      tVIs p v
+    it "Handles actual MatchObjectWithDefaults correctly different" $ do
+      let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
+          p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String " ")])
+          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5), ("w", String "  ")])]
+      tVIs p v
+  describe "Handles Only correctly" $ do
+    it "Handles actual MatchObjectOnly correctly default" $ do
+      let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
+          p = a $ MatchObjectOnly (fromList [("a", MatchStringAny), ("b", MatchNumberAny)])
           v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5)])]
       tVIs p v
-    it "Handles actual MatchObjectOnly correctly 3sp" $ do
+    it "Handles actual MatchObjectOnly correctly same as default" $ do
       let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
-          p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String "   ")])
-          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5)])]
+          p = a $ MatchObjectOnly (fromList [("a", MatchStringAny), ("b", MatchNumberAny)])
+          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5), ("w", String " ")])]
+      tVIs p v
+    it "Handles actual MatchObjectOnly correctly different" $ do
+      let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
+          p = a $ MatchObjectOnly (fromList [("a", MatchStringAny), ("b", MatchNumberAny)])
+          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5), ("w", String "  ")])]
       tVIs p v
 
 demo1 = do
