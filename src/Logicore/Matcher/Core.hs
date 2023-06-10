@@ -1789,6 +1789,22 @@ test = hspec $ do
       let p = MatchArrayContextFree (Seq [(Plus (Char $ MatchNumberAny))])
           v = Array $ V.fromList [Number 1, Number 1, Number 1, Number 1]
       tVIs p v
+  describe "Handles Only and Defaults correctly" $ do
+    it "Handles actual MatchObjectOnly correctly 1sp" $ do
+      let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
+          p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String " ")])
+          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5)])]
+      tVIs p v
+    it "Handles actual MatchObjectOnly correctly 2sp" $ do
+      let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
+          p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String "  ")])
+          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5)])]
+      tVIs p v
+    it "Handles actual MatchObjectOnly correctly 3sp" $ do
+      let a x = MatchArrayContextFree (Seq [(Star $ Char x)])
+          p = a $ MatchObjectWithDefaults (fromList [("a", MatchStringAny), ("b", MatchNumberAny)]) (fromList [("w", String "   ")])
+          v = Array $ V.fromList [Object (fromList [("a", String "hello"), ("b", Number 5)])]
+      tVIs p v
 
 demo1 = do
   let p = (MatchObjectFull (KM.fromList [
