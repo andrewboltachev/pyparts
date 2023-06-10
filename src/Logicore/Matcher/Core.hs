@@ -375,6 +375,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  -- | MatchArrayOneResult MatchResult
                  -- | MatchArrayExactResult [MatchResult]
                  | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value) (KeyMap Value)
+                 | MatchObjectOnlyResult (KeyMap MatchResult) (KeyMap Value)
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
                  | MatchArrayOnlyResult MatchPattern [MatchResult]
                  -- literals: match particular value of
@@ -405,16 +406,24 @@ matchObjectWithDefaultsResultArbitrary = do
         m <- arbitrary
         d <- arbitrary
         v <- arbitrary
-        let m' = fmap (bimap (K.fromString . ("m"++)) id) m
-        let d' = fmap (bimap (K.fromString . ("d"++)) id) d
-        let v' = fmap (bimap (K.fromString . ("v"++)) id) v
+        let m' = fmap (first (K.fromString . ("m"++))) m
+        let d' = fmap (first (K.fromString . ("d"++))) d
+        let v' = fmap (first (K.fromString . ("v"++))) v
         return $ MatchObjectWithDefaultsResult (fromList m') (fromList d') (fromList v')
+
+matchObjectOnlyResultArbitrary = do
+        m <- arbitrary
+        d <- arbitrary
+        let m' = fmap (first (K.fromString . ("m"++))) m
+        let d' = fmap (first (K.fromString . ("d"++))) d
+        return $ MatchObjectOnlyResult (fromList m') (fromList d')
 
 instance Arbitrary MatchResult where
   arbitrary = oneof [
     MatchObjectFullResult <$> arbitrary <*> arbitrary,
     MatchObjectPartialResult <$> arbitrary <*> arbitrary,
     matchObjectWithDefaultsResultArbitrary,
+    matchObjectOnlyResultArbitrary,
     MatchArrayContextFreeResult <$> (SeqNode <$> arbitrary),
     MatchArrayOnlyResult <$> arbitrary <*> arbitrary,
     MatchStringExactResult <$> T.pack <$> arbitrary,
@@ -472,6 +481,7 @@ gatherFunnel = cata go
             f acc (KeyOpt e) = acc ++ e
             f acc (KeyExt _) = acc
     go (MatchObjectWithDefaultsResultF r _ _) = L.foldl' (++) mempty (KM.elems r)
+    go (MatchObjectOnlyResultF r _) = L.foldl' (++) mempty (KM.elems r)
     go (MatchArrayContextFreeResultF c) = gatherFunnelContextFree c
     go (MatchArrayOnlyResultF g r) = L.foldl' (++) mempty r
     go (MatchOrResultF g k r) = r
@@ -530,7 +540,7 @@ mObj keepExt m a = do
                                             Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
 
 matchPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
-matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False (fmap KeyReq m) (KM.filterWithKey (\k v -> KM.member k m) a))
+--matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False (fmap KeyReq m) (KM.filterWithKey (\k v -> KM.member k m) a))
 matchPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
 
 
@@ -555,6 +565,21 @@ matchPattern (MatchObjectWithDefaults m d) (Object a) = do
                 else NoMatch $ "extra key: " ++ show k
   (mm, vv) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
   return $ MatchObjectWithDefaultsResult mm d vv
+
+
+matchPattern (MatchObjectOnly m) (Object a) = do
+  let f acc' (k, v) = do
+          acc <- acc' -- (mm, dd)
+          if KM.member k m
+            then
+                do
+                  m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+                  rr <- matchPattern m' v
+                  return $ first (KM.insert k rr) acc
+            else
+              return $ second (KM.insert k v) acc
+  (mm, vv) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
+  return $ MatchObjectOnlyResult mm vv
 
 
 matchPattern (MatchArrayContextFree m) (Array a) = do
@@ -682,6 +707,7 @@ matchResultToPattern = cata go where
       f (KeyExt _) = False
       f _ = True
   go (MatchObjectWithDefaultsResultF r d v) = MatchObjectWithDefaults r d
+  go (MatchObjectOnlyResultF r v) = MatchObjectOnly r
   go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
   go (MatchArrayOnlyResultF g r) = g
   go (MatchStringExactResultF r) = MatchStringExact r
@@ -715,6 +741,7 @@ matchResultToValue = cata go
         f (KeyOpt v) = v
         f (KeyExt v) = v
     go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r $ KM.union v d
+    go (MatchObjectOnlyResultF r v) = Object $ KM.union r v
     go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
     go (MatchArrayOnlyResultF g r) = Array $ V.fromList $ r
     go (MatchStringExactResultF r) = String r
@@ -917,6 +944,7 @@ matchPatternIsMovable = cata go
         f acc (KeyReq x) = x || acc
         f acc (KeyReq x) = error $ "must not be here"
     go (MatchObjectWithDefaultsF g _) = getAny $ mconcat $ P.map Any (KM.elems g)
+    go (MatchObjectOnlyF g) = getAny $ mconcat $ P.map Any (KM.elems g)
     go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
     go (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable id g
     go (MatchArrayOnlyF g) = True
@@ -1137,6 +1165,7 @@ matchResultToThinValue = cata go
                       False -> Just $ Bool False
         u = KM.union (KM.map f (KM.filter ff r)) (fmap optf g)
     go (MatchObjectWithDefaultsResultF r d a) = go (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
+    go (MatchObjectOnlyResultF r v) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ r
     go (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     go (MatchArrayOnlyResultF g r) = Just $ (Array . V.fromList) $ catMaybes r
     go (MatchStringExactResultF r) = Nothing
@@ -1422,6 +1451,27 @@ thinPattern (MatchObjectWithDefaults m d) a = do
   return $ MatchObjectWithDefaultsResult (getReqs rr) d (KM.empty)
 
 
+thinPattern (MatchObjectOnly m) a = do
+  let isOne = (P.length $ P.filter matchPatternIsMovable (KM.elems m)) == 1
+  let f :: MatchStatus (KeyMap MatchResult) -> Key -> MatchStatus (KeyMap MatchResult)
+      f acc' k = do
+        acc <- acc'
+        g <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+        let v = if
+                  isOne
+                  then a
+                    else
+                      do
+                        a' <- a
+                        ka <- asKeyMap a'
+                        KM.lookup k ka
+        r <- thinPattern g v
+        return $ KM.insert k r acc
+
+  rr <- L.foldl' f (MatchSuccess mempty) (KM.keys m)
+  return $ MatchObjectOnlyResult rr (KM.empty)
+
+
 thinPattern (MatchArrayContextFree m) a = do
   case thinContextFreeMatch m a of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
@@ -1523,8 +1573,12 @@ applyOriginalValueDefaultsCF x _ = x
 applyOriginalValueDefaults :: MatchResult -> Maybe MatchResult -> MatchResult
 applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObjectWithDefaultsResult m' _ a)) = l --error $ show (m, m', d, a)
   where
-    m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m'
+    m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
     l = MatchObjectWithDefaultsResult m'' d a
+applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyResult m' a')) = l --error $ show (m, m', d, a)
+  where
+    m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
+    l = MatchObjectOnlyResult m'' a
 applyOriginalValueDefaults (MatchArrayContextFreeResult m) (Just (MatchArrayContextFreeResult m')) = l
   where
     l = MatchArrayContextFreeResult (applyOriginalValueDefaultsCF m (Just m'))
@@ -1609,7 +1663,8 @@ tVIs p v =
       let r = extract $ matchPattern p v
           t' = matchResultToThinValue r
           r' = extract $ thinPattern p t'
-      in r' `shouldBe` r
+          r'' = applyOriginalValueDefaults r' (Just r)
+      in r'' `shouldBe` r
 
 tIs :: MatchPattern -> Value -> Maybe Value -> Expectation
 tIs p v t = 
