@@ -650,6 +650,11 @@ matchPattern g MatchNumberAny (Number a) = MatchSuccess $ MatchNumberAnyResult a
 matchPattern g MatchBoolAny (Bool a) = MatchSuccess $ MatchBoolAnyResult a
 -- null is just null
 matchPattern g MatchNull Null = MatchSuccess MatchNullResult
+-- refs, finally :-)
+matchPattern g (MatchRef r) v = do
+  p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+  a <- matchPattern g p v
+  return $ MatchRefResult r a
 -- default ca
 matchPattern g m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
