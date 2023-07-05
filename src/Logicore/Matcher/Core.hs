@@ -503,10 +503,10 @@ m2ms m v = case v of
 -- pattern -> value -> result. result = value × pattern (is a product)
 -- Both pattern and value can be derived from a result using trivial projections
 -- (look category theory product)
-matchPattern :: MatchPattern -> Value -> MatchStatus MatchResult
+matchPattern :: (KeyMap MatchPattern) -> MatchPattern -> Value -> MatchStatus MatchResult
 
-mObj :: Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatus (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
-mObj keepExt m a = do
+mObj :: (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatus (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
+mObj g keepExt m a = do
   preResult <- L.foldl' (doKeyMatch m a) (MatchSuccess mempty) (keys m)
   L.foldl' f (MatchSuccess preResult) (keys a)
     where
@@ -516,7 +516,7 @@ mObj keepExt m a = do
                                       then NoMatch $ "Required key " ++ show k ++ " not found in map"
                                       else MatchSuccess $ first (KM.insert k r) acc
                       -- if it exists, it must match
-                      Just n -> case matchPattern r n of
+                      Just n -> case matchPattern g r n of
                                      NoMatch s -> NoMatch s
                                      MatchFailure s -> MatchFailure s
                                      MatchSuccess s -> MatchSuccess $ second (KM.insert k el) acc
@@ -539,19 +539,19 @@ mObj keepExt m a = do
                                             Nothing -> MatchFailure "impossible"
                                             Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
 
-matchPattern (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False m a)
---matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj False (fmap KeyReq m) (KM.filterWithKey (\k v -> KM.member k m) a))
-matchPattern (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj True m a)
+matchPattern g (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj g False m a)
+--matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj g False (fmap KeyReq m) (KM.filterWithKey (\k v -> KM.member k m) a))
+matchPattern g (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResult) (mObj g True m a)
 
 
-matchPattern (MatchObjectWithDefaults m d) (Object a) = do
+matchPattern g (MatchObjectWithDefaults m d) (Object a) = do
   let f acc' (k, v) = do
           acc <- acc' -- (mm, dd)
           if KM.member k m
             then
                 do
                   m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
-                  rr <- matchPattern m' v
+                  rr <- matchPattern g m' v
                   return $ first (KM.insert k rr) acc
             else
               if KM.member k d
@@ -567,14 +567,14 @@ matchPattern (MatchObjectWithDefaults m d) (Object a) = do
   return $ MatchObjectWithDefaultsResult mm d vv
 
 
-matchPattern (MatchObjectOnly m) (Object a) = do
+matchPattern g (MatchObjectOnly m) (Object a) = do
   let f acc' (k, v) = do
           acc <- acc' -- (mm, dd)
           if KM.member k m
             then
                 do
                   m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
-                  rr <- matchPattern m' v
+                  rr <- matchPattern g m' v
                   return $ first (KM.insert k rr) acc
             else
               return $ second (KM.insert k v) acc
@@ -582,55 +582,55 @@ matchPattern (MatchObjectOnly m) (Object a) = do
   return $ MatchObjectOnlyResult mm vv
 
 
-matchPattern (MatchArrayContextFree m) (Array a) = do
-  case contextFreeMatch m (V.toList a) matchPattern of
+matchPattern g (MatchArrayContextFree m) (Array a) = do
+  case contextFreeMatch m (V.toList a) (matchPattern g) of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
 
-matchPattern (MatchArrayContextFree m) (Object a) = NoMatch ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
+matchPattern g (MatchArrayContextFree m) (Object a) = NoMatch ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
 
-matchPattern (MatchArrayOnly m) (Array a) = do
+matchPattern g (MatchArrayOnly m) (Array a) = do
   let f acc' e = do
         acc <- acc'
-        case matchPattern m e of
+        case matchPattern g m e of
              MatchSuccess s -> MatchSuccess $ acc ++ [s]
              MatchFailure e -> MatchFailure e
              NoMatch e -> MatchSuccess $ acc
   r <- L.foldl' f (MatchSuccess []) (V.toList a)
   return $ MatchArrayOnlyResult m r
 
-matchPattern MatchFunnel v = MatchSuccess $ MatchFunnelResult v
+matchPattern g MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
-matchPattern MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelKeysResult $ v
-matchPattern MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object"
+matchPattern g MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelKeysResult $ v
+matchPattern g MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object"
 
-matchPattern MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelKeysUResult $ v
-matchPattern MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object"
+matchPattern g MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelKeysUResult $ v
+matchPattern g MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object"
 
-matchPattern (MatchIfThen baseMatch failMsg match) v =
-  case matchPattern baseMatch v of
+matchPattern g (MatchIfThen baseMatch failMsg match) v =
+  case matchPattern g baseMatch v of
        NoMatch x -> NoMatch x
        MatchFailure f -> MatchFailure f
-       MatchSuccess _ -> case matchPattern match v of
+       MatchSuccess _ -> case matchPattern g match v of
                             NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
                             MatchFailure f -> MatchFailure f
                             MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
 
-matchPattern MatchAny a = MatchSuccess $ MatchAnyResult a
-matchPattern MatchIgnore a = MatchSuccess $ MatchIgnoreResult a
-matchPattern (MatchOr ms) v = do
-  let f (k, a) b = case matchPattern a v of
+matchPattern g MatchAny a = MatchSuccess $ MatchAnyResult a
+matchPattern g MatchIgnore a = MatchSuccess $ MatchIgnoreResult a
+matchPattern g (MatchOr ms) v = do
+  let f (k, a) b = case matchPattern g a v of
                      MatchSuccess x -> MatchSuccess (k, x)
                      MatchFailure f -> MatchFailure f
                      _ -> b
   (k, res) <- P.foldr f (NoMatch "or fail") (KM.toList ms)
   return $ MatchOrResult (KM.delete k ms) k res
 
-matchPattern (MatchArrayOr ms) (Array arr) = do
+matchPattern g (MatchArrayOr ms) (Array arr) = do
   let h acc' e = do
         acc <- acc'
-        case matchPattern (MatchOr ms) e of
+        case matchPattern g (MatchOr ms) e of
              MatchSuccess s -> return $ acc ++ [s]
              MatchFailure err -> MatchFailure err
              NoMatch err -> return $ acc
@@ -641,17 +641,17 @@ matchPattern (MatchArrayOr ms) (Array arr) = do
   return $ MatchArrayContextFreeResult $ SeqNode [inner]
 
 -- specific (aka exact)
-matchPattern (MatchStringExact m) (String a) = if m == a then MatchSuccess $ MatchStringExactResult a else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern (MatchNumberExact m) (Number a) = if m == a then MatchSuccess $ MatchNumberExactResult a else NoMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern (MatchBoolExact m) (Bool a) = if m == a then MatchSuccess $ MatchBoolExactResult a else NoMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern g (MatchStringExact m) (String a) = if m == a then MatchSuccess $ MatchStringExactResult a else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern g (MatchNumberExact m) (Number a) = if m == a then MatchSuccess $ MatchNumberExactResult a else NoMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern g (MatchBoolExact m) (Bool a) = if m == a then MatchSuccess $ MatchBoolExactResult a else NoMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
 -- any (of a type)
-matchPattern MatchStringAny (String a) = MatchSuccess $ MatchStringAnyResult a
-matchPattern MatchNumberAny (Number a) = MatchSuccess $ MatchNumberAnyResult a
-matchPattern MatchBoolAny (Bool a) = MatchSuccess $ MatchBoolAnyResult a
+matchPattern g MatchStringAny (String a) = MatchSuccess $ MatchStringAnyResult a
+matchPattern g MatchNumberAny (Number a) = MatchSuccess $ MatchNumberAnyResult a
+matchPattern g MatchBoolAny (Bool a) = MatchSuccess $ MatchBoolAnyResult a
 -- null is just null
-matchPattern MatchNull Null = MatchSuccess MatchNullResult
+matchPattern g MatchNull Null = MatchSuccess MatchNullResult
 -- default ca
-matchPattern m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
+matchPattern g m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
 --contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
@@ -771,7 +771,7 @@ valueToExactGrammar = cata go
     go NullF = MatchNull
 
 valueToExactResult :: Value -> MatchStatus MatchResult
-valueToExactResult v = matchPattern g v where g = valueToExactGrammar v
+valueToExactResult v = matchPattern mempty g v where g = valueToExactGrammar v
 
 
 extractObjectKeyMatch :: a -> (ObjectKeyMatch a) -> a
@@ -1611,14 +1611,14 @@ main1 = do
 
 
 qc1 = do
-  quickCheck (\g v -> case (matchPattern g v) of (MatchSuccess s) -> v == matchResultToValue s; _ -> True)
+  quickCheck (\g v -> case (matchPattern mempty g v) of (MatchSuccess s) -> v == matchResultToValue s; _ -> True)
 
 qc2 = do
-  quickCheck (\g v -> case (matchPattern g v) of (MatchSuccess s) -> g == matchResultToPattern s; _ -> True)
+  quickCheck (\g v -> case (matchPattern mempty g v) of (MatchSuccess s) -> g == matchResultToPattern s; _ -> True)
 
 
 qc3 = do
-  quickCheck (\v -> case (matchPattern (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
+  quickCheck (\v -> case (matchPattern mempty (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
 
 -- TH tricks (read DT)
 
@@ -1660,7 +1660,7 @@ qq = quickCheck (withMaxSuccess 10000 c6c)
 
 tVIs :: MatchPattern -> Value -> Expectation
 tVIs p v = 
-      let r = extract $ matchPattern p v
+      let r = extract $ matchPattern mempty p v
           t' = matchResultToThinValue r
           r' = extract $ thinPattern p t'
           r'' = applyOriginalValueDefaults r' (Just r)
@@ -1669,7 +1669,7 @@ tVIs p v =
 
 tIs :: MatchPattern -> Value -> Maybe Value -> Expectation
 tIs p v t = 
-      let r = extract $ matchPattern p v
+      let r = extract $ matchPattern mempty p v
           t' = matchResultToThinValue r
       in t' `shouldBe` t
 
@@ -1677,15 +1677,15 @@ test :: IO ()
 test = hspec $ do
   describe "MatchObjectWithDefaults matchPattern works correctly" $ do
     it "handles correctly the empty case" $ do
-      let r = matchPattern (MatchObjectWithDefaults (fromList []) (fromList [])) (Object (fromList []))
+      let r = matchPattern mempty (MatchObjectWithDefaults (fromList []) (fromList [])) (Object (fromList []))
       r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList []) (fromList []) (fromList []))
 
     it "handles correctly the case with default value" $ do
-      let r = matchPattern (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
+      let r = matchPattern mempty (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
       r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w", String " ")]) (fromList []))
 
     it "handles correctly the case with different value" $ do
-      let r = matchPattern (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ "   ")]))
+      let r = matchPattern mempty (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ "   ")]))
       r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w",String " ")]) (fromList [("w",String "   ")]))
 
   describe "handles MatchPattern nodes correctly" $ do
@@ -1838,14 +1838,14 @@ demo1 = do
         , (K.fromString "c", Number 4)
         , (K.fromString "d", Number 5)
         ])
-      r = extract $ matchPattern p v
+      r = extract $ matchPattern mempty p v
       t = matchResultToThinValue r
   putStrLn $ show $ r
   putStrLn $ show $ t
   putStrLn $ show $ extract $ thinPattern p t
 
 w1 p v = 
-      let r = extract $ matchPattern p v
+      let r = extract $ matchPattern mempty p v
           t' = matchResultToThinValue r
       in t'
 
@@ -1883,7 +1883,7 @@ thinWithDefaults1 = do
             (Object (fromList [("type", String "Node"), ("value", Number 20), ("ws", String "  ")])),
             (Object (fromList [("type", String "Node"), ("value", Number 30), ("ws", String "   ")]))]
   let p = MatchArrayContextFree $ Seq [Star $ Char $ MatchObjectWithDefaults (fromList [("type", MatchStringExact "Node"), ("value", MatchNumberAny)]) (fromList [("ws", String " ")])]
-  r <- matchPattern p v
+  r <- matchPattern mempty p v
   let t = Just (Array [Array [Number 1.0,Number 10.0],Array [Number 2.0,Number 20.0],Array [Number 0,Number 50.0],Array [Number 3.0,Number 30.0]])
   --return $ thinPattern p t
   r' <- thinPatternWithDefaults r t
@@ -1895,7 +1895,7 @@ thinWithDefaults2 = do
             (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String "  ")])),
             (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String "   ")]))]
   let p = MatchArrayContextFree $ Seq [Star $ Char $ MatchObjectWithDefaults (fromList [("type", MatchStringExact "Node"), ("value", MatchNumberExact 10.0)]) (fromList [("ws", String " ")])]
-  r <- matchPattern p v
+  r <- matchPattern mempty p v
   --return $ matchResultToThinValue r
   let t = Just $ Number 5.0
   r' <- thinPatternWithDefaults r t

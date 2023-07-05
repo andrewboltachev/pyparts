@@ -285,13 +285,13 @@ addIt = fmap (\e -> (e, valueToPythonGrammar e))
 
 m1 :: Value -> MatchPattern -> ContextFreeGrammar MatchPattern
 m1 v a = r where
-      r = case matchPattern star_grammar v of
+      r = case matchPattern mempty star_grammar v of
            MatchSuccess r -> Star $ handleSeq (addIt c)
               where
                 t = matchResultToThinValue r
                 j = fromJust t
                 c = fromJust $ asArray j
-           _ -> case fmap matchResultToThinValue $ matchPattern simple_or_grammar v of
+           _ -> case fmap matchResultToThinValue $ matchPattern mempty simple_or_grammar v of
                   MatchSuccess r -> Or $ fromJust $ L.foldl' f (Just mempty) (fromJust (asArray (fromJust r)))
                     where
                       f acc' b = do
@@ -314,9 +314,9 @@ valueToPythonGrammar = para go
     go :: ValueF (Value, MatchPattern) -> MatchPattern
     go (ObjectF a) = r where
       original = Object $ fmap fst a
-      r = case matchPattern item_grammar2 original of
+      r = case matchPattern mempty item_grammar2 original of
            MatchSuccess r -> MatchAny
-           _ -> case matchPattern item_grammar1 original of
+           _ -> case matchPattern mempty item_grammar1 original of
                     MatchSuccess r -> MatchAny
                     _ -> MatchObjectFull $ fmap (KeyReq . snd) a
 
