@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 module Logicore.Matcher.Core where
@@ -49,10 +50,11 @@ import Data.Aeson.Key             as K
 import qualified Data.Scientific as Sci
 import qualified Data.Vector as V
 import Prelude                    as P
-import Control.Monad()
+import Control.Monad ((>=>), liftM)
 import Control.Comonad
 --import qualified Data.ByteString.UTF8       as BLU
 --import Logicore.Matcher.Utils
+import Data.Fix (Fix (..), unFix, Mu (..), Nu (..))
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
 import Data.Bifunctor
@@ -918,6 +920,28 @@ matchResultIsWellFormed = para check
 
 -- is movable
 
+--cata :: Recursive t => (Base t c -> c) -> t -> c
+cataM :: (Traversable (Base t), Monad m, Recursive t) => (Base t c -> m c) -> t -> m c
+--cataM f c = cata (sequence >=> f) c
+cataM f x = c x
+  where c x = do
+          let a1 = (fmap c . project) x
+          a2 <- sequence a1
+          f a2
+
+--para :: Recursive t => (Base t (t, c) -> c) -> t -> c
+paraM :: (Traversable (Base t), Monad m, Recursive t) => (Base t (t, c) -> m c) -> t -> m c
+paraM f x = c x
+  where c x = do
+          let a0 = project x
+          let g (a, mc) = do
+              c' <- mc
+              return (a, c')
+          let a1 = fmap (sequence . ((,) <*> c)) a0
+          a2 <- sequence a1
+          f a2
+
+
 contextFreeGrammarIsMovable :: (a -> Bool) -> ContextFreeGrammar a -> Bool
 contextFreeGrammarIsMovable f = cata go
   where
@@ -941,32 +965,55 @@ contextFreeGrammarResultIsMovable gf rf = cata go
     go (OptionalNodeEmptyF g) = True
 
 matchPatternIsMovable :: MatchPattern -> Bool
-matchPatternIsMovable = cata go
+matchPatternIsMovable = undefined
+
+liftObjectKeyMatch :: (KeyMap (ObjectKeyMatch (MatchStatus a))) -> MatchStatus (KeyMap (ObjectKeyMatch a))
+liftObjectKeyMatch m = L.foldl' f (MatchSuccess mempty) (KM.keys m)
+  where --f :: (MatchStatus (KeyMap (ObjectKeyMatch a))) -> Key -> (MatchStatus (KeyMap (ObjectKeyMatch a)))
+        f acc' k = do
+          acc <- acc'
+          v <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+          case v of
+               --KeyExt (MatchSuccess x) -> KM.insert k (KeyExt x) acc
+               KeyOpt (MatchSuccess x) -> return $ KM.insert k (KeyOpt x) acc
+               KeyReq (MatchSuccess x) -> return $ KM.insert k (KeyReq x) acc
+               KeyOpt (MatchFailure s) -> MatchFailure s
+               KeyReq (MatchFailure s) -> MatchFailure s
+               KeyOpt (NoMatch s) -> NoMatch s
+               KeyReq (NoMatch s) -> NoMatch s
+
+matchPatternIsMovable' :: (KeyMap MatchPattern) -> MatchPattern -> MatchStatus Bool
+matchPatternIsMovable' g = cata go
   where
-    go (MatchObjectFullF g) = L.foldl' f False (KM.elems g)
-      where
-        f acc (KeyOpt _) = True
-        f acc (KeyReq x) = x || acc
-        f acc (KeyReq x) = error $ "must not be here"
-    go (MatchObjectWithDefaultsF g _) = getAny $ mconcat $ P.map Any (KM.elems g)
-    go (MatchObjectOnlyF g) = getAny $ mconcat $ P.map Any (KM.elems g)
-    go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
-    go (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable id g
-    go (MatchArrayOnlyF g) = True
-    go (MatchStringExactF _) = False
-    go (MatchNumberExactF _) = False
-    go (MatchBoolExactF _) = False
-    go MatchStringAnyF = True
-    go MatchNumberAnyF = True
-    go MatchBoolAnyF = True
-    go MatchNullF = False
-    go MatchAnyF = True
-    go MatchIgnoreF = False
-    go (MatchOrF g) = True --P.any id (KM.elems g)
-    go (MatchIfThenF _ _ g) = g
-    go MatchFunnelF = True
-    go MatchFunnelKeysF = True
-    go MatchFunnelKeysUF = True
+    go (MatchRefF r) = do
+      p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+      matchPatternIsMovable' g p
+    go (MatchObjectFullF g) = do
+      g' <- liftObjectKeyMatch g
+      return $ L.foldl' f False (KM.elems g')
+        where
+          f acc (KeyOpt _) = True
+          f acc (KeyReq x) = x || acc
+          f acc (KeyReq x) = error $ "must not be here"
+    {-go (MatchObjectWithDefaultsF g _) = return $ getAny $ mconcat $ P.map Any (KM.elems g)
+    go (MatchObjectOnlyF g) = return $ getAny $ mconcat $ P.map Any (KM.elems g)
+    go (MatchObjectPartialF g) = return $ True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
+    --go (MatchArrayContextFreeF g) = return $ contextFreeGrammarIsMovable id g
+    go (MatchArrayOnlyF g) = return $ True
+    go (MatchStringExactF _) = return $ False
+    go (MatchNumberExactF _) = return $ False
+    go (MatchBoolExactF _) = return $ False
+    go MatchStringAnyF = return $ True
+    go MatchNumberAnyF = return $ True
+    go MatchBoolAnyF = return $ True
+    go MatchNullF = return $ False
+    go MatchAnyF = return $ True
+    go MatchIgnoreF = return $ False
+    go (MatchOrF g) = return $ True --P.any id (KM.elems g)
+    go (MatchIfThenF _ _ g) = return $ g
+    go MatchFunnelF = return $ True
+    go MatchFunnelKeysF = return $ True-}
+    go MatchFunnelKeysUF = return $ True
     --go MatchRef String =
 
 isKeyReq (KeyReq _) = True
@@ -1004,6 +1051,7 @@ matchResultIsMovableAlg = check where
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
     check (MatchFunnelKeysUResultF _) = True
+    check (MatchRefResultF ref r) = r
 
 matchResultIsMovable :: MatchResult -> Bool
 matchResultIsMovable = cata matchResultIsMovableAlg
