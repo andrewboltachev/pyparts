@@ -841,7 +841,7 @@ matchPatternIsWellFormed = cata go
     go MatchFunnelF = True
     go MatchFunnelKeysF = True
     go MatchFunnelKeysUF = True
-    --go MatchRef String =
+    --go MatchRef String = -- TODO
 
 
 isStarNodeLike :: ContextFreeGrammarResult g r -> Bool
@@ -1028,7 +1028,7 @@ isKeyOpt _ = False
 getKeyOpts :: [ObjectKeyMatch b] -> [b]
 getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here703") $ P.filter isKeyOpt xs
 
-matchResultIsMovableAlg :: MatchResultF Bool -> Bool
+{-matchResultIsMovableAlg :: MatchResultF Bool -> Bool
 matchResultIsMovableAlg = check where
     check (MatchObjectFullResultF g r) = (
       (not $ KM.null g)
@@ -1051,10 +1051,10 @@ matchResultIsMovableAlg = check where
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
     check (MatchFunnelKeysUResultF _) = True
-    check (MatchRefResultF ref r) = r
+    check (MatchRefResultF ref r) = r-}
 
-matchResultIsMovable :: MatchResult -> Bool
-matchResultIsMovable = cata matchResultIsMovableAlg
+matchResultIsMovable :: (KeyMap MatchPattern) -> MatchResult -> Bool
+matchResultIsMovable g r = matchPatternIsMovable g (matchResultToPattern r)
 
 
 -- Thick/Thin stuff
@@ -1690,7 +1690,7 @@ qc4 = do
   quickCheck (not . matchPatternIsMovable . valueToExactGrammar)
 
 qc5 = do
-  quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable s; _ -> False)
+  quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ matchResultIsMovable mempty s; _ -> False)
 
 
 c6f r = let
