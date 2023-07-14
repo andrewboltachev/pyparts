@@ -981,14 +981,12 @@ liftObjectKeyMatch m = L.foldl' f (MatchSuccess mempty) (KM.keys m)
                KeyReq (NoMatch s) -> NoMatch s
 
 
-matchPatternIsMovable = undefined
-
-matchPatternIsMovable' :: (KeyMap MatchPattern) -> MatchPattern -> MatchStatus Bool
-matchPatternIsMovable' g = cataM goM
+matchPatternIsMovable :: (KeyMap MatchPattern) -> MatchPattern -> MatchStatus Bool
+matchPatternIsMovable g = cataM goM
   where
     goM (MatchRefF r) = do
       p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
-      matchPatternIsMovable' g p
+      matchPatternIsMovable g p
     goM x = return $ go x
 
     go (MatchObjectFullF g) = L.foldl' f False (KM.elems g)
@@ -1028,32 +1026,7 @@ isKeyOpt _ = False
 getKeyOpts :: [ObjectKeyMatch b] -> [b]
 getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here703") $ P.filter isKeyOpt xs
 
-{-matchResultIsMovableAlg :: MatchResultF Bool -> Bool
-matchResultIsMovableAlg = check where
-    check (MatchObjectFullResultF g r) = (
-      (not $ KM.null g)
-      || (not $ P.null $ getKeyOpts $ KM.elems r)
-      || (P.any id $ getKeyReqs $ KM.elems r))
-    check (MatchObjectPartialResultF g r) = True --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems r) || P.any matchPatternIsMovable g
-    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsMovable matchPatternIsMovable id g
-    check (MatchArrayOnlyResultF g r) = True
-    check (MatchStringExactResultF _) = False
-    check (MatchNumberExactResultF _) = False
-    check (MatchBoolExactResultF _) = False
-    check (MatchStringAnyResultF _) = True
-    check (MatchNumberAnyResultF _) = True
-    check (MatchBoolAnyResultF _) = True
-    check MatchNullResultF = False
-    check (MatchAnyResultF _) = True
-    check (MatchIgnoreResultF _) = False
-    check (MatchOrResultF g _ r) = r || P.any matchPatternIsMovable (KM.elems g)
-    check (MatchIfThenResultF _ _ g) = g
-    check (MatchFunnelResultF _) = True
-    check (MatchFunnelKeysResultF _) = True
-    check (MatchFunnelKeysUResultF _) = True
-    check (MatchRefResultF ref r) = r-}
-
-matchResultIsMovable :: (KeyMap MatchPattern) -> MatchResult -> Bool
+matchResultIsMovable :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus Bool
 matchResultIsMovable g r = matchPatternIsMovable g (matchResultToPattern r)
 
 
