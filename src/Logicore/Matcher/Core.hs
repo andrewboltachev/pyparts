@@ -943,10 +943,12 @@ paraM :: (Traversable (Base t), Monad m, Recursive t) => (Base t (t, c) -> m c) 
 paraM f = c where c = (sequence >=> f) . fmap (sequence . ((,) <*> c)) . project
 
 
-contextFreeGrammarIsMovable :: (a -> Bool) -> ContextFreeGrammar a -> Bool
-contextFreeGrammarIsMovable f = cata go
+contextFreeGrammarIsMovable :: (a -> MatchStatus Bool) -> ContextFreeGrammar a -> MatchStatus Bool
+contextFreeGrammarIsMovable f = cataM go'
   where
-    go (CharF a) = f a
+    go' (CharF a) = f a
+    go' x = return $ go x
+
     go (SeqF a) = P.any id a
     go (OrF a) = True --P.any id (KM.elems a)
     go (StarF a) = True
@@ -987,6 +989,7 @@ matchPatternIsMovable g = cataM goM
     goM (MatchRefF r) = do
       p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
       matchPatternIsMovable g p
+    goM (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable return g
     goM x = return $ go x
 
     go (MatchObjectFullF g) = L.foldl' f False (KM.elems g)
@@ -997,7 +1000,6 @@ matchPatternIsMovable g = cataM goM
     go (MatchObjectWithDefaultsF g _) = getAny $ mconcat $ P.map Any (KM.elems g)
     go (MatchObjectOnlyF g) = getAny $ mconcat $ P.map Any (KM.elems g)
     go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
-    go (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable id g
     go (MatchArrayOnlyF g) = True
     go (MatchStringExactF _) = False
     go (MatchNumberExactF _) = False
@@ -1041,11 +1043,22 @@ int2sci x = Number $ Sci.scientific (toInteger x) 0
 enumerate :: [Value] -> [Value]
 enumerate a = fmap (\(i, a) -> Array $ V.fromList [int2sci i, a]) $ P.zip [1..] a
 
-contextFreeGrammarResultToThinValue :: ContextFreeGrammarResult MatchPattern (Maybe Value) -> Maybe Value
-contextFreeGrammarResultToThinValue = cata go
+contextFreeGrammarResultToThinValue :: (KeyMap MatchPattern) -> ContextFreeGrammarResult MatchPattern (Maybe Value) -> MatchStatus (Maybe Value)
+contextFreeGrammarResultToThinValue g = cataM go'
   where
-    gg = contextFreeGrammarIsMovable matchPatternIsMovable
-    go :: ContextFreeGrammarResultF MatchPattern (Maybe Value) (Maybe Value) -> Maybe Value
+    gg = contextFreeGrammarIsMovable $ matchPatternIsMovable g
+    --go' :: ContextFreeGrammarResultF MatchPattern (Maybe Value) (Maybe Value) -> MatchStatus (Maybe Value)
+    go' (StarNodeEmptyF g) = do
+      c <- gg g
+      return $ Just $ if c
+                then Array $ V.fromList ([] :: [Value])
+                else Number 0
+    go' (OptionalNodeEmptyF g) = do
+      c <- gg g
+      return $ Just $ if not $ c
+                            then Bool False
+                            else Array $ V.fromList []
+    go' x = return $ go x
     go (CharNodeF r) = r --fmap (tMap "Char") r
     go (SeqNodeF r) = let l = P.map fromJust $ P.filter isJust r in
       if P.null l
@@ -1053,9 +1066,6 @@ contextFreeGrammarResultToThinValue = cata go
          else if P.length l == 1
                  then Just $ P.head l
                  else Just $ Array $ V.fromList $ l
-    go (StarNodeEmptyF g) = Just $ if gg g
-                                      then Array $ V.fromList ([] :: [Value])
-                                      else Number 0
     go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
                                then int2sci (P.length r)
                                else Array $ V.fromList $ enumerate $ P.map fromJust r
@@ -1068,13 +1078,10 @@ contextFreeGrammarResultToThinValue = cata go
     go (OptionalNodeValueF r) = Just $ if r == Nothing
                             then Bool True
                             else Array $ V.fromList [(fromJust r)]
-    go (OptionalNodeEmptyF g) = Just $ if not $ gg g
-                            then Bool False
-                            else Array $ V.fromList []
 
 
-matchResultToThinValue :: MatchResult -> Maybe Value
-matchResultToThinValue = cata go
+matchResultToThinValue :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus (Maybe Value)
+matchResultToThinValue g = cata go
   where
     filterEmpty a = (KM.map fromJust (KM.filter isJust a))
     nonEmptyMap m = if KM.null m then Nothing else Just m
@@ -1088,7 +1095,7 @@ matchResultToThinValue = cata go
                             Just a -> Just a
         f (KeyExt _) = error "must not be here4"
         optf :: MatchPattern -> Maybe Value
-        optf x = case matchPatternIsMovable x of
+        optf x = case matchPatternIsMovable g x of
                       True -> Nothing
                       False -> Just $ Bool False
         u = KM.union (KM.map f r) (fmap optf g)
