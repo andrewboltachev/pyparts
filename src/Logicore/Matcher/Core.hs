@@ -822,8 +822,19 @@ isSeq :: ContextFreeGrammar a -> Bool
 isSeq (Seq _) = True
 isSeq _ = False
 
-contextFreeGrammarIsWellFormed :: (Monad m, Show a) => (a -> m Bool) -> ContextFreeGrammar a -> m Bool
-contextFreeGrammarIsWellFormed f = paraM goM
+contextFreeGrammarIsWellFormed :: Show a => (a -> Bool) -> ContextFreeGrammar a -> Bool
+contextFreeGrammarIsWellFormed f = para go
+  where
+    --go :: Show a => ContextFreeGrammarF a (ContextFreeGrammar a, Bool) -> Bool
+    go (CharF c) = f c
+    go (SeqF a) = P.all id (fmap snd a)
+    go (OrF a) = P.all id (fmap snd (KM.elems a))
+    go (StarF (p, a)) = (not (isStarLike p)) && a
+    go (PlusF (p, a)) = (not (isStarLike p)) && a
+    go (OptionalF (p, a)) = (not (isStarLike p)) && a
+
+contextFreeGrammarIsWellFormed' :: (Monad m, Show a) => (a -> m Bool) -> ContextFreeGrammar a -> m Bool
+contextFreeGrammarIsWellFormed' f = paraM goM
   where
     --goM :: Show a => ContextFreeGrammarF a (ContextFreeGrammar a, Bool) -> m Bool
     goM (CharF c) = f c
@@ -843,8 +854,7 @@ matchPatternIsWellFormed g = cataM goM
   where
     goM (MatchRefF r) = do
       p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
-      matchPatternIsMovable g p
-    goM (MatchArrayContextFreeF g) = contextFreeGrammarIsWellFormed return g
+      matchPatternIsWellFormed g p
     goM x = return $ go x
 
     go (MatchObjectFullF g) = L.foldl' f True (KM.elems g)
@@ -873,7 +883,6 @@ matchPatternIsWellFormed g = cataM goM
     go MatchFunnelF = True
     go MatchFunnelKeysF = True
     go MatchFunnelKeysUF = True
-    --go MatchRef String = -- TODO
 
 
 isStarNodeLike :: ContextFreeGrammarResult g r -> Bool
