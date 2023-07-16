@@ -898,11 +898,13 @@ allTheSame (x:xs) = P.all (== x) xs
 
 --contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
 --contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
-contextFreeGrammarResultIsWellFormed :: Monad m => (MatchPattern -> m Bool) -> (Bool -> Bool) -> ContextFreeGrammarResult MatchPattern (MatchResult, MatchStatus Bool) -> m Bool
-contextFreeGrammarResultIsWellFormed gf rf = paraM go
+contextFreeGrammarResultIsWellFormed :: (MatchPattern -> m Bool) -> (Bool -> m Bool) -> ContextFreeGrammarResult MatchPattern (MatchResult, m Bool) -> m Bool
+contextFreeGrammarResultIsWellFormed gf rf = para goM
   where
-    --go :: ContextFreeGrammarResultF MatchPattern MatchResult (MatchResult, MatchStatus Bool) -> MatchStatus Bool
-    go (CharNodeF (_, r)) = rf r
+    --go :: ContextFreeGrammarResultF MatchPattern MatchResult (MatchResult, m Bool) -> m Bool
+    goM (CharNodeF (_, r)) = rf r
+    goM x = return $ go x
+
     go (SeqNodeF r) = P.all id (fmap snd r)
     go (StarNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
     go (StarNodeValueF r) =
@@ -920,27 +922,35 @@ contextFreeGrammarResultIsWellFormed gf rf = paraM go
     go (OptionalNodeEmptyF g) = contextFreeGrammarIsWellFormed gf g
     go (OptionalNodeValueF r) = (not $ isStarNodeLike (fst r)) && (snd r)
 
-matchResultIsWellFormed :: MatchResult -> Bool
-matchResultIsWellFormed = para check
+matchResultIsWellFormed :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus Bool
+matchResultIsWellFormed m = paraM checkM
   where
-    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed id g
-    check (MatchArrayOnlyResultF g r) = matchPatternIsWellFormed g
-    check (MatchObjectFullResultF g r) = gc && rc && nck
+    checkM (MatchArrayOnlyResultF g r) = matchPatternIsWellFormed m g
+    checkM (MatchObjectFullResultF g r) = a
       where
         f acc (KeyOpt (_, x)) = acc && x
         f acc (KeyReq (_, x)) = acc && x
         f acc (KeyExt _) = False
         rc = L.foldl' f True (KM.elems r)
-        gc = P.all matchPatternIsWellFormed (KM.elems g)
         nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
-    check (MatchObjectPartialResultF g r) = gc && rc && nck
+        a = do
+          gc' <- sequenceA $ fmap (matchPatternIsWellFormed m) (KM.elems g)
+          let gc = P.all id gc'
+          return $ gc && rc && nck
+    checkM (MatchObjectPartialResultF g r) = a
       where
         f acc (KeyOpt (_, x)) = acc && x
         f acc (KeyReq (_, x)) = acc && x
         f acc (KeyExt _) = False
         rc = L.foldl' f True (KM.elems r)
-        gc = P.all matchPatternIsWellFormed (KM.elems g)
         nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
+        a = do
+          gc <- sequenceA $ fmap (matchPatternIsWellFormed m) (KM.elems g)
+          return $ gc && rc && nck
+    checkM x = return $ check x
+
+    check (MatchRefResultF ref (_, r)) = r
+    check (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed (matchPatternIsWellFormed m) id g
     check (MatchStringExactResultF _) = True
     check (MatchNumberExactResultF _) = True
     check (MatchBoolExactResultF _) = True
@@ -950,10 +960,10 @@ matchResultIsWellFormed = para check
     check MatchNullResultF = True
     check (MatchAnyResultF _) = True
     check (MatchIgnoreResultF _) = True
-    check (MatchOrResultF g k (_, r)) = 
+    {-check (MatchOrResultF g k (_, r)) = 
       P.all matchPatternIsWellFormed (KM.elems g)
       && (not $ KM.member k g)
-      && r
+      && r-}
     check (MatchIfThenResultF _ _ _) = False -- TODO
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
