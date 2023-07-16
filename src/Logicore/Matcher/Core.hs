@@ -1080,7 +1080,7 @@ contextFreeGrammarResultToThinValue g = cataM go'
                             else Array $ V.fromList [(fromJust r)]
 
 
-matchResultToThinValue :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus (Maybe Value)
+matchResultToThinValue :: MatchResult -> MatchStatus (Maybe Value)
 matchResultToThinValue g = cata go
   where
     filterEmpty a = (KM.map fromJust (KM.filter isJust a))
