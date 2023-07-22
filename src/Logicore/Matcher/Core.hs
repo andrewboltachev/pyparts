@@ -1145,10 +1145,10 @@ matchResultToThinValue m = cataM goM
           let u' = KM.union (KM.map f (KM.filter ff r)) (fmap optf g')
           return $ fmap Object $ Just $ filterEmpty $ u'
     goM (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue m r -- TODO
+    goM (MatchObjectWithDefaultsResultF r d a) = goM (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
     goM x = return $ go x
 
     go :: MatchResultF (Maybe Value) -> Maybe Value
-    go (MatchObjectWithDefaultsResultF r d a) = go (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
     go (MatchObjectOnlyResultF r v) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ r
     go (MatchArrayOnlyResultF g r) = Just $ (Array . V.fromList) $ catMaybes r
     go (MatchStringExactResultF r) = Nothing
@@ -1168,6 +1168,11 @@ matchResultToThinValue m = cataM goM
     go (MatchFunnelKeysResultF r) = Just $ Object r
     go (MatchFunnelKeysUResultF r) = Just $ Object r
     go (MatchRefResultF ref r) = r
+    --go x = error $ show x
+    go (MatchObjectFullResultF _ _) = error "MatchObjectFullResultF"
+    go (MatchObjectPartialResultF _ _) = error "MatchObjectPartialResultF"
+    go (MatchArrayContextFreeResultF _) = error "MatchArrayContextFreeResultF"
+    go (MatchDefaultResultF _) = error "MatchDefaultResultF"
 
 -- thin pattern
 or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
