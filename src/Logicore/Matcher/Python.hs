@@ -288,10 +288,10 @@ m1 v a = r where
       r = case matchPattern mempty star_grammar v of
            MatchSuccess r -> Star $ handleSeq (addIt c)
               where
-                t = matchResultToThinValue r
+                t = extract $ matchResultToThinValue mempty r
                 j = fromJust t
                 c = fromJust $ asArray j
-           _ -> case fmap matchResultToThinValue $ matchPattern mempty simple_or_grammar v of
+           _ -> case fmap (extract . matchResultToThinValue mempty) $ matchPattern mempty simple_or_grammar v of
                   MatchSuccess r -> Or $ fromJust $ L.foldl' f (Just mempty) (fromJust (asArray (fromJust r)))
                     where
                       f acc' b = do
