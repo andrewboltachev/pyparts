@@ -5,6 +5,7 @@ import Network.Wai.Handler.Warp (run)
 import Web.Twain
 import Data.Aeson
 import qualified Data.Aeson.KeyMap          as KM
+import Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.Key             as K
 import qualified Data.Vector as V
 import qualified Data.Text                  as T
@@ -66,14 +67,17 @@ echo = do
 matchAndCollapse mp return code
 -}
 
+getGrammarArg :: KeyMap Value -> MatchStatus (KeyMap MatchPattern)
+getGrammarArg e = case KM.lookup (K.fromString "grammar") e of
+                    (Just (Object x)) -> do
+                      grammar' <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) x) :: Maybe (KM.KeyMap MatchPattern)) -- TODO
+                      return $ grammar'
+                    (Just _) -> MatchFailure $ "JSON element grammar, when present should be of KeyMap type"
+                    Nothing -> return $ mempty
+
 mkMatchPattern :: (Object -> MatchStatus Value)
 mkMatchPattern e = do
-  grammar <- case KM.lookup (K.fromString "grammar") e of
-                  (Just (Object x)) -> do
-                    grammar' <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) x) :: Maybe (KM.KeyMap MatchPattern)) -- TODO
-                    return $ grammar'
-                  (Just _) -> MatchFailure $ "JSON element grammar, when present should be of KeyMap type"
-                  Nothing -> return $ mempty
+  grammar <- getGrammarArg e
   value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
@@ -83,12 +87,7 @@ mkMatchPattern e = do
 
 mkMatchPatternWithFunnel :: (Object -> MatchStatus Value)
 mkMatchPatternWithFunnel e = do
-  grammar <- case KM.lookup (K.fromString "grammar") e of
-                  (Just (Object x)) -> do
-                    grammar' <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) x) :: Maybe (KM.KeyMap MatchPattern)) -- TODO
-                    return $ grammar'
-                  (Just _) -> MatchFailure $ "JSON element grammar, when present should be of KeyMap type"
-                  Nothing -> return $ mempty
+  grammar <- getGrammarArg e
   value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
@@ -101,10 +100,11 @@ mkMatchPatternWithFunnel e = do
 
 mkThinPattern :: (Object -> MatchStatus Value)
 mkThinPattern e = do
+  grammar <- getGrammarArg e
   thinValue <- return $ KM.lookup (K.fromString "thinValue") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
-  output <- thinPattern mp thinValue
+  output <- thinPattern grammar mp thinValue
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
@@ -125,9 +125,10 @@ mkMatchResultToValue e = do
 
 mkMatchResultToThinValue :: (Object -> MatchStatus Value)
 mkMatchResultToThinValue e = do
+  grammar <- getGrammarArg e
   result <- (m2ms $ MatchFailure "JSON root element must have result") $ KM.lookup (K.fromString "result") e
   mr <- (m2ms $ MatchFailure "Cannot decode MatchResult from presented result") $ (((decode . encode) result) :: Maybe MatchResult) -- TODO
-  output <- return $ matchResultToThinValue mr
+  output <- matchResultToThinValue grammar mr
   let res = case output of
                  Just x -> x
                  Nothing -> Null
@@ -149,19 +150,22 @@ mkValueToExactResult e = do
 
 mkPythonStep0 :: (Object -> MatchStatus Value)
 mkPythonStep0 e = do
+  grammar <- getGrammarArg e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   pattern <- (m2ms $ MatchFailure "err1") $ asKeyMap pattern
   pattern <- (m2ms $ MatchFailure "err2") $ KM.lookup (K.fromString "body") pattern
   pattern <- (m2ms $ MatchFailure "err3") $ asArray pattern
   pattern <- (m2ms $ MatchFailure "err4") $ safeHead pattern
   pattern <- return $ withoutPythonUnsignificantKeys pattern
-  mr <- matchPattern mempty pythonStep0Grammar pattern
-  return $ Object $ case matchResultToThinValue mr of
-                         Just x -> KM.fromList [(K.fromString "thinValue", x)]
-                         Nothing -> KM.empty
+  mr <- matchPattern grammar pythonStep0Grammar pattern
+  rr <- matchResultToThinValue grammar mr
+  return $ Object $ case rr of
+    Just x -> KM.fromList [(K.fromString "thinValue", x)]
+    Nothing -> KM.empty
 
 mkPythonStep1 :: (Object -> MatchStatus Value)
 mkPythonStep1 e = do
+  grammar <- getGrammarArg e
   value <- (m2ms $ MatchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   pattern <- return $ withoutPythonUnsignificantKeys pattern
@@ -170,19 +174,21 @@ mkPythonStep1 e = do
   --_ <- error $ show pattern ++ "\n\n\n" ++ show value
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   mr <- matchPattern mempty mp value
-  return $ Object $ case matchResultToThinValue mr of
+  rr <- matchResultToThinValue grammar mr
+  return $ Object $ case rr of
                          Just x -> KM.fromList [(K.fromString "thinValue", x)]
                          Nothing -> KM.empty
 
 mkPythonStep2 :: (Object -> MatchStatus Value)
 mkPythonStep2 e = do
+  grammar <- getGrammarArg e
   thinValue <- (m2ms $ MatchFailure "JSON root element must have thin grammar") $ KM.lookup (K.fromString "thinValue") e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   pattern <- return $ withoutPythonUnsignificantKeys pattern
   pattern <- return $ valueToPythonGrammar pattern
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   --mr <- matchPattern mempty mp value
-  return $ Object $ case thinPattern mp (Just thinValue) of
+  return $ Object $ case thinPattern grammar mp (Just thinValue) of
                          MatchSuccess s -> (KM.singleton "code" $ matchResultToValue $ s)
                          NoMatch s -> (KM.singleton "error" $ (String . T.pack) $ "NoMatch: " ++ s)
                          MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "MatchFailure: " ++ s)
