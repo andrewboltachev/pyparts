@@ -38,6 +38,7 @@ dependencies:
   - th-abstraction
   - comonad
   - hspec
+  - regex-tdfa ^>= 1.3.2
 
 ghc-options:
   - -Wall

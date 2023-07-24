@@ -74,6 +74,8 @@ import Language.Haskell.TH.Syntax (mkNameG_tc, mkNameG_v)
 import Logicore.Matcher.ValueBaseFunctor
 import Logicore.Matcher.Helpers
 
+import Text.Regex.TDFA((=~))
+
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
 --
@@ -328,6 +330,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchArrayOnly MatchPattern
                   -- literals: match particular value of
                   | MatchStringExact !T.Text
+                  | MatchStringRegExp !T.Text
                   | MatchNumberExact !Sci.Scientific
                   | MatchBoolExact !Bool
                   -- literals: match any of
@@ -342,6 +345,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchDefault Value
                   | MatchOr (KeyMap MatchPattern)
                   | MatchNot MatchPattern
+                  | MatchAnd MatchPattern MatchPattern
                   | MatchArrayOr (KeyMap MatchPattern)
                   | MatchIfThen MatchPattern T.Text MatchPattern
                   -- funnel
@@ -367,6 +371,7 @@ instance Arbitrary MatchPattern where
       MatchArrayContextFree <$> arbitrary,
       MatchArrayOnly <$> arbitrary,
       MatchStringExact <$> T.pack <$> arbitrary,
+      --MatchStringRegExp <$> T.pack <$> arbitrary,
       MatchNumberExact <$> (Sci.scientific <$> arbitrary <*> arbitrary),
       MatchBoolExact <$> arbitrary,
       return $ MatchStringAny,
@@ -376,8 +381,9 @@ instance Arbitrary MatchPattern where
       return $ MatchAny,
       return $ MatchIgnore,
       MatchDefault <$> arbitrary,
-      MatchOr <$> arbitrary
-      MatchNot <$> arbitrary]
+      MatchOr <$> arbitrary,
+      MatchNot <$> arbitrary,
+      MatchAnd <$> arbitrary <*> arbitrary]
       --MatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary
       --return $ MatchFunnel,
       --return $ MatchFunnelKeys,
@@ -406,6 +412,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchArrayOnlyResult MatchPattern [MatchResult]
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
+                 | MatchStringRegExpResult !T.Text !T.Text
                  | MatchNumberExactResult !Sci.Scientific
                  | MatchBoolExactResult !Bool
                  -- literals: match any of
@@ -419,7 +426,8 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchIgnoreResult Value
                  | MatchDefaultResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
-                 | MatchNotResult MatchPattern MatchResult
+                 | MatchNotResult MatchPattern Value
+                 | MatchAndResult MatchResult MatchResult
                  | MatchIfThenResult MatchPattern T.Text MatchResult
                  -- funnel
                  | MatchFunnelResult Value
@@ -454,6 +462,7 @@ instance Arbitrary MatchResult where
     MatchArrayContextFreeResult <$> (SeqNode <$> arbitrary),
     MatchArrayOnlyResult <$> arbitrary <*> arbitrary,
     MatchStringExactResult <$> T.pack <$> arbitrary,
+    --MatchStringRegExpResult <$> T.pack <$> arbitrary,
     MatchNumberExactResult <$> (Sci.scientific <$> arbitrary <*> arbitrary),
     MatchBoolExactResult <$> arbitrary,
     MatchStringAnyResult <$> T.pack <$> arbitrary,
@@ -464,7 +473,8 @@ instance Arbitrary MatchResult where
     MatchIgnoreResult <$> arbitrary,
     MatchDefaultResult <$> arbitrary,
     MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary,
-    MatchNotResult <$> arbitrary <*> arbitrary]
+    MatchNotResult <$> arbitrary <*> arbitrary,
+    MatchAndResult <$> arbitrary <*> arbitrary]
     --MatchIfThenResult <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
     --MatchFunnelResult <$> arbitrary,
     --MatchFunnelKeysResult <$> arbitrary,
@@ -513,7 +523,8 @@ gatherFunnel = cata go
     go (MatchArrayContextFreeResultF c) = gatherFunnelContextFree c
     go (MatchArrayOnlyResultF g r) = L.foldl' (++) mempty r
     go (MatchOrResultF g k r) = r
-    go (MatchNotResultF g r) = r
+    go (MatchNotResultF g r) = [r]
+    go (MatchAndResultF r' r) = r' ++ r
     go (MatchIfThenResultF _ _ r) = r
     go (MatchFunnelResultF r) = [r]
     go (MatchFunnelKeysResultF m) = fmap k2s (KM.keys m)
@@ -657,14 +668,20 @@ matchPattern g (MatchOr ms) v = do
   (k, res) <- P.foldr f (NoMatch "or fail") (KM.toList ms)
   return $ MatchOrResult (KM.delete k ms) k res
 
-matchPattern (MatchNot ms) v = a
+matchPattern g (MatchNot ms) v = a
   where
-    a = case matchPattern a v of
-             MatchSuccess x -> NoMatch
+    a = case matchPattern g ms v of
+             MatchSuccess x -> NoMatch $ "Not fail: " ++ show x
              MatchFailure f -> MatchFailure f
-             NoMatch s -> MatchOrResult ms a
+             NoMatch s -> return $ MatchNotResult ms v
 
-matchPattern (MatchArrayOr ms) (Array arr) = do
+matchPattern g (MatchAnd ms' ms) v = do
+  s' <- matchPattern g ms' v
+  s <- matchPattern g ms v
+  return $ MatchAndResult s' s
+
+
+matchPattern g (MatchArrayOr ms) (Array arr) = do
   let h acc' e = do
         acc <- acc'
         case matchPattern g (MatchOr ms) e of
@@ -679,6 +696,10 @@ matchPattern (MatchArrayOr ms) (Array arr) = do
 
 -- specific (aka exact)
 matchPattern g (MatchStringExact m) (String a) = if m == a then MatchSuccess $ MatchStringExactResult a else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern g (MatchStringRegExp m) (String a) =
+  if a =~ m
+     then MatchSuccess $ MatchStringRegExpResult m a
+     else NoMatch ("string regexp mismatch: expected " ++ show m ++ " but found " ++ show a)
 matchPattern g (MatchNumberExact m) (Number a) = if m == a then MatchSuccess $ MatchNumberExactResult a else NoMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
 matchPattern g (MatchBoolExact m) (Bool a) = if m == a then MatchSuccess $ MatchBoolExactResult a else NoMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
 -- any (of a type)
@@ -753,6 +774,7 @@ matchResultToPattern = cata go where
   go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
   go (MatchArrayOnlyResultF g r) = g
   go (MatchStringExactResultF r) = MatchStringExact r
+  go (MatchStringRegExpResultF e r) = MatchStringRegExp e
   go (MatchNumberExactResultF r) = MatchNumberExact r
   go (MatchBoolExactResultF r) = MatchBoolExact r
   go (MatchStringAnyResultF r) = MatchStringAny
@@ -762,6 +784,8 @@ matchResultToPattern = cata go where
   go (MatchAnyResultF r) = MatchAny
   go (MatchIgnoreResultF r) = MatchIgnore
   go (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
+  go (MatchNotResultF m _) = MatchNot m
+  go (MatchAndResultF r' r) = MatchAnd r' r
   go (MatchIfThenResultF p errorMsg r) = MatchIfThen p errorMsg r
   go (MatchFunnelResultF r) = MatchFunnel
   go (MatchFunnelKeysResultF r) = MatchFunnelKeys
@@ -787,6 +811,7 @@ matchResultToValue = cata go
     go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
     go (MatchArrayOnlyResultF g r) = Array $ V.fromList $ r
     go (MatchStringExactResultF r) = String r
+    go (MatchStringRegExpResultF m r) = String r
     go (MatchNumberExactResultF r) = Number r
     go (MatchBoolExactResultF r) = Bool r
     go (MatchStringAnyResultF r) = String r
@@ -796,6 +821,8 @@ matchResultToValue = cata go
     go (MatchAnyResultF r) = r
     go (MatchIgnoreResultF r) = r
     go (MatchOrResultF m k r) = r
+    go (MatchNotResultF m v) = v
+    go (MatchAndResultF r' r) = r
     go (MatchIfThenResultF p errorMsg r) = r
     go (MatchFunnelResultF r) = r
     go (MatchFunnelKeysResultF r) = Object r
@@ -872,6 +899,7 @@ matchPatternIsWellFormed g = cataM goM
         f acc (KeyExt _) = False
     go (MatchArrayOnlyF g) = g
     go (MatchStringExactF _) = True
+    go (MatchStringRegExpF e) = True
     go (MatchNumberExactF _) = True
     go (MatchBoolExactF _) = True
     go MatchStringAnyF = True
@@ -881,6 +909,8 @@ matchPatternIsWellFormed g = cataM goM
     go MatchAnyF = True
     go MatchIgnoreF = True
     go (MatchOrF g) = P.all id (KM.elems g)
+    go (MatchNotF g) = g
+    go (MatchAndF g' g) = g' && g
     go (MatchIfThenF _ _ _) = False -- TODO
     go MatchFunnelF = True
     go MatchFunnelKeysF = True
@@ -1038,6 +1068,7 @@ matchPatternIsMovable g = cataM goM
     go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
     go (MatchArrayOnlyF g) = True
     go (MatchStringExactF _) = False
+    go (MatchStringRegExpF _) = True
     go (MatchNumberExactF _) = False
     go (MatchBoolExactF _) = False
     go MatchStringAnyF = True
@@ -1047,6 +1078,8 @@ matchPatternIsMovable g = cataM goM
     go MatchAnyF = True
     go MatchIgnoreF = False
     go (MatchOrF g) = True --P.any id (KM.elems g)
+    go (MatchNotF _) = True
+    go (MatchAndF g' g) = g' || g
     go (MatchIfThenF _ _ g) = g
     go MatchFunnelF = True
     go MatchFunnelKeysF = True
@@ -1164,6 +1197,7 @@ matchResultToThinValue m = cataM goM
     go (MatchObjectOnlyResultF r v) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ r
     go (MatchArrayOnlyResultF g r) = Just $ (Array . V.fromList) $ catMaybes r
     go (MatchStringExactResultF r) = Nothing
+    go (MatchStringRegExpResultF e r) = Just $ String r
     go (MatchNumberExactResultF r) = Nothing
     go (MatchBoolExactResultF r) = Nothing
     go (MatchStringAnyResultF r) = Just $ String r
@@ -1175,6 +1209,8 @@ matchResultToThinValue m = cataM goM
     go (MatchOrResultF g k r) = Just $ if r == Nothing
                                    then tMapK1 k
                                    else tMapKV1 k (fromJust r)
+    go (MatchNotResultF g r) = Just $ r 
+    go (MatchAndResultF r' r) = r
     go (MatchIfThenResultF p errorMsg r) = r
     go (MatchFunnelResultF r) = Just $ r
     go (MatchFunnelKeysResultF r) = Just $ Object r
@@ -1492,6 +1528,16 @@ thinPattern p MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Objec
 thinPattern p MatchFunnelKeysU (Just (Object v)) = MatchSuccess $ MatchFunnelKeysUResult v
 thinPattern p MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object or met Nothing"
 
+thinPattern p (MatchNot m) (Just v) = case thinPattern p m (Just v) of
+                                    NoMatch x -> return $ MatchNotResult m v
+                                    MatchFailure f -> MatchFailure f
+                                    MatchSuccess s -> NoMatch $ "Not fail"
+
+thinPattern p (MatchAnd m' m) v = do
+  s' <- thinPattern p m' v
+  s <- thinPattern p m v
+  return $ MatchAndResult s' s
+
 thinPattern p (MatchIfThen baseMatch failMsg match) v =
   case thinPattern p baseMatch v of
        NoMatch x -> NoMatch x
@@ -1590,6 +1636,11 @@ applyOriginalValueDefaults o@(MatchOrResult ms k m) (Just (MatchOrResult ms' k' 
   where
     l = if k == k' then MatchOrResult ms k (applyOriginalValueDefaults m (Just m'))
                    else o
+applyOriginalValueDefaults o@(MatchAndResult r1' r1) (Just (MatchAndResult r2' r2)) = l
+  where
+    s' = applyOriginalValueDefaults r1' (Just r2')
+    s = applyOriginalValueDefaults r1 (Just r2)
+    l = MatchAndResult s' s
 applyOriginalValueDefaults (MatchIfThenResult b e m) (Just (MatchOrResult b' e' m')) = l
   where
     l = MatchIfThenResult b e (applyOriginalValueDefaults m (Just m'))
