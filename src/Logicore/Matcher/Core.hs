@@ -341,6 +341,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchIgnore
                   | MatchDefault Value
                   | MatchOr (KeyMap MatchPattern)
+                  | MatchNot MatchPattern
                   | MatchArrayOr (KeyMap MatchPattern)
                   | MatchIfThen MatchPattern T.Text MatchPattern
                   -- funnel
@@ -375,7 +376,8 @@ instance Arbitrary MatchPattern where
       return $ MatchAny,
       return $ MatchIgnore,
       MatchDefault <$> arbitrary,
-      MatchOr <$> arbitrary]
+      MatchOr <$> arbitrary
+      MatchNot <$> arbitrary]
       --MatchIfThen <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary
       --return $ MatchFunnel,
       --return $ MatchFunnelKeys,
@@ -417,6 +419,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchIgnoreResult Value
                  | MatchDefaultResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
+                 | MatchNotResult MatchPattern MatchResult
                  | MatchIfThenResult MatchPattern T.Text MatchResult
                  -- funnel
                  | MatchFunnelResult Value
@@ -460,7 +463,8 @@ instance Arbitrary MatchResult where
     MatchAnyResult <$> arbitrary,
     MatchIgnoreResult <$> arbitrary,
     MatchDefaultResult <$> arbitrary,
-    MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary]
+    MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary,
+    MatchNotResult <$> arbitrary <*> arbitrary]
     --MatchIfThenResult <$> arbitrary <*> (T.pack <$> arbitrary) <*> arbitrary,
     --MatchFunnelResult <$> arbitrary,
     --MatchFunnelKeysResult <$> arbitrary,
@@ -509,6 +513,7 @@ gatherFunnel = cata go
     go (MatchArrayContextFreeResultF c) = gatherFunnelContextFree c
     go (MatchArrayOnlyResultF g r) = L.foldl' (++) mempty r
     go (MatchOrResultF g k r) = r
+    go (MatchNotResultF g r) = r
     go (MatchIfThenResultF _ _ r) = r
     go (MatchFunnelResultF r) = [r]
     go (MatchFunnelKeysResultF m) = fmap k2s (KM.keys m)
@@ -652,7 +657,14 @@ matchPattern g (MatchOr ms) v = do
   (k, res) <- P.foldr f (NoMatch "or fail") (KM.toList ms)
   return $ MatchOrResult (KM.delete k ms) k res
 
-matchPattern g (MatchArrayOr ms) (Array arr) = do
+matchPattern (MatchNot ms) v = a
+  where
+    a = case matchPattern a v of
+             MatchSuccess x -> NoMatch
+             MatchFailure f -> MatchFailure f
+             NoMatch s -> MatchOrResult ms a
+
+matchPattern (MatchArrayOr ms) (Array arr) = do
   let h acc' e = do
         acc <- acc'
         case matchPattern g (MatchOr ms) e of
