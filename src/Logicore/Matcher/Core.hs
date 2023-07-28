@@ -1650,10 +1650,20 @@ applyOriginalValueDefaults (MatchObjectWithDefaultsResult m d _) (Just (MatchObj
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
     l = MatchObjectWithDefaultsResult m'' d a
+
+applyOriginalValueDefaults (MatchArrayOnlyResultEmpty m v) (Just (MatchArrayOnlyResultEmpty m' v')) = l --error $ show (m, m', d, a)
+  where
+    l = MatchArrayOnlyResultEmpty m v'
+
+applyOriginalValueDefaults (MatchArrayOnlyResultSome m v) (Just (MatchArrayOnlyResultSome m' v')) = l --error $ show (m, m', d, a)
+  where
+    --m'' = fmap (uncurry applyOriginalValueDefaults) $ P.zip m m'
+    l = MatchArrayOnlyResultSome m v'
+
 applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyResult m' a')) = l --error $ show (m, m', d, a)
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
-    l = MatchObjectOnlyResult m'' a'
+    l = MatchObjectOnlyResult m' a'
 applyOriginalValueDefaults (MatchArrayContextFreeResult m) (Just (MatchArrayContextFreeResult m')) = l
   where
     l = MatchArrayContextFreeResult (applyOriginalValueDefaultsCF m (Just m'))
