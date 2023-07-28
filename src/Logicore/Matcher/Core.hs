@@ -409,7 +409,8 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value) (KeyMap Value)
                  | MatchObjectOnlyResult (KeyMap MatchResult) (KeyMap Value)
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
-                 | MatchArrayOnlyResult MatchPattern [MatchResult]
+                 | MatchArrayOnlyResultEmpty MatchPattern [Value]
+                 | MatchArrayOnlyResultSome [MatchResult] [Maybe Value]
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
                  | MatchStringRegExpResult !T.Text !T.Text
@@ -460,7 +461,8 @@ instance Arbitrary MatchResult where
     matchObjectWithDefaultsResultArbitrary,
     matchObjectOnlyResultArbitrary,
     MatchArrayContextFreeResult <$> (SeqNode <$> arbitrary),
-    MatchArrayOnlyResult <$> arbitrary <*> arbitrary,
+    MatchArrayOnlyResultEmpty <$> arbitrary <*> arbitrary,
+    MatchArrayOnlyResultSome <$> arbitrary <*> arbitrary,
     MatchStringExactResult <$> T.pack <$> arbitrary,
     --MatchStringRegExpResult <$> T.pack <$> arbitrary,
     MatchNumberExactResult <$> (Sci.scientific <$> arbitrary <*> arbitrary),
@@ -521,7 +523,8 @@ gatherFunnel = cata go
     go (MatchObjectWithDefaultsResultF r _ _) = L.foldl' (++) mempty (KM.elems r)
     go (MatchObjectOnlyResultF r _) = L.foldl' (++) mempty (KM.elems r)
     go (MatchArrayContextFreeResultF c) = gatherFunnelContextFree c
-    go (MatchArrayOnlyResultF g r) = L.foldl' (++) mempty r
+    go (MatchArrayOnlyResultEmptyF g r) = []
+    go (MatchArrayOnlyResultSomeF r v) = r
     go (MatchOrResultF g k r) = r
     go (MatchNotResultF g r) = [r]
     go (MatchAndResultF r' r) = r' ++ r
@@ -635,11 +638,14 @@ matchPattern g (MatchArrayOnly m) (Array a) = do
   let f acc' e = do
         acc <- acc'
         case matchPattern g m e of
-             MatchSuccess s -> MatchSuccess $ acc ++ [s]
              MatchFailure e -> MatchFailure e
-             NoMatch e -> MatchSuccess $ acc
-  r <- L.foldl' f (MatchSuccess []) (V.toList a)
-  return $ MatchArrayOnlyResult m r
+             MatchSuccess s -> MatchSuccess $ bimap (++[s]) (++[Nothing]) acc
+             NoMatch e -> MatchSuccess $ second (++[Just e]) acc
+  (r, v) <- L.foldl' f (MatchSuccess mempty) (V.toList a)
+  return $ if P.null r
+              then MatchArrayOnlyResultEmpty m m
+              else MatchArrayOnlyResultSome1 r v
+  fffffffff
 
 matchPattern g MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
