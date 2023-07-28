@@ -971,7 +971,8 @@ contextFreeGrammarResultIsWellFormed gf rf = paraM goM
 matchResultIsWellFormed :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus Bool
 matchResultIsWellFormed m = paraM checkM
   where
-    --checkM (MatchArrayOnlyResultF g r) = matchPatternIsWellFormed m g
+    checkM (MatchArrayOnlyResultEmptyF g v) = matchPatternIsWellFormed m g
+    checkM (MatchArrayOnlyResultSomeF g v) = return $ P.all snd g
     checkM (MatchObjectFullResultF g r) = a
       where
         f acc (KeyOpt (_, x)) = acc && x
@@ -1208,7 +1209,8 @@ matchResultToThinValue m = cataM goM
 
     go :: MatchResultF (Maybe Value) -> Maybe Value
     go (MatchObjectOnlyResultF r v) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ r
-    --go (MatchArrayOnlyResultF g r) = Just $ (Array . V.fromList) $ catMaybes r
+    go (MatchArrayOnlyResultEmptyF g r) = Nothing
+    go (MatchArrayOnlyResultSomeF g r) = Just $ (Array . V.fromList) $ catMaybes g -- TODO: when Nothing?
     go (MatchStringExactResultF r) = Nothing
     go (MatchStringRegExpResultF e r) = Just $ String r
     go (MatchNumberExactResultF r) = Nothing
@@ -1531,7 +1533,17 @@ thinPattern p (MatchArrayContextFree m) a = do
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess $ MatchArrayContextFreeResult x
 
-thinPattern p (MatchArrayOnly m) a = error $ "Not implemented"
+thinPattern p (MatchArrayOnly m) (Just (Array a)) = do
+  let f acc' e = do
+        acc <- acc'
+        case thinPattern p m (Just e) of
+             MatchFailure f -> MatchFailure f
+             NoMatch s -> NoMatch s
+             MatchSuccess r' -> return $ acc ++ [r']
+  r <- L.foldl' f (MatchSuccess mempty) $ V.toList a
+  return $ if P.null r
+              then MatchArrayOnlyResultEmpty m []
+              else MatchArrayOnlyResultSome r []
 
 thinPattern p MatchFunnel (Just v) = MatchSuccess $ MatchFunnelResult v
 
