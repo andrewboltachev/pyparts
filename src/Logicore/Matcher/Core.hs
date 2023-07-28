@@ -815,7 +815,14 @@ matchResultToValue = cata go
     go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r $ KM.union v d
     go (MatchObjectOnlyResultF r v) = Object $ KM.union r v
     go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
-    --go (MatchArrayOnlyResultF g r) = Array $ V.fromList $ r
+    go (MatchArrayOnlyResultEmptyF g v) = Array $ V.fromList $ v
+    go (MatchArrayOnlyResultSomeF r v) = rr
+      where
+        f (r, rr) e = case e of
+                               Just x -> (r, rr ++ [x])
+                               Nothing -> let (q:qq) = r in (qq, rr ++ [q])
+        (_, vv) = L.foldl' f (r, []) v
+        rr = (Array $ V.fromList $ vv)
     go (MatchStringExactResultF r) = String r
     go (MatchStringRegExpResultF m r) = String r
     go (MatchNumberExactResultF r) = Number r
