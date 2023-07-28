@@ -524,7 +524,7 @@ gatherFunnel = cata go
     go (MatchObjectOnlyResultF r _) = L.foldl' (++) mempty (KM.elems r)
     go (MatchArrayContextFreeResultF c) = gatherFunnelContextFree c
     go (MatchArrayOnlyResultEmptyF g r) = []
-    go (MatchArrayOnlyResultSomeF r v) = r
+    go (MatchArrayOnlyResultSomeF r v) = P.concat r
     go (MatchOrResultF g k r) = r
     go (MatchNotResultF g r) = [r]
     go (MatchAndResultF r' r) = r' ++ r
@@ -640,12 +640,11 @@ matchPattern g (MatchArrayOnly m) (Array a) = do
         case matchPattern g m e of
              MatchFailure e -> MatchFailure e
              MatchSuccess s -> MatchSuccess $ bimap (++[s]) (++[Nothing]) acc
-             NoMatch e -> MatchSuccess $ second (++[Just e]) acc
+             NoMatch _ -> MatchSuccess $ second (++[Just e]) acc
   (r, v) <- L.foldl' f (MatchSuccess mempty) (V.toList a)
   return $ if P.null r
-              then MatchArrayOnlyResultEmpty m m
-              else MatchArrayOnlyResultSome1 r v
-  fffffffff
+              then MatchArrayOnlyResultEmpty m (catMaybes v)
+              else MatchArrayOnlyResultSome r v
 
 matchPattern g MatchFunnel v = MatchSuccess $ MatchFunnelResult v
 
@@ -778,7 +777,7 @@ matchResultToPattern = cata go where
   go (MatchObjectWithDefaultsResultF r d v) = MatchObjectWithDefaults r d
   go (MatchObjectOnlyResultF r v) = MatchObjectOnly r
   go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
-  go (MatchArrayOnlyResultF g r) = g
+  --go (MatchArrayOnlyResultF g r) = g
   go (MatchStringExactResultF r) = MatchStringExact r
   go (MatchStringRegExpResultF e r) = MatchStringRegExp e
   go (MatchNumberExactResultF r) = MatchNumberExact r
@@ -815,7 +814,7 @@ matchResultToValue = cata go
     go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r $ KM.union v d
     go (MatchObjectOnlyResultF r v) = Object $ KM.union r v
     go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
-    go (MatchArrayOnlyResultF g r) = Array $ V.fromList $ r
+    --go (MatchArrayOnlyResultF g r) = Array $ V.fromList $ r
     go (MatchStringExactResultF r) = String r
     go (MatchStringRegExpResultF m r) = String r
     go (MatchNumberExactResultF r) = Number r
@@ -964,7 +963,7 @@ contextFreeGrammarResultIsWellFormed gf rf = paraM goM
 matchResultIsWellFormed :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus Bool
 matchResultIsWellFormed m = paraM checkM
   where
-    checkM (MatchArrayOnlyResultF g r) = matchPatternIsWellFormed m g
+    --checkM (MatchArrayOnlyResultF g r) = matchPatternIsWellFormed m g
     checkM (MatchObjectFullResultF g r) = a
       where
         f acc (KeyOpt (_, x)) = acc && x
@@ -1201,7 +1200,7 @@ matchResultToThinValue m = cataM goM
 
     go :: MatchResultF (Maybe Value) -> Maybe Value
     go (MatchObjectOnlyResultF r v) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ r
-    go (MatchArrayOnlyResultF g r) = Just $ (Array . V.fromList) $ catMaybes r
+    --go (MatchArrayOnlyResultF g r) = Just $ (Array . V.fromList) $ catMaybes r
     go (MatchStringExactResultF r) = Nothing
     go (MatchStringRegExpResultF e r) = Just $ String r
     go (MatchNumberExactResultF r) = Nothing
