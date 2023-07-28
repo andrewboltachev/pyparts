@@ -1506,15 +1506,20 @@ thinPattern p (MatchObjectWithDefaults m d) a = do
 
 
 thinPattern m' (MatchObjectOnly m) a = do
+  gg <- P.traverse (matchPatternIsMovable m') m
   vv <- P.traverse (matchPatternIsMovable m') (KM.elems m)
   let isOne = (P.length $ P.filter id vv) == 1
   let f :: MatchStatus (KeyMap MatchResult) -> Key -> MatchStatus (KeyMap MatchResult)
       f acc' k = do
         acc <- acc'
         g <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+        gg' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k gg
         let v = if
                   isOne
-                  then a
+                  then
+                    if gg'
+                       then a
+                       else Nothing
                     else
                       do
                         a' <- a
@@ -1657,8 +1662,8 @@ applyOriginalValueDefaults (MatchArrayOnlyResultEmpty m v) (Just (MatchArrayOnly
 
 applyOriginalValueDefaults (MatchArrayOnlyResultSome m v) (Just (MatchArrayOnlyResultSome m' v')) = l --error $ show (m, m', d, a)
   where
-    --m'' = fmap (uncurry applyOriginalValueDefaults) $ P.zip m m'
-    l = MatchArrayOnlyResultSome m v'
+    m'' = fmap (\(a, b) -> applyOriginalValueDefaults a (Just b)) $ P.zip m m'
+    l = MatchArrayOnlyResultSome m'' v'
 
 applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyResult m' a')) = l --error $ show (m, m', d, a)
   where

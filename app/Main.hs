@@ -39,6 +39,7 @@ main = do
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
       , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
       , post "/thinPattern" (fnEndpoint mkThinPattern)
+      , post "/applyOriginalValueDefaults" (fnEndpoint mkApplyOriginalValueDefaults)
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
       , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
       , post "/pythonStep1" (fnEndpoint mkPythonStep1)
@@ -105,6 +106,19 @@ mkThinPattern e = do
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   output <- thinPattern grammar mp thinValue
+  outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
+  return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
+
+mkApplyOriginalValueDefaults :: (Object -> MatchStatus Value)
+mkApplyOriginalValueDefaults e = do
+
+  result1 <- (m2ms $ MatchFailure "JSON root element must have result1") $ KM.lookup (K.fromString "result1") e
+  r1 <- (m2ms $ MatchFailure "Cannot decode MatchResult from presented pattern") $ (((decode . encode) result1) :: Maybe MatchResult) -- TODO
+
+  result2 <- (m2ms $ MatchFailure "JSON root element must have result2") $ KM.lookup (K.fromString "result2") e
+  r2 <- (m2ms $ MatchFailure "Cannot decode MatchResult from presented pattern") $ (((decode . encode) result2) :: Maybe MatchResult) -- TODO
+
+  output <- return $ applyOriginalValueDefaults r1 (Just r2)
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
