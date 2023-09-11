@@ -2000,3 +2000,10 @@ thinWithDefaults2 = do
   let t = Just $ Number 5.0
   r' <- thinPatternWithDefaults mempty r t
   return $ matchResultToValue r'
+
+
+ex1 = do
+	a <- return $ (fromList [("element", MatchArrayContextFree $ Star (Seq [(Char (MatchRef "element"))]))])
+	v <- return $ MatchArrayContextFreeResult (SeqNode [StarNodeEmpty (Char (MatchRef "element"))])
+	return ()
+	matchResultToThinValue a v
