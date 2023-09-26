@@ -1068,7 +1068,8 @@ matchPatternIsMovable g = cataM goM
   where
     goM (MatchRefF r) = do
       p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
-      matchPatternIsMovable g p
+      --matchPatternIsMovable g p
+      return $ True --ehhh
     goM (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable return g
     goM x = return $ go x
 
@@ -2003,7 +2004,6 @@ thinWithDefaults2 = do
 
 
 ex1 = do
-	a <- return $ (fromList [("element", MatchArrayContextFree $ Star (Seq [(Char (MatchRef "element"))]))])
-	v <- return $ MatchArrayContextFreeResult (SeqNode [StarNodeEmpty (Char (MatchRef "element"))])
-	return ()
-	matchResultToThinValue a v
+	let a = (fromList [("element", MatchArrayContextFree $ Star (Seq [(Char (MatchRef "element"))]))])
+	let v = StarNodeEmpty (Char (MatchRef "element"))
+	contextFreeGrammarResultToThinValue a v
