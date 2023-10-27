@@ -731,7 +731,9 @@ contextFreeGrammarResultToGrammarAlg f = go
     go (SeqNodeF r) = Seq r
     go (StarNodeEmptyF g) = Star g
     go (StarNodeValueF r) = Star (P.head r)
+    go (StarNodeIndexedF r _) = Star (P.head r)
     go (PlusNodeF r) = Plus (P.head r)
+    go (PlusNodeIndexedF r _) = Plus (P.head r)
     go (OrNodeF g k r) = Or (KM.insert k r g)
     go (OptionalNodeValueF r) = Optional r
     go (OptionalNodeEmptyF g) = Optional g
@@ -1153,7 +1155,13 @@ contextFreeGrammarResultToThinValue m = cataM go'
     go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
                                then int2sci (P.length r)
                                else Array $ V.fromList $ enumerate $ P.map fromJust r
+    go (StarNodeIndexedF r _) = Just $ if P.head r == Nothing
+                               then int2sci (P.length r)
+                               else Array $ V.fromList $ enumerate $ P.map fromJust r
     go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
+                               then int2sci (P.length r)
+                               else Array $ V.fromList $ enumerate $ P.map fromJust r
+    go (PlusNodeIndexedF r _) = Just $ if P.head r == Nothing
                                then int2sci (P.length r)
                                else Array $ V.fromList $ enumerate $ P.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
