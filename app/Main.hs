@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import Network.Wai.Handler.Warp (run)
+import Network.Wai.Handler.Warp (runSettings, defaultSettings, setPort, setTimeout)
 import Web.Twain
 import Data.Aeson
 import qualified Data.Aeson.KeyMap          as KM
@@ -24,7 +24,8 @@ import Logicore.Matcher.Python
 
 main :: IO ()
 main = do
-  run 3042 $
+  let settings = foldr ($) defaultSettings [setTimeout (5 * 60), setPort 3042]
+  runSettings settings $
     foldr ($)
       (notFound missing)
       [ get "/" index
