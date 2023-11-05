@@ -24,7 +24,7 @@ import Logicore.Matcher.Python
 
 main :: IO ()
 main = do
-  let settings = foldr ($) defaultSettings [setTimeout (5 * 60), setPort 3042]
+  let settings = foldr ($) defaultSettings [setTimeout (60 * 60), setPort 3042]
   runSettings settings $
     foldr ($)
       (notFound missing)
