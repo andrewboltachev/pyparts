@@ -14,6 +14,9 @@ import qualified Data.Text.IO               as T
 import qualified Data.Text.Lazy             as TL
 import qualified Data.Text.Lazy.Encoding    as TL
 import qualified Data.Text.Lazy.IO          as TL
+import qualified Data.ByteString.Lazy       as BL
+
+import Control.Monad.IO.Class (liftIO)
 
 import Logicore.Matcher.Core
 import Logicore.Matcher.Additional
@@ -36,6 +39,7 @@ main = do
       -- fn endpoints
       , post "/matchPattern" (fnEndpoint mkMatchPattern)
       , post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel)
+      , post "/matchPatternWithFunnelFile" matchPatternWithFunnelFile
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
       , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
@@ -99,6 +103,47 @@ mkMatchPatternWithFunnel e = do
   return $ Object $ (KM.fromList [
     (K.fromString "result", outputValue),
     (K.fromString "funnel", Array $ V.fromList $ funnelResult)])
+
+--matchPatternWithFunnelFile :: (Object -> MatchStatus Value) -> ResponderM b
+-- TODO study monad transformers *FACEPALM*
+matchPatternWithFunnelFile = do
+    let err e = send $ Web.Twain.json $ Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
+    b <- (fromBody :: ResponderM Value)
+    let e = do
+        e' <- (m2e "JSON root element must be a map") $ asKeyMap b
+        value'' <- (m2e "JSON root element must have value") $ KM.lookup (K.fromString "value") e'
+        value' <- (m2e "value key should be String") $ asString value''
+        return $ value'
+
+    case e of
+        Left e -> err e
+        Right x -> do
+            fdata <- liftIO $ ((fmap decode $ BL.readFile (T.unpack x)) :: IO (Maybe Value))
+            case fdata of
+                Nothing -> err "JSON parsing error"
+                (Just x) -> do
+                    let f :: MatchStatus Value
+                        f = do
+                            e' <- (m2ms $ MatchFailure "JSON root element must be a map") $ asKeyMap b
+                            grammar <- return $ KM.empty
+                            pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e'
+                            mp <- (m2ms $ MatchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
+                            output <- matchPattern grammar mp x
+                            funnelResult <- return $ gatherFunnel output
+                            outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
+                            return $ Object $ (KM.fromList [
+                                (K.fromString "result", outputValue),
+                                (K.fromString "funnel", Array $ V.fromList $ funnelResult)])
+
+                    let a = do
+                        r <- case f of
+                            MatchFailure s -> Left ("MatchFailure: " ++ s)
+                            NoMatch x -> Left ("NoMatch: " ++ x)
+                            MatchSuccess r -> Right $ r
+                        return r
+                    send $ Web.Twain.json $ case a of
+                        Left e -> Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
+                        Right x -> x
 
 mkThinPattern :: (Object -> MatchStatus Value)
 mkThinPattern e = do
@@ -210,6 +255,7 @@ mkPythonStep2 e = do
 
 fnEndpoint :: (Object -> MatchStatus Value) -> ResponderM b
 fnEndpoint f = do
+    _ <- liftIO $ print "foo"
     b <- (fromBody :: ResponderM Value)
     let a = do
             e <- (m2e "JSON root element must be a map") $ asKeyMap b
