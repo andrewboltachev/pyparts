@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE InstanceSigs #-}
 
 
 module Logicore.Matcher.Core where
@@ -61,6 +62,9 @@ import Data.Bifunctor
 import Data.Maybe (isJust, fromJust)
 import Data.Monoid
 import qualified Data.Set                     as S
+
+import Control.Monad.Trans.Class
+import Control.Monad.IO.Class
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
@@ -134,6 +138,32 @@ instance Comonad MatchStatus where
   duplicate (MatchSuccess s) = MatchSuccess (MatchSuccess s)
   duplicate (MatchFailure m) = MatchFailure m
   duplicate (NoMatch m) = NoMatch m
+
+
+newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: m (MatchStatus a) }
+instance Functor m => Functor (MatchStatusT m) where
+  fmap f (MatchStatusT ma) = MatchStatusT $ (fmap . fmap) f ma
+
+instance (Applicative m) => Applicative (MatchStatusT m) where
+  pure x = MatchStatusT (pure (pure x))
+  (MatchStatusT fab) <*> (MatchStatusT mma) = MatchStatusT $ (fmap (<*>) fab) <*> mma
+
+instance (Monad m) => Monad (MatchStatusT m) where
+  return = pure
+  (>>=) :: MatchStatusT m a -> (a -> MatchStatusT m b) -> MatchStatusT m b
+  (MatchStatusT ma) >>= f = MatchStatusT $ ma >>= (f')
+      where f' ma = case ma of
+                      MatchSuccess x -> (runMatchStatusT . f) x
+                      NoMatch e -> return $ NoMatch e
+                      MatchFailure e -> return $ MatchFailure e
+
+
+
+instance MonadTrans MatchStatusT where
+  lift = MatchStatusT . fmap MatchSuccess
+
+instance (MonadIO m) => MonadIO (MatchStatusT m) where
+  liftIO = lift. liftIO
 
 -- CF matcher
 data ContextFreeGrammar a = Char a
