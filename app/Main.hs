@@ -39,7 +39,7 @@ main = do
       -- fn endpoints
       , post "/matchPattern" (fnEndpoint mkMatchPattern)
       , post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel)
-      , post "/matchPatternWithFunnelFile" matchPatternWithFunnelFile
+      --, post "/matchPatternWithFunnelFile" matchPatternWithFunnelFile
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
       , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
@@ -73,7 +73,7 @@ echo = do
 matchAndCollapse mp return code
 -}
 
-getGrammarArg :: KeyMap Value -> MatchStatus (KeyMap MatchPattern)
+getGrammarArg :: KeyMap Value -> MatchStatusT IO (KeyMap MatchPattern)
 getGrammarArg e = case KM.lookup (K.fromString "grammar") e of
                     (Just (Object x)) -> do
                       grammar' <- (m2mst $ matchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) x) :: Maybe (KM.KeyMap MatchPattern)) -- TODO
@@ -81,7 +81,7 @@ getGrammarArg e = case KM.lookup (K.fromString "grammar") e of
                     (Just _) -> matchFailure $ "JSON element grammar, when present should be of KeyMap type"
                     Nothing -> return $ mempty
 
-mkMatchPattern :: (Object -> MatchStatusT Value)
+mkMatchPattern :: (Object -> MatchStatusT IO Value)
 mkMatchPattern e = do
   grammar <- getGrammarArg e
   value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
@@ -91,7 +91,7 @@ mkMatchPattern e = do
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
-mkMatchPatternWithFunnel :: (Object -> MatchStatus Value)
+mkMatchPatternWithFunnel :: (Object -> MatchStatusT IO Value)
 mkMatchPatternWithFunnel e = do
   grammar <- getGrammarArg e
   value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
@@ -104,9 +104,9 @@ mkMatchPatternWithFunnel e = do
     (K.fromString "result", outputValue),
     (K.fromString "funnel", Array $ V.fromList $ funnelResult)])
 
---matchPatternWithFunnelFile :: (Object -> MatchStatus Value) -> ResponderM b
+--matchPatternWithFunnelFile :: (Object -> MatchStatusT IO Value) -> ResponderM b
 -- TODO study monad transformers *FACEPALM*
-matchPatternWithFunnelFile = do
+{-matchPatternWithFunnelFile = do
     let err e = send $ Web.Twain.json $ Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
     b <- (fromBody :: ResponderM Value)
     let e = do
@@ -122,7 +122,7 @@ matchPatternWithFunnelFile = do
             case fdata of
                 Nothing -> err "JSON parsing error"
                 (Just x) -> do
-                    let f :: MatchStatus Value
+                    let f :: MatchStatusT IO Value
                         f = do
                             e' <- (m2mst $ matchFailure "JSON root element must be a map") $ asKeyMap b
                             grammar <- return $ KM.empty
@@ -143,9 +143,9 @@ matchPatternWithFunnelFile = do
                         return r
                     send $ Web.Twain.json $ case a of
                         Left e -> Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
-                        Right x -> x
+                        Right x -> x-}
 
-mkThinPattern :: (Object -> MatchStatus Value)
+mkThinPattern :: (Object -> MatchStatusT IO Value)
 mkThinPattern e = do
   grammar <- getGrammarArg e
   thinValue <- return $ KM.lookup (K.fromString "thinValue") e
@@ -155,7 +155,7 @@ mkThinPattern e = do
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
-mkApplyOriginalValueDefaults :: (Object -> MatchStatus Value)
+mkApplyOriginalValueDefaults :: (Object -> MatchStatusT IO Value)
 mkApplyOriginalValueDefaults e = do
 
   result1 <- (m2mst $ matchFailure "JSON root element must have result1") $ KM.lookup (K.fromString "result1") e
@@ -168,7 +168,7 @@ mkApplyOriginalValueDefaults e = do
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
-mkMatchResultToPattern :: (Object -> MatchStatus Value)
+mkMatchResultToPattern :: (Object -> MatchStatusT IO Value)
 mkMatchResultToPattern e = do
   result <- (m2mst $ matchFailure "JSON root element must have result") $ KM.lookup (K.fromString "result") e
   mr <- (m2mst $ matchFailure "Cannot decode MatchResult from presented result") $ (((decode . encode) result) :: Maybe MatchResult) -- TODO
@@ -176,14 +176,14 @@ mkMatchResultToPattern e = do
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "pattern", outputValue)])
 
-mkMatchResultToValue :: (Object -> MatchStatus Value)
+mkMatchResultToValue :: (Object -> MatchStatusT IO Value)
 mkMatchResultToValue e = do
   result <- (m2mst $ matchFailure "JSON root element must have result") $ KM.lookup (K.fromString "result") e
   mr <- (m2mst $ matchFailure "Cannot decode MatchResult from presented result") $ (((decode . encode) result) :: Maybe MatchResult) -- TODO
   output <- return $ matchResultToValue mr
   return $ Object $ (KM.fromList [(K.fromString "value", output)])
 
-mkMatchResultToThinValue :: (Object -> MatchStatus Value)
+mkMatchResultToThinValue :: (Object -> MatchStatusT IO Value)
 mkMatchResultToThinValue e = do
   grammar <- getGrammarArg e
   result <- (m2mst $ matchFailure "JSON root element must have result") $ KM.lookup (K.fromString "result") e
@@ -194,21 +194,21 @@ mkMatchResultToThinValue e = do
                  Nothing -> Null
   return $ Object $ (KM.fromList [(K.fromString "thinValue", res)])
 
-mkValueToExactGrammar :: (Object -> MatchStatus Value)
+mkValueToExactGrammar :: (Object -> MatchStatusT IO Value)
 mkValueToExactGrammar e = do
   value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   output <- return $ valueToExactGrammar value
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "grammar", outputValue)])
 
-mkValueToExactResult :: (Object -> MatchStatus Value)
+mkValueToExactResult :: (Object -> MatchStatusT IO Value)
 mkValueToExactResult e = do
   value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   output <- valueToExactResult value
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
-{-mkPythonStep0 :: (Object -> MatchStatus Value)
+{-mkPythonStep0 :: (Object -> MatchStatusT IO Value)
 mkPythonStep0 e = do
   grammar <- getGrammarArg e
   pattern <- (m2mst $ matchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
@@ -223,7 +223,7 @@ mkPythonStep0 e = do
     Just x -> KM.fromList [(K.fromString "thinValue", x)]
     Nothing -> KM.empty
 
-mkPythonStep1 :: (Object -> MatchStatus Value)
+mkPythonStep1 :: (Object -> MatchStatusT IO Value)
 mkPythonStep1 e = do
   grammar <- getGrammarArg e
   value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
@@ -239,7 +239,7 @@ mkPythonStep1 e = do
                          Just x -> KM.fromList [(K.fromString "thinValue", x)]
                          Nothing -> KM.empty
 
-mkPythonStep2 :: (Object -> MatchStatus Value)
+mkPythonStep2 :: (Object -> MatchStatusT IO Value)
 mkPythonStep2 e = do
   grammar <- getGrammarArg e
   thinValue <- (m2mst $ matchFailure "JSON root element must have thin grammar") $ KM.lookup (K.fromString "thinValue") e
@@ -251,16 +251,16 @@ mkPythonStep2 e = do
   return $ Object $ case thinPattern grammar mp (Just thinValue) of
                          MatchSuccess s -> (KM.singleton "code" $ matchResultToValue $ s)
                          NoMatch s -> (KM.singleton "error" $ (String . T.pack) $ "NoMatch: " ++ s)
-                         matchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "matchFailure: " ++ s)-}
+                         MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "matchFailure: " ++ s)-}
 
-fnEndpoint :: (Object -> MatchStatus Value) -> ResponderM b
+fnEndpoint :: (Object -> MatchStatusT IO Value) -> ResponderM b
 fnEndpoint f = do
-    _ <- liftIO $ print "foo"
+    --_ <- liftIO $ print "fnEndpoint"
     b <- (fromBody :: ResponderM Value)
     let a = do
             e <- (m2e "JSON root element must be a map") $ asKeyMap b
             r <- case f e of
-                    matchFailure s -> Left ("matchFailure: " ++ s)
+                    MatchFailure s -> Left ("matchFailure: " ++ s)
                     NoMatch x -> Left ("NoMatch: " ++ x)
                     MatchSuccess r -> Right $ r
             return r
@@ -279,7 +279,7 @@ jsonMatcher1 = do
           mp <- (m2e "Cannot decode MatchPattern from presented grammar") $ (
             ((decode . encode) grammar) :: Maybe MatchPattern) -- TODO
           r <- case matchAndCollapse mp return code of
-                  matchFailure s -> Left ("matchFailure: " ++ s)
+                  MatchFailure s -> Left ("matchFailure: " ++ s)
                   NoMatch x -> Left ("NoMatch: " ++ x)
                   MatchSuccess (f, r) -> Right $ (KM.fromList [
                     (K.fromString "funnel", (Array . V.fromList) f),
@@ -300,7 +300,7 @@ pythonMatcher1 = do
           let c = do
                   -- _ <- error $ show $ mp
                   r <- case matchAndCollapse mp return code of
-                          matchFailure s -> Left ("matchFailure: " ++ s)
+                          MatchFailure s -> Left ("matchFailure: " ++ s)
                           NoMatch x -> Left ("NoMatch: " ++ x)
                           MatchSuccess (f, r) -> Right $ (KM.fromList [
                             -- (K.fromString "tree", toJSON $ MatchObjectPartialResult (Object (KM.fromList [])) (KM.fromList [])),
