@@ -20,7 +20,7 @@ import Control.Monad.IO.Class (liftIO)
 
 import Logicore.Matcher.Core
 import Logicore.Matcher.Additional
-import Logicore.Matcher.Python
+--import Logicore.Matcher.Python
 
 --import Language.Haskell.TH
 
@@ -47,9 +47,9 @@ main = do
       , post "/applyOriginalValueDefaults" (fnEndpoint mkApplyOriginalValueDefaults)
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
       , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
-      , post "/pythonStep1" (fnEndpoint mkPythonStep1)
-      , post "/pythonStep2" (fnEndpoint mkPythonStep2)
-      , post "/pythonStep0" (fnEndpoint mkPythonStep0)
+      --, post "/pythonStep1" (fnEndpoint mkPythonStep1)
+      --, post "/pythonStep2" (fnEndpoint mkPythonStep2)
+      --, post "/pythonStep0" (fnEndpoint mkPythonStep0)
       ]
 
 
@@ -208,7 +208,7 @@ mkValueToExactResult e = do
   outputValue <- (m2ms $ MatchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
-mkPythonStep0 :: (Object -> MatchStatus Value)
+{-mkPythonStep0 :: (Object -> MatchStatus Value)
 mkPythonStep0 e = do
   grammar <- getGrammarArg e
   pattern <- (m2ms $ MatchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
@@ -251,7 +251,7 @@ mkPythonStep2 e = do
   return $ Object $ case thinPattern grammar mp (Just thinValue) of
                          MatchSuccess s -> (KM.singleton "code" $ matchResultToValue $ s)
                          NoMatch s -> (KM.singleton "error" $ (String . T.pack) $ "NoMatch: " ++ s)
-                         MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "MatchFailure: " ++ s)
+                         MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "MatchFailure: " ++ s)-}
 
 fnEndpoint :: (Object -> MatchStatus Value) -> ResponderM b
 fnEndpoint f = do
