@@ -63,6 +63,7 @@ import Data.Maybe (isJust, fromJust)
 import Data.Monoid
 import qualified Data.Set                     as S
 
+import Control.Applicative
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
 
@@ -157,7 +158,8 @@ instance (Monad m) => Monad (MatchStatusT m) where
                       NoMatch e -> return $ NoMatch e
                       MatchFailure e -> return $ MatchFailure e
 
-
+noMatch x = MatchStatusT (return (NoMatch x))
+matchFailure x = MatchStatusT (return (MatchFailure x))
 
 instance MonadTrans MatchStatusT where
   lift = MatchStatusT . fmap MatchSuccess
@@ -227,60 +229,67 @@ instance (ToJSON g, ToJSON r) => ToJSON (ContextFreeGrammarResult g r) where
 
 instance (FromJSON g, FromJSON r) => FromJSON (ContextFreeGrammarResult g r)
 
-contextFreeMatch' :: (Show g, Show v, Show r) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus ([v], (ContextFreeGrammarResult g r))
-contextFreeMatch' (Char _) [] _ = NoMatch "can't read char"
-contextFreeMatch' (Char a) (x:xs) matchFn =
-  case matchFn a x of
+contextFreeMatch' :: (Show g, Show v, Show r, Monad m) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatusT m r) -> MatchStatusT m ([v], (ContextFreeGrammarResult g r))
+contextFreeMatch' (Char _) [] _ = noMatch "can't read char"
+contextFreeMatch' (Char a) (x:xs) matchFn = MatchStatusT $ do
+  rr <- runMatchStatusT $ matchFn a x
+  return $ case rr of
        NoMatch s -> NoMatch ("no char match: " ++ s)
        MatchFailure s -> MatchFailure s
        MatchSuccess a' -> MatchSuccess (xs, CharNode a')
 
-contextFreeMatch' (Seq as) xs matchFn = (fmap . fmap) SeqNode $ L.foldl' f (MatchSuccess (xs, mempty)) as
-  where f acc' a = do
+contextFreeMatch' (Seq as) xs matchFn = do
+  let f acc' a = do
           (xs, result) <- acc'
           (xs', result') <- contextFreeMatch' a xs matchFn
           return (xs', result ++ [result'])
+  (rest, res) <- L.foldl' f (return (xs, mempty)) as
+  return $ (rest, SeqNode res)
 
-contextFreeMatch' (Or as) xs matchFn = L.foldr f (NoMatch "or mismatch") (KM.toList as)
-  where f (opt, a) b = do
-          case contextFreeMatch' a xs matchFn of
+contextFreeMatch' (Or as) xs matchFn = L.foldr f (noMatch "or mismatch") (KM.toList as)
+  where f (opt, a) b = MatchStatusT $ do
+          rr <- runMatchStatusT $ contextFreeMatch' a xs matchFn
+          runMatchStatusT $ case rr of
                NoMatch _ -> b
-               MatchFailure s -> MatchFailure s
-               MatchSuccess (xs', r) -> MatchSuccess (xs', OrNode (KM.delete opt as) opt r)
+               MatchFailure s -> matchFailure s
+               MatchSuccess (xs', r) -> return (xs', OrNode (KM.delete opt as) opt r)
 
-contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) c $ f (MatchSuccess (xs, mempty))
+contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) c $ f (return (xs, mempty))
   where --f :: MatchStatus ([b], ContextFreeGrammar a) -> MatchStatus ([b], ContextFreeGrammar a)
         c [] = StarNodeEmpty a
         c xs = StarNodeValue xs
         f acc = do
           (xs, result) <- acc
-          case contextFreeMatch' a xs matchFn of
-               NoMatch _ -> acc
-               MatchFailure s -> MatchFailure s
-               MatchSuccess (xs', result') -> f (MatchSuccess (xs', result ++ [result']))
+          MatchStatusT $ do
+            rr <- runMatchStatusT $ contextFreeMatch' a xs matchFn
+            runMatchStatusT $ case rr of
+                NoMatch _ -> acc
+                MatchFailure s -> matchFailure s
+                MatchSuccess (xs', result') -> f (return (xs', result ++ [result']))
 
 contextFreeMatch' (Plus a) xs matchFn = do
   (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs matchFn
   rs' <- case subresult of
-              (SeqNode [r, (StarNodeValue rs)]) -> MatchSuccess (r:rs)
-              _ -> NoMatch ("impossible203" ++ show subresult)
+              (SeqNode [r, (StarNodeValue rs)]) -> return (r:rs)
+              _ -> noMatch ("impossible203" ++ show subresult)
   return (xs', (PlusNode rs'))
   
 
-contextFreeMatch' (Optional a) xs matchFn =
-  case contextFreeMatch' a xs matchFn of
+contextFreeMatch' (Optional a) xs matchFn = MatchStatusT $ do
+  rr <- runMatchStatusT $ contextFreeMatch' a xs matchFn
+  return $ case rr of
        NoMatch _ -> MatchSuccess (xs, OptionalNodeEmpty a)
        MatchFailure s -> MatchFailure s
        MatchSuccess (xs', subresult) -> MatchSuccess (xs', OptionalNodeValue subresult)
 
 contextFreeMatch' a xs _ = error ("no contextFreeMatch for:\n\n" ++ (show a) ++ "\n\n" ++ (show xs))
 
-contextFreeMatch :: (Show g, Show v, Show r) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatus r) -> MatchStatus (ContextFreeGrammarResult g r)
+contextFreeMatch :: (Show g, Show v, Show r, Monad m) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatusT m r) -> MatchStatusT m (ContextFreeGrammarResult g r)
 contextFreeMatch a xs matchFn = do
   (rest, result) <- contextFreeMatch' a xs matchFn
   case P.length rest == 0 of
-       False -> NoMatch ("rest left: " ++ show rest)
-       True -> MatchSuccess result
+       False -> noMatch ("rest left: " ++ show rest)
+       True -> return result
 
 -- helpers. Regular
 
