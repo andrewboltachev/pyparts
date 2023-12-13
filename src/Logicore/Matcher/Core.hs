@@ -66,6 +66,7 @@ import qualified Data.Set                     as S
 import Control.Applicative
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
+import Data.Functor.Identity
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (oneof)
@@ -583,7 +584,7 @@ m2ms m v = case v of
               Just x -> MatchSuccess x
               Nothing -> m
 
-m2mst :: MatchStatusT m a -> Maybe a -> MatchStatusT m a
+m2mst :: Monad m => MatchStatusT m a -> Maybe a -> MatchStatusT m a
 m2mst m v = case v of
               Just x -> return x
               Nothing -> m
@@ -750,7 +751,7 @@ matchPattern g (MatchArrayOr ms) (Array arr) = do
              MatchSuccess s -> MatchSuccess $ acc ++ [s]
              MatchFailure err -> MatchFailure err
              NoMatch err -> MatchSuccess $ acc
-  r <- L.foldl' h (MatchStatusT (return [])) (V.toList arr)
+  r <- L.foldl' h (return []) (V.toList arr)
   let inner = if P.null r
                  then StarNodeEmpty $ Char $ MatchOr ms
                  else StarNodeValue $ fmap CharNode r
@@ -911,7 +912,7 @@ valueToExactGrammar = cata go
     go (BoolF a) = MatchBoolExact a
     go NullF = MatchNull
 
-valueToExactResult :: Value -> MatchStatus MatchResult
+valueToExactResult :: Monad m => Value -> MatchStatusT m MatchResult
 valueToExactResult v = matchPattern mempty g v where g = valueToExactGrammar v
 
 
@@ -1767,19 +1768,23 @@ thinPatternWithDefaults m' r v = do
 
 g00 = (Seq [(Star (Char 1)), (Optional (Char 4))])
 
-main1 = do
-  contextFreeMatch g00 ([1, 1, 1, 4] :: [Int]) ((\a b -> if a == b then MatchSuccess a else NoMatch "foo") :: Int -> Int -> MatchStatus Int)
 
+contextFreeMatchI p v f = runIdentity $ runMatchStatusT $ contextFreeMatch p v f
+
+matchPatternI g p v = runIdentity $ runMatchStatusT $ matchPattern g p v
+
+main1 = do
+  contextFreeMatchI g00 ([1, 1, 1, 4] :: [Int]) ((\a b -> if a == b then return a else noMatch "foo") :: Int -> Int -> MatchStatusT Identity Int)
 
 qc1 = do
-  quickCheck (\g v -> case (matchPattern mempty g v) of (MatchSuccess s) -> v == matchResultToValue s; _ -> True)
+  quickCheck (\g v -> case (matchPatternI mempty g v) of (MatchSuccess s) -> v == matchResultToValue s; _ -> True)
 
 qc2 = do
-  quickCheck (\g v -> case (matchPattern mempty g v) of (MatchSuccess s) -> g == matchResultToPattern s; _ -> True)
+  quickCheck (\g v -> case (matchPatternI mempty g v) of (MatchSuccess s) -> g == matchResultToPattern s; _ -> True)
 
 
 qc3 = do
-  quickCheck (\v -> case (matchPattern mempty (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
+  quickCheck (\v -> case (matchPatternI mempty (valueToExactGrammar v) v) of MatchSuccess _ -> True; _ -> False)
 
 -- TH tricks (read DT)
 
@@ -1802,7 +1807,7 @@ qc4 = do
   quickCheck (not . trueOrFail . (matchPatternIsMovable mempty) . valueToExactGrammar)
 
 qc5 = do
-  quickCheck (\v -> case valueToExactResult v of MatchSuccess s -> not $ trueOrFail $ matchResultIsMovable mempty s; _ -> False)
+  quickCheck (\v -> case (runIdentity . runMatchStatusT . valueToExactResult) v of MatchSuccess s -> not $ trueOrFail $ matchResultIsMovable mempty s; _ -> False)
 
 
 c6f :: MatchResult -> Bool
@@ -1826,7 +1831,7 @@ qq = quickCheck (withMaxSuccess 10000 c6c)
 
 tVIs :: MatchPattern -> Value -> Expectation
 tVIs p v = 
-      let r = extract $ matchPattern mempty p v
+      let r = extract $ matchPatternI mempty p v
           t' = extract $ matchResultToThinValue mempty r
           r' = extract $ thinPattern mempty p t'
           r'' = applyOriginalValueDefaults r' (Just r)
@@ -1835,7 +1840,7 @@ tVIs p v =
 
 tIs :: MatchPattern -> Value -> Maybe Value -> Expectation
 tIs p v t = 
-      let r = extract $ matchPattern mempty p v
+      let r = extract $ matchPatternI mempty p v
           t' = extract $ matchResultToThinValue mempty r
       in t' `shouldBe` t
 
@@ -1843,15 +1848,15 @@ test :: IO ()
 test = hspec $ do
   describe "MatchObjectWithDefaults matchPattern works correctly" $ do
     it "handles correctly the empty case" $ do
-      let r = matchPattern mempty (MatchObjectWithDefaults (fromList []) (fromList [])) (Object (fromList []))
+      let r = matchPatternI mempty (MatchObjectWithDefaults (fromList []) (fromList [])) (Object (fromList []))
       r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList []) (fromList []) (fromList []))
 
     it "handles correctly the case with default value" $ do
-      let r = matchPattern mempty (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
+      let r = matchPatternI mempty (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ " ")]))
       r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w", String " ")]) (fromList []))
 
     it "handles correctly the case with different value" $ do
-      let r = matchPattern mempty (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ "   ")]))
+      let r = matchPatternI mempty (MatchObjectWithDefaults (fromList [("a", MatchNumberAny)]) (fromList [("w", String " ")])) (Object (fromList [("a", Number 1), ("w", String $ "   ")]))
       r `shouldBe` MatchSuccess (MatchObjectWithDefaultsResult (fromList [("a",MatchNumberAnyResult 1.0)]) (fromList [("w",String " ")]) (fromList [("w",String "   ")]))
 
   describe "handles MatchPattern nodes correctly" $ do
@@ -2004,14 +2009,14 @@ demo1 = do
         , (K.fromString "c", Number 4)
         , (K.fromString "d", Number 5)
         ])
-      r = extract $ matchPattern mempty p v
+      r = extract $ matchPatternI mempty p v
       t = extract $ matchResultToThinValue mempty r
   putStrLn $ show $ r
   putStrLn $ show $ t
   putStrLn $ show $ extract $ thinPattern mempty p t
 
 w1 p v = 
-      let r = extract $ matchPattern mempty p v
+      let r = extract $ matchPatternI mempty p v
           t' = matchResultToThinValue mempty r
       in t'
 
@@ -2049,7 +2054,7 @@ thinWithDefaults1 = do
             (Object (fromList [("type", String "Node"), ("value", Number 20), ("ws", String "  ")])),
             (Object (fromList [("type", String "Node"), ("value", Number 30), ("ws", String "   ")]))]
   let p = MatchArrayContextFree $ Seq [Star $ Char $ MatchObjectWithDefaults (fromList [("type", MatchStringExact "Node"), ("value", MatchNumberAny)]) (fromList [("ws", String " ")])]
-  r <- matchPattern mempty p v
+  r <- matchPatternI mempty p v
   let t = Just (Array [Array [Number 1.0,Number 10.0],Array [Number 2.0,Number 20.0],Array [Number 0,Number 50.0],Array [Number 3.0,Number 30.0]])
   --return $ thinPattern p t
   r' <- thinPatternWithDefaults mempty r t
@@ -2061,7 +2066,7 @@ thinWithDefaults2 = do
             (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String "  ")])),
             (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String "   ")]))]
   let p = MatchArrayContextFree $ Seq [Star $ Char $ MatchObjectWithDefaults (fromList [("type", MatchStringExact "Node"), ("value", MatchNumberExact 10.0)]) (fromList [("ws", String " ")])]
-  r <- matchPattern mempty p v
+  r <- matchPatternI mempty p v
   --return $ matchResultToThinValue r
   let t = Just $ Number 5.0
   r' <- thinPatternWithDefaults mempty r t
