@@ -583,44 +583,52 @@ m2ms m v = case v of
               Just x -> MatchSuccess x
               Nothing -> m
 
+m2mst :: MatchStatusT m a -> Maybe a -> MatchStatusT m a
+m2mst m v = case v of
+              Just x -> return x
+              Nothing -> m
+
 -- pattern -> value -> result. result = value × pattern (is a product)
 -- Both pattern and value can be derived from a result using trivial projections
 -- (look category theory product)
-matchPattern :: (KeyMap MatchPattern) -> MatchPattern -> Value -> MatchStatus MatchResult
+matchPattern :: Monad m => (KeyMap MatchPattern) -> MatchPattern -> Value -> MatchStatusT m MatchResult
 
-mObj :: (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatus (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
+mObj :: Monad m => (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj g keepExt m a = do
-  preResult <- L.foldl' (doKeyMatch m a) (MatchSuccess mempty) (keys m)
-  L.foldl' f (MatchSuccess preResult) (keys a)
+  preResult <- L.foldl' (doKeyMatch m a) (return mempty) (keys m)
+  L.foldl' f (return preResult) (keys a)
     where
-      step k r acc req = case KM.lookup k a of
+      step k r acc req = do
+                    case KM.lookup k a of
                       -- KeyOpt means key might be missing
                       Nothing -> if req
-                                      then NoMatch $ "Required key " ++ show k ++ " not found in map"
-                                      else MatchSuccess $ first (KM.insert k r) acc
+                                      then noMatch $ "Required key " ++ show k ++ " not found in map"
+                                      else return $ first (KM.insert k r) acc
                       -- if it exists, it must match
-                      Just n -> case matchPattern g r n of
-                                     NoMatch s -> NoMatch s
-                                     MatchFailure s -> MatchFailure s
-                                     MatchSuccess s -> MatchSuccess $ second (KM.insert k el) acc
-                                        where
-                                          el = if req then (KeyReq s) else (KeyOpt s)
+                      Just n -> MatchStatusT $ do
+                        rr <- runMatchStatusT $ matchPattern g r n
+                        return $ case rr of
+                             NoMatch s -> NoMatch s
+                             MatchFailure s -> MatchFailure s
+                             MatchSuccess s -> return $ second (KM.insert k el) acc
+                                where
+                                  el = if req then (KeyReq s) else (KeyOpt s)
       doKeyMatch m a acc' k = do
         acc <- acc'
-        v <- (m2ms $ MatchFailure "impossible") (KM.lookup k m)
+        v <- (m2mst $ matchFailure "impossible") (KM.lookup k m)
         case v of
             KeyReq r -> step k r acc True
             KeyOpt r -> step k r acc False
-            KeyExt _ -> MatchFailure "malformed grammar: KeyExt cannot be here"
+            KeyExt _ -> matchFailure "malformed grammar: KeyExt cannot be here"
       f acc' k = do
             acc <- acc'
             case KM.member k m of
-                 True -> MatchSuccess acc
+                 True -> return acc
                  False -> case keepExt of
-                               False -> NoMatch $ ("extra key in arg: " ++ show k)
+                               False -> noMatch $ ("extra key in arg: " ++ show k)
                                True -> case KM.lookup k a of
-                                            Nothing -> MatchFailure "impossible"
-                                            Just v -> MatchSuccess $ second (KM.insert k (KeyExt v)) acc
+                                            Nothing -> matchFailure "impossible"
+                                            Just v -> return $ second (KM.insert k (KeyExt v)) acc
 
 matchPattern g (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj g False m a)
 --matchPattern (MatchObjectOnly m) (Object a) = (fmap $ uncurry MatchObjectFullResult) (mObj g False (fmap KeyReq m) (KM.filterWithKey (\k v -> KM.member k m) a))
@@ -633,20 +641,20 @@ matchPattern g (MatchObjectWithDefaults m d) (Object a) = do
           if KM.member k m
             then
                 do
-                  m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+                  m' <- (m2mst $ matchFailure "impossible") $ KM.lookup k m
                   rr <- matchPattern g m' v
                   return $ first (KM.insert k rr) acc
             else
               if KM.member k d
                 then
                   do
-                    d' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k d
+                    d' <- (m2mst $ matchFailure "impossible") $ KM.lookup k d
                     let ff = if v /= d'
                               then KM.insert k v
                               else id
                     return $ second ff acc
-                else NoMatch $ "extra key: " ++ show k
-  (mm, vv) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
+                else noMatch $ "extra key: " ++ show k
+  (mm, vv) <- L.foldl' f (return mempty) $ KM.toList a
   return $ MatchObjectWithDefaultsResult mm d vv
 
 
@@ -656,68 +664,76 @@ matchPattern g (MatchObjectOnly m) (Object a) = do
           if KM.member k m
             then
                 do
-                  m' <- (m2ms $ MatchFailure "impossible") $ KM.lookup k m
+                  m' <- (m2mst $ matchFailure "impossible") $ KM.lookup k m
                   rr <- matchPattern g m' v
                   return $ first (KM.insert k rr) acc
             else
               return $ second (KM.insert k v) acc
-  (mm, vv) <- L.foldl' f (MatchSuccess mempty) $ KM.toList a
+  (mm, vv) <- L.foldl' f (return mempty) $ KM.toList a
   return $ MatchObjectOnlyResult mm vv
 
 
-matchPattern g (MatchArrayContextFree m) (Array a) = do
-  case contextFreeMatch m (V.toList a) (matchPattern g) of
+matchPattern g (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
+  rr <- runMatchStatusT $ contextFreeMatch m (V.toList a) (matchPattern g)
+  return $ case rr of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResult x)
 
-matchPattern g (MatchArrayContextFree m) (Object a) = NoMatch ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
+matchPattern g (MatchArrayContextFree m) (Object a) = noMatch ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
 
 matchPattern g (MatchArrayOnly m) (Array a) = do
   let f acc' e = do
         acc <- acc'
-        case matchPattern g m e of
-             MatchFailure e -> MatchFailure e
-             MatchSuccess s -> MatchSuccess $ bimap (++[s]) (++[Nothing]) acc
-             NoMatch _ -> MatchSuccess $ second (++[Just e]) acc
-  (r, v) <- L.foldl' f (MatchSuccess mempty) (V.toList a)
+        MatchStatusT $ do
+          rr <- runMatchStatusT $ matchPattern g m e
+          return $ case rr of
+              MatchFailure e -> MatchFailure e
+              MatchSuccess s -> MatchSuccess $ bimap (++[s]) (++[Nothing]) acc
+              NoMatch _ -> MatchSuccess $ second (++[Just e]) acc
+  (r, v) <- L.foldl' f (return mempty) (V.toList a)
   return $ if P.null r
               then MatchArrayOnlyResultEmpty m (catMaybes v)
               else MatchArrayOnlyResultSome r v
 
-matchPattern g MatchFunnel v = MatchSuccess $ MatchFunnelResult v
+matchPattern g MatchFunnel v = return $ MatchFunnelResult v
 
-matchPattern g MatchFunnelKeys (Object v) = MatchSuccess $ MatchFunnelKeysResult $ v
-matchPattern g MatchFunnelKeys _ = MatchFailure "MatchFunnelKeys met not an Object"
+matchPattern g MatchFunnelKeys (Object v) = return $ MatchFunnelKeysResult $ v
+matchPattern g MatchFunnelKeys _ = matchFailure "MatchFunnelKeys met not an Object"
 
-matchPattern g MatchFunnelKeysU (Object v) = MatchSuccess $ MatchFunnelKeysUResult $ v
-matchPattern g MatchFunnelKeysU _ = MatchFailure "MatchFunnelKeysU met not an Object"
+matchPattern g MatchFunnelKeysU (Object v) = return $ MatchFunnelKeysUResult $ v
+matchPattern g MatchFunnelKeysU _ = matchFailure "MatchFunnelKeysU met not an Object"
 
-matchPattern g (MatchIfThen baseMatch failMsg match) v =
-  case matchPattern g baseMatch v of
-       NoMatch x -> NoMatch x
-       MatchFailure f -> MatchFailure f
-       MatchSuccess _ -> case matchPattern g match v of
-                            NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
-                            MatchFailure f -> MatchFailure f
-                            MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
+matchPattern g (MatchIfThen baseMatch failMsg match) v = MatchStatusT $ do
+  rr <- runMatchStatusT $ matchPattern g baseMatch v
+  case rr of
+       NoMatch x -> return $ NoMatch x
+       MatchFailure f -> return $ MatchFailure f
+       MatchSuccess _ -> do
+          rr' <- runMatchStatusT $ matchPattern g match v
+          return $ case rr' of
+               NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
+               MatchFailure f -> MatchFailure f
+               MatchSuccess s -> MatchSuccess (MatchIfThenResult baseMatch failMsg s)
 
-matchPattern g MatchAny a = MatchSuccess $ MatchAnyResult a
-matchPattern g MatchIgnore a = MatchSuccess $ MatchIgnoreResult a
+matchPattern g MatchAny a = return $ MatchAnyResult a
+matchPattern g MatchIgnore a = return $ MatchIgnoreResult a
 matchPattern g (MatchOr ms) v = do
-  let f (k, a) b = case matchPattern g a v of
-                     MatchSuccess x -> MatchSuccess (k, x)
-                     MatchFailure f -> MatchFailure f
+  let f (k, a) b = MatchStatusT $ do
+                rr <- runMatchStatusT $ matchPattern g a v
+                runMatchStatusT $ case rr of
+                     MatchSuccess x -> return (k, x)
+                     MatchFailure f -> matchFailure f
                      _ -> b
-  (k, res) <- P.foldr f (NoMatch "or fail") (KM.toList ms)
+  (k, res) <- P.foldr f (noMatch "or fail") (KM.toList ms)
   return $ MatchOrResult (KM.delete k ms) k res
 
-matchPattern g (MatchNot ms) v = a
-  where
-    a = case matchPattern g ms v of
-             MatchSuccess x -> NoMatch $ "Not fail: " ++ show x
-             MatchFailure f -> MatchFailure f
-             NoMatch s -> return $ MatchNotResult ms v
+matchPattern g (MatchNot ms) v = MatchStatusT $ do
+  rr <- runMatchStatusT $ matchPattern g ms v
+  return $ case rr of
+       MatchSuccess x -> NoMatch $ "Not fail: " ++ show x
+       MatchFailure f -> MatchFailure f
+       NoMatch s -> return $ MatchNotResult ms v
 
 matchPattern g (MatchAnd ms' ms) v = do
   s' <- matchPattern g ms' v
@@ -728,11 +744,13 @@ matchPattern g (MatchAnd ms' ms) v = do
 matchPattern g (MatchArrayOr ms) (Array arr) = do
   let h acc' e = do
         acc <- acc'
-        case matchPattern g (MatchOr ms) e of
-             MatchSuccess s -> return $ acc ++ [s]
+        return $ do
+          rr <- runMatchStatusT $ matchPattern g (MatchOr ms) e
+          return $ case rr of
+             MatchSuccess s -> MatchSuccess $ acc ++ [s]
              MatchFailure err -> MatchFailure err
-             NoMatch err -> return $ acc
-  r <- L.foldl' h (MatchSuccess []) (V.toList arr)
+             NoMatch err -> MatchSuccess $ acc
+  r <- L.foldl' h (MatchStatusT (return [])) (V.toList arr)
   let inner = if P.null r
                  then StarNodeEmpty $ Char $ MatchOr ms
                  else StarNodeValue $ fmap CharNode r
