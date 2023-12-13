@@ -163,7 +163,10 @@ instance (Monad m) => Monad (MatchStatusT m) where
                       NoMatch e -> return $ NoMatch e
                       MatchFailure e -> return $ MatchFailure e
 
+noMatch :: Monad m => String -> MatchStatusT m a
 noMatch x = MatchStatusT (return (NoMatch x))
+
+matchFailure :: Monad m => String -> MatchStatusT m a
 matchFailure x = MatchStatusT (return (MatchFailure x))
 
 instance MonadTrans MatchStatusT where
@@ -1313,7 +1316,7 @@ or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.
 
 
 thinSeq m as v = do
-        let gs = fmap (extract . (contextFreeGrammarIsMovable (matchPatternIsMovable m))) as
+        gs <- P.traverse (contextFreeGrammarIsMovable (matchPatternIsMovable m)) as
         v <- case P.length (P.filter id gs) of
                   0 ->
                     do
@@ -1348,8 +1351,9 @@ throwAwayIndexes err (Array a') = do
   L.foldl' f (return mempty) a
 throwAwayIndexes err _ = err
 
-getIndexes :: Monad m => a -> Value -> MatchStatusT m [Int]
-getIndexes _ (Array a') = do
+getIndexes :: Monad m => MatchStatusT m a -> Value -> MatchStatusT m [Int]
+getIndexes ee (Array a') = do
+  ee <- ee
   a <- return $ V.toList a'
   let f acc' x = do
         acc <- acc'
@@ -1391,8 +1395,10 @@ thinContextFreeMatch m (Or ms) (Just (Object v)) = do -- or requires an exsistan
   return $ OrNode (KM.delete itsK ms) itsK mch
 
 thinContextFreeMatch m (Star a) (Just itsValue) = do
-  let gg = extract . (contextFreeGrammarIsMovable (matchPatternIsMovable m))
-  if gg a
+  --        _ :: (ContextFreeGrammar MatchPattern -> MatchStatusT m14 Bool)
+  --             -> ContextFreeGrammar MatchPattern -> Bool
+  gg <- (contextFreeGrammarIsMovable (matchPatternIsMovable m)) a
+  if gg
      then -- actual
         do
           is <- (getIndexes $ matchFailure ("data error2" ++ show itsValue)) $ itsValue
@@ -1417,8 +1423,8 @@ thinContextFreeMatch m (Star a) (Just itsValue) = do
                   return $ StarNodeValue aa
 
 thinContextFreeMatch m (Plus a) (Just itsValue) = do
-  let gg = extract . (contextFreeGrammarIsMovable (matchPatternIsMovable m))
-  if gg a
+  gg <- (contextFreeGrammarIsMovable (matchPatternIsMovable m)) a
+  if gg
      then -- actual
         do
           is <- (getIndexes $ matchFailure ("data error2" ++ show itsValue)) $ itsValue
@@ -1433,8 +1439,8 @@ thinContextFreeMatch m (Plus a) (Just itsValue) = do
           return $ PlusNode aa
 
 thinContextFreeMatch m (Optional a) (Just itsValue) = do
-  let gg = extract . (contextFreeGrammarIsMovable (matchPatternIsMovable m))
-  if gg a
+  gg <- (contextFreeGrammarIsMovable (matchPatternIsMovable m)) a
+  if gg
      then
       do
         itsValue <- (m2mst $ matchFailure ("data error1141" ++ show itsValue)) $ asArray itsValue
@@ -1458,10 +1464,10 @@ thinContextFreeMatch m a xs = error ("no match for: " ++ (show a) ++ " " ++ (sho
 
 tObj :: Monad m => (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> (KeyMap Value) -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 tObj m' keepExt m a = do
+  --gg <- matchPatternIsMovable m'
   preResult <- L.foldl' (doKeyMatch m a) (return mempty) (keys m)
   L.foldl' f (return preResult) (keys a)
     where
-      gg = (matchPatternIsMovable m')
       step k r acc req = case KM.lookup k a of
                       -- KeyOpt means key might be missing
                       Nothing -> if req
@@ -1848,6 +1854,7 @@ qq = quickCheck (withMaxSuccess 10000 c6c)-}
 -- Different matches for or example (trivial and normal)
 -- p[attern] v[alue] r[esult] t[hin value]
 
+{-
 tVIs :: MatchPattern -> Value -> Expectation
 tVIs p v = 
       let r = extract $ matchPatternI mempty p v
@@ -2067,7 +2074,7 @@ work = do
   print $ w1 p v
 
 -- the thin case
-{- TODO fix
+-- TODO fix
 thinWithDefaults1 = do
   let v = Array [
             (Object (fromList [("type", String "Node"), ("value", Number 10), ("ws", String " ")])),
