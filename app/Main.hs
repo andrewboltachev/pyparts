@@ -16,6 +16,9 @@ import qualified Data.Text.Lazy.Encoding    as TL
 import qualified Data.Text.Lazy.IO          as TL
 import qualified Data.ByteString.Lazy       as BL
 
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
 import Control.Monad.IO.Class (liftIO)
 
 import Logicore.Matcher.Core
@@ -257,9 +260,10 @@ fnEndpoint :: (Object -> MatchStatusT IO Value) -> ResponderM b
 fnEndpoint f = do
     --_ <- liftIO $ print "fnEndpoint"
     b <- (fromBody :: ResponderM Value)
-    let a = do
-            e <- (m2e "JSON root element must be a map") $ asKeyMap b
-            r <- case f e of
+    a <- runExceptT $ do
+            e <- (m2et "JSON root element must be a map") $ asKeyMap b
+            vv <- liftIO $ runReaderT (runMatchStatusT $ f e) emptyEnvValue
+            r <- (ExceptT . return) $ case vv of
                     MatchFailure s -> Left ("matchFailure: " ++ s)
                     NoMatch x -> Left ("NoMatch: " ++ x)
                     MatchSuccess r -> Right $ r
