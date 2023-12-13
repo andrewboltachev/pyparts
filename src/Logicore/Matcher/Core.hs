@@ -744,7 +744,7 @@ matchPattern g (MatchAnd ms' ms) v = do
 matchPattern g (MatchArrayOr ms) (Array arr) = do
   let h acc' e = do
         acc <- acc'
-        return $ do
+        MatchStatusT $ do
           rr <- runMatchStatusT $ matchPattern g (MatchOr ms) e
           return $ case rr of
              MatchSuccess s -> MatchSuccess $ acc ++ [s]
@@ -757,26 +757,26 @@ matchPattern g (MatchArrayOr ms) (Array arr) = do
   return $ MatchArrayContextFreeResult $ SeqNode [inner]
 
 -- specific (aka exact)
-matchPattern g (MatchStringExact m) (String a) = if m == a then MatchSuccess $ MatchStringExactResult a else NoMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern g (MatchStringExact m) (String a) = if m == a then return $ MatchStringExactResult a else noMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
 matchPattern g (MatchStringRegExp m) (String a) =
   if a =~ m
-     then MatchSuccess $ MatchStringRegExpResult m a
-     else NoMatch ("string regexp mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern g (MatchNumberExact m) (Number a) = if m == a then MatchSuccess $ MatchNumberExactResult a else NoMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern g (MatchBoolExact m) (Bool a) = if m == a then MatchSuccess $ MatchBoolExactResult a else NoMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
+     then return $ MatchStringRegExpResult m a
+     else noMatch ("string regexp mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern g (MatchNumberExact m) (Number a) = if m == a then return $ MatchNumberExactResult a else noMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern g (MatchBoolExact m) (Bool a) = if m == a then return $ MatchBoolExactResult a else noMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
 -- any (of a type)
-matchPattern g MatchStringAny (String a) = MatchSuccess $ MatchStringAnyResult a
-matchPattern g MatchNumberAny (Number a) = MatchSuccess $ MatchNumberAnyResult a
-matchPattern g MatchBoolAny (Bool a) = MatchSuccess $ MatchBoolAnyResult a
+matchPattern g MatchStringAny (String a) = return $ MatchStringAnyResult a
+matchPattern g MatchNumberAny (Number a) = return $ MatchNumberAnyResult a
+matchPattern g MatchBoolAny (Bool a) = return $ MatchBoolAnyResult a
 -- null is just null
-matchPattern g MatchNull Null = MatchSuccess MatchNullResult
+matchPattern g MatchNull Null = return MatchNullResult
 -- refs, finally :-)
 matchPattern g (MatchRef r) v = do
-  p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+  p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
   a <- matchPattern g p v
   return $ MatchRefResult r a
 -- default ca
-matchPattern g m a = NoMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
+matchPattern g m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
 --contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
