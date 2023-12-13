@@ -143,7 +143,10 @@ instance Comonad MatchStatus where
   duplicate (NoMatch m) = NoMatch m
 
 
-newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: m (MatchStatus a) }
+type Env = Value
+emptyEnvValue = Null
+
+newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT Env m (MatchStatus a) }
 instance Functor m => Functor (MatchStatusT m) where
   fmap f (MatchStatusT ma) = MatchStatusT $ (fmap . fmap) f ma
 
@@ -164,7 +167,9 @@ noMatch x = MatchStatusT (return (NoMatch x))
 matchFailure x = MatchStatusT (return (MatchFailure x))
 
 instance MonadTrans MatchStatusT where
-  lift = MatchStatusT . fmap MatchSuccess
+  -- m a -> MatchStatusT m a
+  -- MatchStatusT $ 
+  lift x = MatchStatusT $ ReaderT (const (fmap MatchSuccess x))
 
 instance (MonadIO m) => MonadIO (MatchStatusT m) where
   liftIO = lift. liftIO
@@ -593,9 +598,7 @@ m2mst m v = case v of
 -- pattern -> value -> result. result = value × pattern (is a product)
 -- Both pattern and value can be derived from a result using trivial projections
 -- (look category theory product)
-type Env = Value
-emptyEnvValue = Null
-matchPattern :: Monad m => (KeyMap MatchPattern) -> MatchPattern -> Value -> MatchStatusT (ReaderT Env m) MatchResult
+matchPattern :: Monad m => (KeyMap MatchPattern) -> MatchPattern -> Value -> MatchStatusT m MatchResult
 
 --mObj :: Monad m => (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj g keepExt m a = do
@@ -1084,7 +1087,7 @@ matchResultIsWellFormed m = paraM checkM
 -- is movable
 
 
-contextFreeGrammarIsMovable :: (a -> MatchStatus Bool) -> ContextFreeGrammar a -> MatchStatus Bool
+contextFreeGrammarIsMovable :: Monad m => (a -> MatchStatusT m Bool) -> ContextFreeGrammar a -> MatchStatusT m Bool
 contextFreeGrammarIsMovable f = cataM go'
   where
     go' (CharF a) = f a
@@ -1126,11 +1129,11 @@ liftObjectKeyMatch m = L.foldl' f (MatchSuccess mempty) (KM.keys m)
                KeyReq (NoMatch s) -> NoMatch s
 
 
-matchPatternIsMovable :: (KeyMap MatchPattern) -> MatchPattern -> MatchStatus Bool
+matchPatternIsMovable :: Monad m => (KeyMap MatchPattern) -> MatchPattern -> MatchStatusT m Bool
 matchPatternIsMovable g = cataM goM
   where
     goM (MatchRefF r) = do
-      p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+      p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
       --matchPatternIsMovable g p
       return $ True --ehhh
     goM (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable return g
@@ -1175,7 +1178,7 @@ isKeyOpt _ = False
 getKeyOpts :: [ObjectKeyMatch b] -> [b]
 getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here703") $ P.filter isKeyOpt xs
 
-matchResultIsMovable :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus Bool
+matchResultIsMovable :: Monad m => (KeyMap MatchPattern) -> MatchResult -> MatchStatusT m Bool
 matchResultIsMovable g r = matchPatternIsMovable g (matchResultToPattern r)
 
 
@@ -1190,7 +1193,7 @@ int2sci x = Number $ Sci.scientific (toInteger x) 0
 enumerate :: [Value] -> [Value]
 enumerate a = fmap (\(i, a) -> Array $ V.fromList [int2sci i, a]) $ P.zip [1..] a
 
-contextFreeGrammarResultToThinValue :: (KeyMap MatchPattern) -> ContextFreeGrammarResult MatchPattern (Maybe Value) -> MatchStatus (Maybe Value)
+contextFreeGrammarResultToThinValue :: Monad m => (KeyMap MatchPattern) -> ContextFreeGrammarResult MatchPattern (Maybe Value) -> MatchStatusT m (Maybe Value)
 contextFreeGrammarResultToThinValue m = cataM go'
   where
     gg = contextFreeGrammarIsMovable $ matchPatternIsMovable m
@@ -1233,7 +1236,7 @@ contextFreeGrammarResultToThinValue m = cataM go'
                             else Array $ V.fromList [(fromJust r)]
 
 
-matchResultToThinValue :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus (Maybe Value)
+matchResultToThinValue :: Monad m => (KeyMap MatchPattern) -> MatchResult -> MatchStatusT m (Maybe Value)
 matchResultToThinValue m = cataM goM
   where
     filterEmpty a = (KM.map fromJust (KM.filter isJust a))
