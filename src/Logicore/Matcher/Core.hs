@@ -65,6 +65,7 @@ import qualified Data.Set                     as S
 
 import Control.Applicative
 import Control.Monad.Trans.Class
+import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
 import Data.Functor.Identity
 
@@ -592,9 +593,11 @@ m2mst m v = case v of
 -- pattern -> value -> result. result = value × pattern (is a product)
 -- Both pattern and value can be derived from a result using trivial projections
 -- (look category theory product)
-matchPattern :: Monad m => (KeyMap MatchPattern) -> MatchPattern -> Value -> MatchStatusT m MatchResult
+type Env = Value
+emptyEnvValue = Null
+matchPattern :: Monad m => (KeyMap MatchPattern) -> MatchPattern -> Value -> MatchStatusT (ReaderT Env m) MatchResult
 
-mObj :: Monad m => (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
+--mObj :: Monad m => (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj g keepExt m a = do
   preResult <- L.foldl' (doKeyMatch m a) (return mempty) (keys m)
   L.foldl' f (return preResult) (keys a)
@@ -912,7 +915,7 @@ valueToExactGrammar = cata go
     go (BoolF a) = MatchBoolExact a
     go NullF = MatchNull
 
-valueToExactResult :: Monad m => Value -> MatchStatusT m MatchResult
+--valueToExactResult :: Monad m => Value -> MatchStatusT m MatchResult
 valueToExactResult v = matchPattern mempty g v where g = valueToExactGrammar v
 
 
@@ -1769,12 +1772,12 @@ thinPatternWithDefaults m' r v = do
 g00 = (Seq [(Star (Char 1)), (Optional (Char 4))])
 
 
-contextFreeMatchI p v f = runIdentity $ runMatchStatusT $ contextFreeMatch p v f
+contextFreeMatchI p v f = runIdentity $ runReaderT (runMatchStatusT $ contextFreeMatch p v f) $ emptyEnvValue
 
-matchPatternI g p v = runIdentity $ runMatchStatusT $ matchPattern g p v
+matchPatternI g p v = runIdentity $ runReaderT (runMatchStatusT $ matchPattern g p v) $ emptyEnvValue
 
 main1 = do
-  contextFreeMatchI g00 ([1, 1, 1, 4] :: [Int]) ((\a b -> if a == b then return a else noMatch "foo") :: Int -> Int -> MatchStatusT Identity Int)
+  contextFreeMatchI g00 ([1, 1, 1, 4] :: [Int]) ((\a b -> if a == b then return a else noMatch "foo"))
 
 qc1 = do
   quickCheck (\g v -> case (matchPatternI mempty g v) of (MatchSuccess s) -> v == matchResultToValue s; _ -> True)
@@ -1807,7 +1810,7 @@ qc4 = do
   quickCheck (not . trueOrFail . (matchPatternIsMovable mempty) . valueToExactGrammar)
 
 qc5 = do
-  quickCheck (\v -> case (runIdentity . runMatchStatusT . valueToExactResult) v of MatchSuccess s -> not $ trueOrFail $ matchResultIsMovable mempty s; _ -> False)
+  quickCheck (\v -> case (runIdentity $ runReaderT (runMatchStatusT $ valueToExactResult v) emptyEnvValue) of MatchSuccess s -> not $ trueOrFail $ matchResultIsMovable mempty s; _ -> False)
 
 
 c6f :: MatchResult -> Bool
