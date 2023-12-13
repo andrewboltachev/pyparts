@@ -167,9 +167,7 @@ noMatch x = MatchStatusT (return (NoMatch x))
 matchFailure x = MatchStatusT (return (MatchFailure x))
 
 instance MonadTrans MatchStatusT where
-  -- m a -> MatchStatusT m a
-  -- MatchStatusT $ 
-  lift x = MatchStatusT $ ReaderT (const (fmap MatchSuccess x))
+  lift = MatchStatusT . ReaderT . const . (fmap MatchSuccess)
 
 instance (MonadIO m) => MonadIO (MatchStatusT m) where
   liftIO = lift. liftIO
