@@ -84,6 +84,8 @@ import Logicore.Matcher.Helpers
 
 import Text.Regex.TDFA((=~))
 
+import qualified Database.MongoDB as MongoDB
+
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
 --
@@ -406,6 +408,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchFunnelKeysU
                   -- special
                   | MatchRef String
+                  | MatchFromMongoDB MatchPattern
                     deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsArbitrary = do
@@ -488,6 +491,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchFunnelKeysUResult (KeyMap Value)
                  -- special
                  | MatchRefResult String MatchResult
+                 | MatchFromMongoDBResult String
                    deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsResultArbitrary = do
@@ -788,6 +792,12 @@ matchPattern g (MatchRef r) v = do
   p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
   a <- matchPattern g p v
   return $ MatchRefResult r a
+
+-- wow
+matchPattern g (MatchFromMongoDB r) v = do
+  pipe <- liftIO $ MongoDB.connect $ MongoDB.host "127.0.0.1"
+  return $ MatchNullResult
+
 -- default ca
 matchPattern g m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
@@ -2109,3 +2119,11 @@ ex1 = do
 	let a = (fromList [("element", MatchArrayContextFree $ Star (Seq [(Char (MatchRef "element"))]))])
 	let v = StarNodeEmpty (Char (MatchRef "element"))
 	contextFreeGrammarResultToThinValue a v-}
+
+
+mdb :: IO ()
+mdb = do
+  let p = MatchFromMongoDB $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
+  let v = String "logicore.products.657aa1c7ec43193e13182e9e"
+  a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) emptyEnvValue
+  print a
