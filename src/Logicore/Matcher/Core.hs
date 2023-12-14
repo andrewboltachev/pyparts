@@ -85,7 +85,7 @@ import Logicore.Matcher.Helpers
 import Text.Regex.TDFA((=~))
 
 import qualified Database.MongoDB as MongoDB
-import Data.Aeson.Bson
+import Data.Aeson.Bson hiding (String)
 
 -- Utils
 wordsWhen     :: (Char -> Bool) -> String -> [String]
@@ -813,10 +813,16 @@ matchPattern g (MatchFromMongoDB r) v = do
   vv' <- run $ MongoDB.findOne $ MongoDB.select ["_id" MongoDB.=: MongoDB.ObjId (read $ T.unpack objectId)] collection
   vv <- (m2mst $ matchFailure $ "MongoDB Id not found: " ++ T.unpack v) vv'
   vx <- return $ toAeson vv
+  liftIO $ putStrLn $ "Read from db ok"
   rr <- matchPattern g r (Object vx) -- one option is this
   liftIO $ putStrLn $ "Match from db ok"
-  liftIO $ print $ rr
-  return $ MatchNullResult
+  liftIO $ print rr
+  let jj = toJSON rr
+  km <- (m2mst $ matchFailure "impossible12312344") $ asKeyMap jj
+  let vvv = ((toBson km) :: MongoDB.Document)
+  kk <- liftIO $ MongoDB.access pipe MongoDB.master db $ MongoDB.insert collection vvv
+  liftIO $ putStrLn $ "Insert doc: " ++ show kk
+  return $ MatchFromMongoDBResult $ show kk -- TODO better conversion?
 
 -- default ca
 matchPattern g m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
