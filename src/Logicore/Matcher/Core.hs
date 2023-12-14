@@ -820,7 +820,8 @@ matchPattern g (MatchFromMongoDB r) v = do
   let jj = toJSON rr
   km <- (m2mst $ matchFailure "impossible12312344") $ asKeyMap jj
   let vvv = ((toBson km) :: MongoDB.Document)
-  kk <- liftIO $ MongoDB.access pipe MongoDB.master db $ MongoDB.insert collection vvv
+  let resultsCollection = T.concat [collection, "Results"]
+  kk <- liftIO $ MongoDB.access pipe MongoDB.master db $ MongoDB.insert resultsCollection vvv
   liftIO $ putStrLn $ "Insert doc: " ++ show kk
   return $ MatchFromMongoDBResult $ show kk -- TODO better conversion?
 
