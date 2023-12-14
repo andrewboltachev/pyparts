@@ -85,6 +85,7 @@ import Logicore.Matcher.Helpers
 import Text.Regex.TDFA((=~))
 
 import qualified Database.MongoDB as MongoDB
+import Data.Aeson.Bson
 
 -- Utils
 wordsWhen     :: (Char -> Bool) -> String -> [String]
@@ -686,15 +687,14 @@ matchPattern g (MatchObjectWithDefaults m d) (Object a) = do
 matchPattern g (MatchObjectOnly m) (Object a) = do
   let f acc' (k, v) = do
           acc <- acc' -- (mm, dd)
-          if KM.member k m
-            then
+          case KM.lookup k a of
+            Just a' ->
                 do
-                  m' <- (m2mst $ matchFailure "impossible") $ KM.lookup k m
-                  rr <- matchPattern g m' v
-                  return $ first (KM.insert k rr) acc
-            else
-              return $ second (KM.insert k v) acc
-  (mm, vv) <- L.foldl' f (return mempty) $ KM.toList a
+                  rr <- matchPattern g v a'
+                  return $ (KM.insert k rr) acc
+            Nothing -> noMatch ("Required key " ++ (toString k) ++ " not found in object")
+  mm <- L.foldl' f (return mempty) $ KM.toList m
+  vv <- return $ (KM.filterWithKey (\k _ -> not $ KM.member k m)) a
   return $ MatchObjectOnlyResult mm vv
 
 
@@ -803,13 +803,19 @@ matchPattern g (MatchRef r) v = do
 
 -- wow
 matchPattern g (MatchFromMongoDB r) v = do
+  --  TODO operate on Text for db etc
   v <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString v
   let words = wordsWhen (=='.') $ T.unpack v
   if P.length words == 3 then return () else matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>"
+  let [db, collection, objectId] = (fmap T.pack words)
   pipe <- liftIO $ MongoDB.connect $ MongoDB.host "127.0.0.1"
-  let run act = liftIO $ MongoDB.access pipe MongoDB.master "logicore" act
-  vv <- run MongoDB.allCollections
-  liftIO $ print $ words
+  let run act = liftIO $ MongoDB.access pipe MongoDB.master db act
+  vv' <- run $ MongoDB.findOne $ MongoDB.select ["_id" MongoDB.=: MongoDB.ObjId (read $ T.unpack objectId)] collection
+  vv <- (m2mst $ matchFailure $ "MongoDB Id not found: " ++ T.unpack v) vv'
+  vx <- return $ toAeson vv
+  rr <- matchPattern g r (Object vx) -- one option is this
+  liftIO $ putStrLn $ "Match from db ok"
+  liftIO $ print $ rr
   return $ MatchNullResult
 
 -- default ca
