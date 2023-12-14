@@ -40,6 +40,10 @@ dependencies:
   - hspec
   - regex-tdfa ^>= 1.3.2
   - transformers
+  - mongoDB
+  - bson
+  - attoparsec
+  - unordered-containers
 
 ghc-options:
   - -Wall
