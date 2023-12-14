@@ -86,6 +86,14 @@ import Text.Regex.TDFA((=~))
 
 import qualified Database.MongoDB as MongoDB
 
+-- Utils
+wordsWhen     :: (Char -> Bool) -> String -> [String]
+wordsWhen p s =  case P.dropWhile p s of
+                      "" -> []
+                      s' -> w : wordsWhen p s''
+                            where (w, s'') = P.break p s'
+
+
 --
 -- MatchStatus is a monad for representing match outcome similar to Either
 --
@@ -795,7 +803,13 @@ matchPattern g (MatchRef r) v = do
 
 -- wow
 matchPattern g (MatchFromMongoDB r) v = do
+  v <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString v
+  let words = wordsWhen (=='.') $ T.unpack v
+  if P.length words == 3 then return () else matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>"
   pipe <- liftIO $ MongoDB.connect $ MongoDB.host "127.0.0.1"
+  let run act = liftIO $ MongoDB.access pipe MongoDB.master "logicore" act
+  vv <- run MongoDB.allCollections
+  liftIO $ print $ words
   return $ MatchNullResult
 
 -- default ca
