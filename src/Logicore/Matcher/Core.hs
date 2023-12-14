@@ -417,7 +417,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchFunnelKeysU
                   -- special
                   | MatchRef String
-                  | MatchFromMongoDB MatchPattern
+                  | MatchFromMongoDB Value Value MatchPattern
                     deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsArbitrary = do
@@ -802,12 +802,17 @@ matchPattern g (MatchRef r) v = do
   return $ MatchRefResult r a
 
 -- wow
-matchPattern g (MatchFromMongoDB r) v = do
+matchPattern g (MatchFromMongoDB db' collection' r) v = do
   --  TODO operate on Text for db etc
   v <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString v
-  let words = wordsWhen (=='.') $ T.unpack v
-  if P.length words == 3 then return () else matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>"
-  let [db, collection, objectId] = (fmap T.pack words)
+  db <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString db'
+  collection <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString collection'
+  -- XXX temporary
+
+  --let words = wordsWhen (=='.') $ T.unpack va
+  --if P.length words == 3 then return () else matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>"
+  --let [db, collection, objectId] = (fmap T.pack words)
+  let objectId = v
   pipe <- liftIO $ MongoDB.connect $ MongoDB.host "127.0.0.1"
   let run act = liftIO $ MongoDB.access pipe MongoDB.master db act
   vv' <- run $ MongoDB.findOne $ MongoDB.select ["_id" MongoDB.=: MongoDB.ObjId (read $ T.unpack objectId)] collection
@@ -2150,7 +2155,7 @@ ex1 = do
 
 mdb :: IO ()
 mdb = do
-  let p = MatchFromMongoDB $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
-  let v = String "logicore.products.657aa1c7ec43193e13182e9e"
+  let p = MatchFromMongoDB (String "logicore") (String "products") $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
+  let v = String "657aa1c7ec43193e13182e9e"
   a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) emptyEnvValue
   print a
