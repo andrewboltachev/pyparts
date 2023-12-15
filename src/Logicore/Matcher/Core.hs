@@ -879,12 +879,8 @@ matchPattern g (MatchFromRedis db collection r) v = do
   kv' <- case kv of
     Left e -> matchFailure "redis fail"
     Right e -> return e
-  {-v'' <- case v' of
-    Nothing -> matchFailure "redis fail"
-    Just e -> return e-}
 
-  --liftIO $ putStrLn $ "Insert doc: " ++ show kk
-  return $ MatchFromRedisResult db collection va -- TODO better conversion?-}
+  return $ MatchFromRedisResult db collection va
 
 -- default ca
 matchPattern g m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
