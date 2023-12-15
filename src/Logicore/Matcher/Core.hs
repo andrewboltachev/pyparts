@@ -38,9 +38,9 @@ import qualified Data.List        as L
 import GHC.Generics
 import Data.Aeson
 --import Data.ByteString            as B
---import Data.ByteString.Lazy       as BL
+import Data.ByteString.Lazy       as BL hiding (putStrLn)
 import Data.Text                  as T
---import Data.Text.Encoding         as T
+import Data.Text.Encoding         as T
 --import Data.Text.IO               as T
 import Data.Text.Lazy             as TL
 import Data.Text.Lazy.Encoding    as TL
@@ -835,6 +835,47 @@ matchPattern g (MatchFromMongoDB db collection r) v = do
   kk <- liftIO $ MongoDB.access pipe MongoDB.master db $ MongoDB.insert resultsCollection vvv
   --liftIO $ putStrLn $ "Insert doc: " ++ show kk
   return $ MatchFromMongoDBResult db collection (T.pack $ show kk) -- TODO better conversion?
+
+
+matchPattern g (MatchFromRedis db collection r) v = do
+  --  TODO operate on Text for db etc
+  v <- (m2mst $ matchFailure "Redis should see ObjectId") $ asString v
+  -- XXX temporary
+
+  let dataKey = T.encodeUtf8 $ T.concat [db, ":", collection, ":", v]
+  let resultKey = T.encodeUtf8 $ T.concat [db, ":", collection, "Results:", v]
+  conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
+  v <- liftIO $ Redis.runRedis conn $ do
+     hello <- Redis.get $ dataKey
+     return $ hello
+  v' <- case v of
+    Left e -> matchFailure "redis fail"
+    Right e -> return e
+  v'' <- case v' of
+    Nothing -> matchFailure "redis fail"
+    Just e -> return e
+  vr <- case decode $ BL.fromStrict v'' of
+    Nothing -> matchFailure "decode fail"
+    Just e -> return (e :: Value)
+  --liftIO $ print vr
+
+  rr <- matchPattern g r vr
+  --liftIO $ putStrLn $ "Match from db ok"
+  --liftIO $ print rr
+
+  v <- liftIO $ Redis.runRedis conn $ do
+     hello <- Redis.set resultKey (BL.toStrict $ encode rr)
+     return $ hello
+  v' <- case v of
+    Left e -> matchFailure "redis fail"
+    Right e -> return e
+  {-v'' <- case v' of
+    Nothing -> matchFailure "redis fail"
+    Just e -> return e-}
+
+  --liftIO $ putStrLn $ "Insert doc: " ++ show kk
+  --return $ MatchFromRedisResult db collection (T.pack $ show kk) -- TODO better conversion?-}
+  return MatchNullResult
 
 -- default ca
 matchPattern g m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
@@ -2163,5 +2204,13 @@ mdb :: IO ()
 mdb = do
   let p = MatchFromMongoDB "logicore" "products" $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
   let v = String "657aa1c7ec43193e13182e9e"
+  a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) emptyEnvValue
+  print a
+
+
+rdb :: IO ()
+rdb = do
+  let p = MatchFromRedis "logicore" "products" $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
+  let v = String "hello"
   a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) emptyEnvValue
   print a
