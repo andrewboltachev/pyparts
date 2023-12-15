@@ -842,9 +842,17 @@ matchPattern g (MatchFromRedis db collection r) v = do
   va <- (m2mst $ matchFailure "Redis should see ObjectId") $ asString v
   -- XXX temporary
 
-  x <- _ $ asks redisConn
+  --lift $ asks redisConn
+  -- MatchStatusT (ReaderT MatcherEnv m (MatchStatus a))
+  -- runMatchStatusT
+  -- ReaderT MatcherEnv m (MatchStatus a)
+  -- runReaderT
+  -- MatcherEnv -> m (MatchStatus a)
+  conn <- MatchStatusT $ do
+    a <- asks redisConn
+    return $ (return a)
+
   --liftIO $ print c
-  let conn = undefined
   let dataKey = T.encodeUtf8 $ T.concat [db, ":", collection, ":", va]
   let resultKey = T.encodeUtf8 $ T.concat [db, ":", collection, "Results:", va]
   v <- liftIO $ Redis.runRedis conn $ do
@@ -2213,5 +2221,6 @@ rdb :: IO ()
 rdb = do
   let p = MatchFromRedis "logicore" "products" $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
   let v = String "hello"
+  conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
   a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) emptyEnvValue
   print a
