@@ -2222,5 +2222,5 @@ rdb = do
   let p = MatchFromRedis "logicore" "products" $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
   let v = String "hello"
   conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
-  a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) emptyEnvValue
+  a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) $ MatcherEnv { redisConn = conn }
   print a
