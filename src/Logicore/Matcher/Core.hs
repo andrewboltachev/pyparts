@@ -85,6 +85,7 @@ import Logicore.Matcher.Helpers
 import Text.Regex.TDFA((=~))
 
 import qualified Database.MongoDB as MongoDB
+import qualified Database.Redis as Redis
 import Data.Aeson.Bson hiding (String)
 
 -- Utils
@@ -417,7 +418,8 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchFunnelKeysU
                   -- special
                   | MatchRef String
-                  | MatchFromMongoDB Value Value MatchPattern
+                  | MatchFromMongoDB T.Text T.Text MatchPattern
+                  | MatchFromRedis T.Text T.Text MatchPattern
                     deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsArbitrary = do
@@ -500,7 +502,8 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchFunnelKeysUResult (KeyMap Value)
                  -- special
                  | MatchRefResult String MatchResult
-                 | MatchFromMongoDBResult String
+                 | MatchFromMongoDBResult T.Text T.Text T.Text
+                 | MatchFromRedisResult T.Text T.Text T.Text
                    deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsResultArbitrary = do
@@ -598,6 +601,7 @@ gatherFunnel = cata go
     go (MatchFunnelKeysResultF m) = fmap k2s (KM.keys m)
     go (MatchFunnelKeysUResultF m) = unique $ fmap k2s (KM.keys m) -- TODO what idea?
     go (MatchRefResultF ref r) = r
+    --go (MatchFromMongoDBResultF )
     go _ = []
 
 --
@@ -802,11 +806,9 @@ matchPattern g (MatchRef r) v = do
   return $ MatchRefResult r a
 
 -- wow
-matchPattern g (MatchFromMongoDB db' collection' r) v = do
+matchPattern g (MatchFromMongoDB db collection r) v = do
   --  TODO operate on Text for db etc
-  v <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString v
-  db <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString db'
-  collection <- (m2mst $ matchFailure "MongoDB should see a string <database>.<collection>.<ObjectId>") $ asString collection'
+  v <- (m2mst $ matchFailure "MongoDB should see ObjectId") $ asString v
   -- XXX temporary
 
   --let words = wordsWhen (=='.') $ T.unpack va
@@ -815,20 +817,24 @@ matchPattern g (MatchFromMongoDB db' collection' r) v = do
   let objectId = v
   pipe <- liftIO $ MongoDB.connect $ MongoDB.host "127.0.0.1"
   let run act = liftIO $ MongoDB.access pipe MongoDB.master db act
-  vv' <- run $ MongoDB.findOne $ MongoDB.select ["_id" MongoDB.=: MongoDB.ObjId (read $ T.unpack objectId)] collection
+  --liftIO $ putStrLn $ "DB is: " ++ (T.unpack db)
+  --liftIO $ putStrLn $ "Coll is: " ++ (T.unpack collection)
+  --liftIO $ putStrLn $ "Id is: " ++ (T.unpack objectId)
+  vv' <- run $ MongoDB.findOne $ MongoDB.select ["_id" MongoDB.=: objectId] collection
   vv <- (m2mst $ matchFailure $ "MongoDB Id not found: " ++ T.unpack v) vv'
   vx <- return $ toAeson vv
-  liftIO $ putStrLn $ "Read from db ok"
+  --liftIO $ putStrLn $ "Read from db ok"
   rr <- matchPattern g r (Object vx) -- one option is this
-  liftIO $ putStrLn $ "Match from db ok"
-  liftIO $ print rr
+  --liftIO $ putStrLn $ "Match from db ok"
+  --liftIO $ print rr
   let jj = toJSON rr
-  km <- (m2mst $ matchFailure "impossible12312344") $ asKeyMap jj
+  kx <- (m2mst $ matchFailure "impossible12312344") $ asKeyMap jj
+  let km = KM.insert (fromString "_id") (String objectId) kx
   let vvv = ((toBson km) :: MongoDB.Document)
   let resultsCollection = T.concat [collection, "Results"]
   kk <- liftIO $ MongoDB.access pipe MongoDB.master db $ MongoDB.insert resultsCollection vvv
-  liftIO $ putStrLn $ "Insert doc: " ++ show kk
-  return $ MatchFromMongoDBResult $ show kk -- TODO better conversion?
+  --liftIO $ putStrLn $ "Insert doc: " ++ show kk
+  return $ MatchFromMongoDBResult db collection (T.pack $ show kk) -- TODO better conversion?
 
 -- default ca
 matchPattern g m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
@@ -2155,7 +2161,7 @@ ex1 = do
 
 mdb :: IO ()
 mdb = do
-  let p = MatchFromMongoDB (String "logicore") (String "products") $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
+  let p = MatchFromMongoDB "logicore" "products" $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
   let v = String "657aa1c7ec43193e13182e9e"
   a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern mempty p v) emptyEnvValue
   print a

@@ -51,6 +51,7 @@ library
     , comonad
     , containers
     , data-fix
+    , hedis
     , hspec
     , mongoDB
     , recursion-schemes
@@ -84,6 +85,7 @@ executable matcher-exe
     , comonad
     , containers
     , data-fix
+    , hedis
     , hspec
     , matcher
     , mongoDB
@@ -119,6 +121,7 @@ test-suite matcher-test
     , comonad
     , containers
     , data-fix
+    , hedis
     , hspec
     , matcher
     , mongoDB

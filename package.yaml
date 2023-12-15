@@ -44,6 +44,7 @@ dependencies:
   - bson
   - attoparsec
   - unordered-containers
+  - hedis
 
 ghc-options:
   - -Wall
