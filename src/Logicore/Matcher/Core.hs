@@ -156,10 +156,10 @@ instance Comonad MatchStatus where
   duplicate (NoMatch m) = NoMatch m
 
 
-type Env = Value
-emptyEnvValue = Null
+data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection }
+emptyEnvValue = MatcherEnv { }
 
-newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT Env m (MatchStatus a) }
+newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
 instance Functor m => Functor (MatchStatusT m) where
   fmap f (MatchStatusT ma) = MatchStatusT $ (fmap . fmap) f ma
 
@@ -839,12 +839,14 @@ matchPattern g (MatchFromMongoDB db collection r) v = do
 
 matchPattern g (MatchFromRedis db collection r) v = do
   --  TODO operate on Text for db etc
-  v <- (m2mst $ matchFailure "Redis should see ObjectId") $ asString v
+  va <- (m2mst $ matchFailure "Redis should see ObjectId") $ asString v
   -- XXX temporary
 
-  let dataKey = T.encodeUtf8 $ T.concat [db, ":", collection, ":", v]
-  let resultKey = T.encodeUtf8 $ T.concat [db, ":", collection, "Results:", v]
-  conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
+  x <- _ $ asks redisConn
+  --liftIO $ print c
+  let conn = undefined
+  let dataKey = T.encodeUtf8 $ T.concat [db, ":", collection, ":", va]
+  let resultKey = T.encodeUtf8 $ T.concat [db, ":", collection, "Results:", va]
   v <- liftIO $ Redis.runRedis conn $ do
      hello <- Redis.get $ dataKey
      return $ hello
@@ -863,10 +865,10 @@ matchPattern g (MatchFromRedis db collection r) v = do
   --liftIO $ putStrLn $ "Match from db ok"
   --liftIO $ print rr
 
-  v <- liftIO $ Redis.runRedis conn $ do
+  kv <- liftIO $ Redis.runRedis conn $ do
      hello <- Redis.set resultKey (BL.toStrict $ encode rr)
      return $ hello
-  v' <- case v of
+  kv' <- case kv of
     Left e -> matchFailure "redis fail"
     Right e -> return e
   {-v'' <- case v' of
@@ -874,8 +876,7 @@ matchPattern g (MatchFromRedis db collection r) v = do
     Just e -> return e-}
 
   --liftIO $ putStrLn $ "Insert doc: " ++ show kk
-  --return $ MatchFromRedisResult db collection (T.pack $ show kk) -- TODO better conversion?-}
-  return MatchNullResult
+  return $ MatchFromRedisResult db collection va -- TODO better conversion?-}
 
 -- default ca
 matchPattern g m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)

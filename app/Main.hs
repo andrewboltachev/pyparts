@@ -23,6 +23,7 @@ import Control.Monad.IO.Class (liftIO)
 
 import Logicore.Matcher.Core
 import Logicore.Matcher.Additional
+import qualified Database.Redis as Redis
 --import Logicore.Matcher.Python
 
 --import Language.Haskell.TH
@@ -262,7 +263,8 @@ fnEndpoint f = do
     b <- (fromBody :: ResponderM Value)
     a <- runExceptT $ do
             e <- (m2et "JSON root element must be a map") $ asKeyMap b
-            vv <- liftIO $ runReaderT (runMatchStatusT $ f e) emptyEnvValue
+            conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
+            vv <- liftIO $ runReaderT (runMatchStatusT $ f e) $ MatcherEnv { redisConn = conn } 
             r <- (ExceptT . return) $ case vv of
                     MatchFailure s -> Left ("matchFailure: " ++ s)
                     NoMatch x -> Left ("NoMatch: " ++ x)
