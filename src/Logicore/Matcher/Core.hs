@@ -583,7 +583,7 @@ gatherFunnelContextFree = cata gatherFunnelContextFreeFAlgebra
 
 unique = P.reverse . L.nub . P.reverse
 
-gatherFunnelFAlgebra :: Monad m => MatchResultF [Value] -> MatchStatusT m [Value]
+gatherFunnelFAlgebra :: MonadIO m => MatchResultF [Value] -> MatchStatusT m [Value]
 gatherFunnelFAlgebra (MatchObjectFullResultF _ r) = return $ L.foldl' f mempty (KM.elems r)
   where f acc (KeyReq e) = acc ++ e
         f acc (KeyOpt e) = acc ++ e
@@ -632,7 +632,7 @@ m2mst m v = case v of
 -- (look category theory product)
 --fa :: MonadIO m => MatchResultF MatchResult -> MatchStatusT m a
 --fa = undefined
-matchPattern' :: MonadIO m => (MatchResultF a -> MatchStatusT m a) -> MatchPattern -> Value -> MatchStatusT m (MatchResultF a)
+--matchPattern' :: MonadIO m => (MatchResultF a -> MatchStatusT m a) -> MatchPattern -> Value -> MatchStatusT m (MatchResultF a)
 
 --mObj :: Monad m => Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj fa keepExt m a = do
@@ -899,7 +899,15 @@ matchPattern' fa (MatchFromRedis db collection r) v = do
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
-matchPattern = undefined
+matchPattern'' fma p v = fma =<< matchPattern' fma p v
+
+-- MatchResultF a2 -> a2
+-- TODO: better playaround with recursion schemes
+matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [Value]
+matchToFunnel = matchPattern'' gatherFunnelFAlgebra
+
+matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT m MatchResult
+matchPattern = matchPattern'' $ return . embed
 
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
 --contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
