@@ -566,47 +566,52 @@ asNumber _ = Nothing
 
 --- helpers
 
-gatherFunnelContextFree :: ContextFreeGrammarResult MatchPattern [a] -> [a]
-gatherFunnelContextFree = cata go
-  where
-    go (CharNodeF r) = r
-    go (SeqNodeF r) = L.foldl' (++) mempty r
-    go (StarNodeEmptyF g) = []
-    go (StarNodeValueF r) = L.foldl' (++) mempty r
-    go (PlusNodeF r) = L.foldl' (++) mempty r
-    go (OrNodeF g k r) = r
-    go (OptionalNodeValueF r) = r
-    go (OptionalNodeEmptyF g) = []
+--gatherFunnelContextFreeFAlgebra :: MonadIO m => ContextFreeGrammarResultF MatchPattern (MatchStatusT m [Value]) [Value] -> MatchStatusT m [Value]
+gatherFunnelContextFreeFAlgebra (CharNodeF r) = r
+gatherFunnelContextFreeFAlgebra (SeqNodeF r) = L.foldl' (++) mempty r
+gatherFunnelContextFreeFAlgebra (StarNodeEmptyF g) = []
+gatherFunnelContextFreeFAlgebra (StarNodeValueF r) = L.foldl' (++) mempty r
+gatherFunnelContextFreeFAlgebra (PlusNodeF r) = L.foldl' (++) mempty r
+gatherFunnelContextFreeFAlgebra (OrNodeF g k r) = r
+gatherFunnelContextFreeFAlgebra (OptionalNodeValueF r) = r
+gatherFunnelContextFreeFAlgebra (OptionalNodeEmptyF g) = []
+
+--gatherFunnelContextFree :: MonadIO m => ContextFreeGrammarResult MatchPattern [a] -> MatchStatusT m [a]
+-- ContextFreeGrammarResultF MatchPattern (MatchStatusT m [a]) [a] -> MatchStatusT m [a]
+-- ContextFreeGrammarResultF MatchPattern [a] [a] -> MatchStatusT m [a]
+gatherFunnelContextFree = cata gatherFunnelContextFreeFAlgebra
 
 unique = P.reverse . L.nub . P.reverse
 
-gatherFunnel :: MatchResult -> [Value] -- TODO Monoid?
-gatherFunnel = cata go
-  where
-    go (MatchObjectFullResultF _ r) = L.foldl' f mempty (KM.elems r)
-      where f acc (KeyReq e) = acc ++ e
-            f acc (KeyOpt e) = acc ++ e
-            f acc (KeyExt _) = acc
-    go (MatchObjectPartialResultF _ r) = L.foldl' f mempty (KM.elems r)
-      where f acc (KeyReq e) = acc ++ e
-            f acc (KeyOpt e) = acc ++ e
-            f acc (KeyExt _) = acc
-    go (MatchObjectWithDefaultsResultF r _ _) = L.foldl' (++) mempty (KM.elems r)
-    go (MatchObjectOnlyResultF r _) = L.foldl' (++) mempty (KM.elems r)
-    go (MatchArrayContextFreeResultF c) = gatherFunnelContextFree c
-    go (MatchArrayOnlyResultEmptyF g r) = []
-    go (MatchArrayOnlyResultSomeF r v) = P.concat r
-    go (MatchOrResultF g k r) = r
-    go (MatchNotResultF g r) = []
-    go (MatchAndResultF r' r) = r' ++ r
-    go (MatchIfThenResultF _ _ r) = r
-    go (MatchFunnelResultF r) = [r]
-    go (MatchFunnelKeysResultF m) = fmap k2s (KM.keys m)
-    go (MatchFunnelKeysUResultF m) = unique $ fmap k2s (KM.keys m) -- TODO what idea?
-    go (MatchRefResultF ref r) = r
-    --go (MatchFromMongoDBResultF )
-    go _ = []
+gatherFunnelFAlgebra :: Monad m => MatchResultF [Value] -> MatchStatusT m [Value]
+gatherFunnelFAlgebra (MatchObjectFullResultF _ r) = return $ L.foldl' f mempty (KM.elems r)
+  where f acc (KeyReq e) = acc ++ e
+        f acc (KeyOpt e) = acc ++ e
+        f acc (KeyExt _) = acc
+gatherFunnelFAlgebra (MatchObjectPartialResultF _ r) = return $ L.foldl' f mempty (KM.elems r)
+  where f acc (KeyReq e) = acc ++ e
+        f acc (KeyOpt e) = acc ++ e
+        f acc (KeyExt _) = acc
+gatherFunnelFAlgebra (MatchObjectWithDefaultsResultF r _ _) = return $ L.foldl' (++) mempty (KM.elems r)
+gatherFunnelFAlgebra (MatchObjectOnlyResultF r _) = return $ L.foldl' (++) mempty (KM.elems r)
+gatherFunnelFAlgebra (MatchArrayContextFreeResultF c) = return $ gatherFunnelContextFree c
+gatherFunnelFAlgebra (MatchArrayOnlyResultEmptyF g r) = return $ []
+gatherFunnelFAlgebra (MatchArrayOnlyResultSomeF r v) = return $ P.concat r
+gatherFunnelFAlgebra (MatchOrResultF g k r) = return $ r
+gatherFunnelFAlgebra (MatchNotResultF g r) = return $ []
+gatherFunnelFAlgebra (MatchAndResultF r' r) = return $ r' ++ r
+gatherFunnelFAlgebra (MatchIfThenResultF _ _ r) = return $ r
+gatherFunnelFAlgebra (MatchFunnelResultF r) = return $ [r]
+gatherFunnelFAlgebra (MatchFunnelKeysResultF m) = return $ fmap k2s (KM.keys m)
+gatherFunnelFAlgebra (MatchFunnelKeysUResultF m) = return $ unique $ fmap k2s (KM.keys m) -- TODO what idea?
+gatherFunnelFAlgebra (MatchRefResultF ref r) = return $ r
+--gatherFunnelFAlgebra (MatchFromMongoDBResultF )
+gatherFunnelFAlgebra _ = return $ []
 
+gatherFunnel' :: MonadIO m => MatchResult -> MatchStatusT m [Value] -- TODO Monoid?
+gatherFunnel' = cataM gatherFunnelFAlgebra
+
+gatherFunnel = undefined
 --
 -- Convert Maybe to MatchStatus (e.g. a result of KM.lookup)
 --
