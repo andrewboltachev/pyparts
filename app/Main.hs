@@ -43,8 +43,9 @@ main = do
 
       -- fn endpoints
       , post "/matchPattern" (fnEndpoint mkMatchPattern)
-      , post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel)
+      --, post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel)
       --, post "/matchPatternWithFunnelFile" matchPatternWithFunnelFile
+      , post "/matchToFunnel" (fnEndpoint mkMatchToFunnel)
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
       , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
@@ -95,7 +96,7 @@ mkMatchPattern e = do
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "result", outputValue)])
 
-mkMatchPatternWithFunnel :: (Object -> MatchStatusT IO Value)
+{-mkMatchPatternWithFunnel :: (Object -> MatchStatusT IO Value)
 mkMatchPatternWithFunnel e = do
   value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
   pattern <- (m2mst $ matchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
@@ -105,6 +106,15 @@ mkMatchPatternWithFunnel e = do
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [
     (K.fromString "result", outputValue),
+    (K.fromString "funnel", Array $ V.fromList $ funnelResult)])-}
+
+mkMatchToFunnel :: (Object -> MatchStatusT IO Value)
+mkMatchToFunnel e = do
+  value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
+  pattern <- (m2mst $ matchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
+  mp <- (m2mst $ matchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
+  funnelResult <- matchToFunnel mp value
+  return $ Object $ (KM.fromList [
     (K.fromString "funnel", Array $ V.fromList $ funnelResult)])
 
 --matchPatternWithFunnelFile :: (Object -> MatchStatusT IO Value) -> ResponderM b
