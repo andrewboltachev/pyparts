@@ -626,7 +626,7 @@ m2mst m v = case v of
 -- (look category theory product)
 matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT m MatchResult
 
---mObj :: Monad m => (KeyMap MatchPattern) -> Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
+--mObj :: Monad m => Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj keepExt m a = do
   preResult <- L.foldl' (doKeyMatch m a) (return mempty) (keys m)
   L.foldl' f (return preResult) (keys a)
@@ -1061,12 +1061,15 @@ contextFreeGrammarIsWellFormed f = paraM goM
 
 -- is well-formed
 
-matchPatternIsWellFormed :: (KeyMap MatchPattern) -> MatchPattern -> MatchStatus Bool
-matchPatternIsWellFormed g = cataM goM
+matchPatternIsWellFormed :: MonadIO m => MatchPattern -> MatchStatusT m Bool
+matchPatternIsWellFormed = cataM goM
   where
     goM (MatchRefF r) = do
-      p <- (m2ms $ MatchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
-      matchPatternIsWellFormed g p
+      g <- MatchStatusT $ do
+        v <- asks grammarMap
+        return $ return v
+      p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+      matchPatternIsWellFormed p
     goM (MatchArrayContextFreeF g) = if not $ isSeq g
                                         then return $ False
                                         else contextFreeGrammarIsWellFormed return g
@@ -1140,10 +1143,10 @@ contextFreeGrammarResultIsWellFormed gf rf = paraM goM
       && (allTheSame $ (fmap (contextFreeGrammarResultToGrammar (matchResultToPattern . fst))) $ (fmap fst r))
     go (OptionalNodeValueF r) = (not $ isStarNodeLike (fst r)) && (snd r)
 
-matchResultIsWellFormed :: (KeyMap MatchPattern) -> MatchResult -> MatchStatus Bool
-matchResultIsWellFormed m = paraM checkM
+matchResultIsWellFormed :: MonadIO m => MatchResult -> MatchStatusT m Bool
+matchResultIsWellFormed = paraM checkM
   where
-    checkM (MatchArrayOnlyResultEmptyF g v) = matchPatternIsWellFormed m g
+    checkM (MatchArrayOnlyResultEmptyF g v) = matchPatternIsWellFormed g
     checkM (MatchArrayOnlyResultSomeF g v) = return $ P.all snd g
     checkM (MatchObjectFullResultF g r) = a
       where
@@ -1153,7 +1156,7 @@ matchResultIsWellFormed m = paraM checkM
         rc = L.foldl' f True (KM.elems r)
         nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
         a = do
-          gc' <- sequenceA $ fmap (matchPatternIsWellFormed m) (KM.elems g)
+          gc' <- sequenceA $ fmap matchPatternIsWellFormed (KM.elems g)
           let gc = P.all id gc'
           return $ gc && rc && nck
     checkM (MatchObjectPartialResultF g r) = a
@@ -1164,14 +1167,14 @@ matchResultIsWellFormed m = paraM checkM
         rc = L.foldl' f True (KM.elems r)
         nck = S.null $ S.intersection (S.fromList $ KM.keys g) (S.fromList $ KM.keys r)
         a = do
-          gc' <- sequenceA $ fmap (matchPatternIsWellFormed m) (KM.elems g)
+          gc' <- sequenceA $ fmap matchPatternIsWellFormed (KM.elems g)
           let gc = P.all id gc'
           return $ gc && rc && nck
-    checkM (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed (matchPatternIsWellFormed m) return g
+    checkM (MatchArrayContextFreeResultF g) = contextFreeGrammarResultIsWellFormed matchPatternIsWellFormed return g
     checkM (MatchOrResultF g k (_, r)) = a
       where
         a = do                                      
-          v <- P.traverse (matchPatternIsWellFormed m) (KM.elems g)
+          v <- P.traverse matchPatternIsWellFormed (KM.elems g)
           return $ P.all id v && (not $ KM.member k g) && r
     checkM x = return $ check x
 
