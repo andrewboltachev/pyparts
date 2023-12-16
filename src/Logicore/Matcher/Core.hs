@@ -605,7 +605,8 @@ gatherFunnelFAlgebra (MatchFunnelResultF r) = return $ [r]
 gatherFunnelFAlgebra (MatchFunnelKeysResultF m) = return $ fmap k2s (KM.keys m)
 gatherFunnelFAlgebra (MatchFunnelKeysUResultF m) = return $ unique $ fmap k2s (KM.keys m) -- TODO what idea?
 gatherFunnelFAlgebra (MatchRefResultF ref r) = return $ r
---gatherFunnelFAlgebra (MatchFromMongoDBResultF )
+gatherFunnelFAlgebra (MatchFromMongoDBResultF _ _ _) = error "not implemented"
+gatherFunnelFAlgebra (MatchFromRedisResultF _ _ _) = error "not implemented"
 gatherFunnelFAlgebra _ = return $ []
 
 gatherFunnel' :: MonadIO m => MatchResult -> MatchStatusT m [Value] -- TODO Monoid?
