@@ -43,6 +43,7 @@ library
   build-depends:
       QuickCheck
     , aeson
+    , async
     , attoparsec
     , base >=4.7 && <5
     , bson
@@ -77,6 +78,7 @@ executable matcher-exe
   build-depends:
       QuickCheck
     , aeson
+    , async
     , attoparsec
     , base >=4.7 && <5
     , bson
@@ -113,6 +115,7 @@ test-suite matcher-test
   build-depends:
       QuickCheck
     , aeson
+    , async
     , attoparsec
     , base >=4.7 && <5
     , bson

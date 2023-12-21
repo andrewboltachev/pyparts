@@ -45,6 +45,7 @@ dependencies:
   - attoparsec
   - unordered-containers
   - hedis
+  - async
 
 ghc-options:
   - -Wall

@@ -1,3 +1,4 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -32,6 +33,8 @@ module Logicore.Matcher.Core where
   , safeHead
   ) where-}
 
+import Prelude as P hiding ((++))
+
 import qualified Data.Vector.Generic
 --import qualified Data.Set
 import qualified Data.List        as L
@@ -50,7 +53,6 @@ import Data.Aeson.KeyMap          as KM
 import Data.Aeson.Key             as K
 import qualified Data.Scientific as Sci
 import qualified Data.Vector as V
-import Prelude                    as P
 import Control.Monad ((>=>), liftM)
 import Control.Comonad
 --import qualified Data.ByteString.UTF8       as BLU
@@ -82,12 +84,16 @@ import Language.Haskell.TH.Syntax (mkNameG_tc, mkNameG_v)
 
 import Logicore.Matcher.ValueBaseFunctor
 import Logicore.Matcher.Helpers
+import Control.Concurrent.Async (mapConcurrently)
 
 import Text.Regex.TDFA((=~))
 
 import qualified Database.MongoDB as MongoDB
 import qualified Database.Redis as Redis
 import Data.Aeson.Bson hiding (String)
+
+
+a ++ b = T.append a b
 
 -- Utils
 wordsWhen     :: (Char -> Bool) -> String -> [String]
@@ -123,25 +129,25 @@ paraM :: (Traversable (Base t), Monad m, Recursive t) => (Base t (t, c) -> m c) 
           f a2-}
 paraM f = c where c = (sequence >=> f) . fmap (sequence . ((,) <*> c)) . project
 
-k2s = (String . T.pack . K.toString)
+k2s = (String . K.toText)
 
 -- CF matcher
 data ContextFreeGrammar a = Char a
-                            | Seq [(ContextFreeGrammar a)]
+                            | Seq (V.Vector (ContextFreeGrammar a))
                             | Or (KeyMap (ContextFreeGrammar a))
                             | Star (ContextFreeGrammar a)
                             | Plus (ContextFreeGrammar a)
                             | Optional (ContextFreeGrammar a)
                               deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
-instance Arbitrary a => Arbitrary (ContextFreeGrammar a) where
+{-instance Arbitrary a => Arbitrary (ContextFreeGrammar a) where
   arbitrary = oneof [
     Char <$> arbitrary,
     Seq <$> arbitrary,
     Or <$> arbitrary,
     Star <$> arbitrary,
     Plus <$> arbitrary,
-    Optional <$> arbitrary]
+    Optional <$> arbitrary]-}
 
 makeBaseFunctor ''ContextFreeGrammar
 
@@ -152,18 +158,18 @@ instance FromJSON a => FromJSON (ContextFreeGrammar a)
 
 -- TODO: much better approach?
 data ContextFreeGrammarResult g r = CharNode r
-                                  | SeqNode [(ContextFreeGrammarResult g r)]
+                                  | SeqNode (V.Vector (ContextFreeGrammarResult g r))
                                   | StarNodeEmpty (ContextFreeGrammar g)
-                                  | StarNodeValue [(ContextFreeGrammarResult g r)]
-                                  | StarNodeIndexed [(ContextFreeGrammarResult g r)] [Int]
-                                  | PlusNode [(ContextFreeGrammarResult g r)]
-                                  | PlusNodeIndexed [(ContextFreeGrammarResult g r)] [Int]
+                                  | StarNodeValue (V.Vector (ContextFreeGrammarResult g r))
+                                  | StarNodeIndexed (V.Vector (ContextFreeGrammarResult g r)) (V.Vector Int)
+                                  | PlusNode (V.Vector (ContextFreeGrammarResult g r))
+                                  | PlusNodeIndexed (V.Vector (ContextFreeGrammarResult g r)) (V.Vector Int)
                                   | OrNode (KeyMap (ContextFreeGrammar g)) Key (ContextFreeGrammarResult g r)
                                   | OptionalNodeValue (ContextFreeGrammarResult g r)
                                   | OptionalNodeEmpty (ContextFreeGrammar g)
                                     deriving (Generic, Eq, Show, Functor, Foldable, Traversable)
 
-instance (Arbitrary g, Arbitrary r) => Arbitrary (ContextFreeGrammarResult g r) where
+{-instance (Arbitrary g, Arbitrary r) => Arbitrary (ContextFreeGrammarResult g r) where
   arbitrary = oneof [
       CharNode <$> arbitrary,
       SeqNode <$> arbitrary,
@@ -178,7 +184,7 @@ instance (Arbitrary g, Arbitrary r) => Arbitrary (ContextFreeGrammarResult g r) 
         return $ PlusNode (P.take (max t 1) $ P.repeat h),
       OrNode <$> arbitrary <*> arbitrary <*> arbitrary,
       OptionalNodeEmpty <$> arbitrary,
-      OptionalNodeValue <$> arbitrary]
+      OptionalNodeValue <$> arbitrary]-}
 
 makeBaseFunctor ''ContextFreeGrammarResult
 
@@ -221,14 +227,15 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchObjectOnly (KeyMap MatchPattern)
                   | MatchObjectWhole MatchPattern
                   | MatchOmitField Key MatchPattern
-                  | MatchSelectFields [Key] MatchPattern
+                  | MatchSelectFields (V.Vector Key) MatchPattern
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
                   -- structures - array
                   -- | MatchArrayAll MatchPattern
                   -- | MatchArraySome MatchPattern
                   -- | MatchArrayOne MatchPattern
-                  -- | MatchArrayExact [MatchPattern]
+                  -- | MatchArrayExact (V.Vector MatchPattern)
                   | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
+                  | MatchArray MatchPattern
                   | MatchArrayOnly MatchPattern
                   -- literals: match particular value of
                   | MatchStringExact !T.Text
@@ -255,18 +262,18 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchFunnelKeys
                   | MatchFunnelKeysU
                   -- special
-                  | MatchRef String
+                  | MatchRef T.Text
                   | MatchFromMongoDB T.Text T.Text MatchPattern
                   | MatchFromRedis T.Text T.Text MatchPattern
                   | MatchGetFromRedis T.Text T.Text MatchPattern
                   | MatchGetFromFile T.Text MatchPattern
                     deriving (Generic, Eq, Show)
 
-matchObjectWithDefaultsArbitrary = do
+{-matchObjectWithDefaultsArbitrary = do
         m <- arbitrary
         v <- arbitrary
-        let m' = fmap (bimap (K.fromString . ("m"++)) id) m
-        let v' = fmap (bimap (K.fromString . ("v"++)) id) v
+        let m' = fmap (bimap (K.fromText . (\a -> T.concat ["m", T.pack a])) id) m
+        let v' = fmap (bimap (K.fromText . (\a -> T.concat ["v", T.pack a])) id) v
         return $ MatchObjectWithDefaults (fromList m') (fromList v')
 
 instance Arbitrary MatchPattern where
@@ -294,7 +301,7 @@ instance Arbitrary MatchPattern where
       --return $ MatchFunnel,
       --return $ MatchFunnelKeys,
       --return $ MatchFunnelKeysU
-      --MatchRef <$> arbitrary
+      --MatchRef <$> arbitrary-}
 
 makeBaseFunctor ''MatchPattern
 
@@ -311,13 +318,13 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  -- | MatchArrayAllResult (V.Vector MatchResult)
                  -- | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
                  -- | MatchArrayOneResult MatchResult
-                 -- | MatchArrayExactResult [MatchResult]
+                 -- | MatchArrayExactResult (V.Vector MatchResult)
                  | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value) (KeyMap Value)
                  | MatchObjectOnlyResult (KeyMap MatchResult) (KeyMap Value)
                  | MatchObjectWholeResult (KeyMap MatchResult)
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
-                 | MatchArrayOnlyResultEmpty MatchPattern [Value]
-                 | MatchArrayOnlyResultSome [MatchResult] [Maybe Value]
+                 | MatchArrayOnlyResultEmpty MatchPattern (V.Vector Value)
+                 | MatchArrayOnlyResultSome (V.Vector MatchResult) (V.Vector (Maybe Value))
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
                  | MatchStringRegExpResult !T.Text !T.Text
@@ -342,25 +349,25 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchFunnelKeysResult (KeyMap Value)
                  | MatchFunnelKeysUResult (KeyMap Value)
                  -- special
-                 | MatchRefResult String MatchResult
+                 | MatchRefResult T.Text MatchResult
                  | MatchFromMongoDBResult T.Text T.Text T.Text
                  | MatchFromRedisResult T.Text T.Text T.Text
                    deriving (Generic, Eq, Show)
 
-matchObjectWithDefaultsResultArbitrary = do
+{-matchObjectWithDefaultsResultArbitrary = do
         m <- arbitrary
         d <- arbitrary
         v <- arbitrary
-        let m' = fmap (first (K.fromString . ("m"++))) m
-        let d' = fmap (first (K.fromString . ("d"++))) d
-        let v' = fmap (first (K.fromString . ("v"++))) v
+        let m' = fmap (first (K.fromText . ("m"++) . T.pack)) m
+        let d' = fmap (first (K.fromText . ("d"++) . T.pack)) d
+        let v' = fmap (first (K.fromText . ("v"++) . T.pack)) v
         return $ MatchObjectWithDefaultsResult (fromList m') (fromList d') (fromList v')
 
 matchObjectOnlyResultArbitrary = do
         m <- arbitrary
         d <- arbitrary
-        let m' = fmap (first (K.fromString . ("m"++))) m
-        let d' = fmap (first (K.fromString . ("d"++))) d
+        let m' = fmap (first (K.fromText . ("m"++) . T.pack)) m
+        let d' = fmap (first (K.fromText . ("d"++) . T.pack)) d
         return $ MatchObjectOnlyResult (fromList m') (fromList d')
 
 instance Arbitrary MatchResult where
@@ -390,7 +397,7 @@ instance Arbitrary MatchResult where
     --MatchFunnelResult <$> arbitrary,
     --MatchFunnelKeysResult <$> arbitrary,
     --MatchFunnelKeysUResult <$> arbitrary
-    --MatchRefResult <$> arbitrary <*> arbitrary
+    --MatchRefResult <$> arbitrary <*> arbitrary-}
 
 makeBaseFunctor ''MatchResult
 
@@ -406,8 +413,8 @@ data MatchPath = ObjKey Key | ArrKey Int deriving (Generic, Eq, Show)
 
 -- MatchStatus
 data MatchStatus a = MatchSuccess a
-                 | MatchFailure String
-                 | NoMatch String
+                 | MatchFailure T.Text
+                 | NoMatch T.Text
                  deriving (Eq, Show)
 
 instance Functor MatchStatus where
@@ -430,8 +437,8 @@ instance Monad MatchStatus where
 
 instance Comonad MatchStatus where
   extract (MatchSuccess s) = s
-  extract (MatchFailure e) = error $ "cannot extract1: " ++ e
-  extract (NoMatch e) = error $ "cannot extract2: " ++ e
+  extract (MatchFailure e) = error $ T.unpack $ "cannot extract1: " ++ e
+  extract (NoMatch e) = error $ T.unpack $ "cannot extract2: " ++ e
   duplicate (MatchSuccess s) = MatchSuccess (MatchSuccess s)
   duplicate (MatchFailure m) = MatchFailure m
   duplicate (NoMatch m) = NoMatch m
@@ -456,10 +463,10 @@ instance (Monad m) => Monad (MatchStatusT m) where
                       NoMatch e -> return $ NoMatch e
                       MatchFailure e -> return $ MatchFailure e
 
-noMatch :: Monad m => String -> MatchStatusT m a
+noMatch :: Monad m => T.Text -> MatchStatusT m a
 noMatch x = MatchStatusT (return (NoMatch x))
 
-matchFailure :: Monad m => String -> MatchStatusT m a
+matchFailure :: Monad m => T.Text -> MatchStatusT m a
 matchFailure x = MatchStatusT (return (MatchFailure x))
 
 instance MonadTrans MatchStatusT where
@@ -470,9 +477,10 @@ instance (MonadIO m) => MonadIO (MatchStatusT m) where
 
 
 -- functions
-contextFreeMatch' :: (Show g, Show v, Show r, MonadIO m) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatusT m r) -> MatchStatusT m ([v], (ContextFreeGrammarResult g r))
+contextFreeMatch' :: (Show g, Show v, Show r, MonadIO m) => ContextFreeGrammar g -> (V.Vector v) -> (g -> v -> MatchStatusT m r) -> MatchStatusT m ((V.Vector v), (ContextFreeGrammarResult g r))
 contextFreeMatch' (Char _) [] _ = noMatch "can't read char"
-contextFreeMatch' (Char a) (x:xs) matchFn = MatchStatusT $ do
+contextFreeMatch' (Char a) vec matchFn = MatchStatusT $ do
+  let x = V.head vec; xs = V.tail vec
   rr <- runMatchStatusT $ matchFn a x
   return $ case rr of
        NoMatch s -> NoMatch ("no char match: " ++ s)
@@ -483,7 +491,7 @@ contextFreeMatch' (Seq as) xs matchFn = do
   let f acc' a = do
           (xs, result) <- acc'
           (xs', result') <- contextFreeMatch' a xs matchFn
-          return (xs', result ++ [result'])
+          return (xs', V.snoc result result')
   (rest, res) <- L.foldl' f (return (xs, mempty)) as
   return $ (rest, SeqNode res)
 
@@ -506,13 +514,13 @@ contextFreeMatch' (Star a) xs matchFn = (fmap . fmap) c $ f (return (xs, mempty)
             runMatchStatusT $ case rr of
                 NoMatch _ -> acc
                 MatchFailure s -> matchFailure s
-                MatchSuccess (xs', result') -> f (return (xs', result ++ [result']))
+                MatchSuccess (xs', result') -> f (return (xs', V.snoc result result'))
 
 contextFreeMatch' (Plus a) xs matchFn = do
   (xs', subresult) <- contextFreeMatch' (Seq [a, Star a]) xs matchFn
   rs' <- case subresult of
-              (SeqNode [r, (StarNodeValue rs)]) -> return (r:rs)
-              _ -> noMatch ("impossible203" ++ show subresult)
+              (SeqNode [r, (StarNodeValue rs)]) -> return $ V.cons r rs
+              _ -> noMatch ("impossible203" ++ (T.pack $ show subresult))
   return (xs', (PlusNode rs'))
   
 
@@ -523,13 +531,13 @@ contextFreeMatch' (Optional a) xs matchFn = MatchStatusT $ do
        MatchFailure s -> MatchFailure s
        MatchSuccess (xs', subresult) -> MatchSuccess (xs', OptionalNodeValue subresult)
 
-contextFreeMatch' a xs _ = error ("no contextFreeMatch for:\n\n" ++ (show a) ++ "\n\n" ++ (show xs))
+contextFreeMatch' a xs _ = error $ T.unpack ("no contextFreeMatch for:\n\n" ++ (T.pack $ show a) ++ "\n\n" ++ (T.pack $ show xs))
 
-contextFreeMatch :: (Show g, Show v, Show r, MonadIO m) => ContextFreeGrammar g -> [v] -> (g -> v -> MatchStatusT m r) -> MatchStatusT m (ContextFreeGrammarResult g r)
+contextFreeMatch :: (Show g, Show v, Show r, MonadIO m) => ContextFreeGrammar g -> (V.Vector v) -> (g -> v -> MatchStatusT m r) -> MatchStatusT m (ContextFreeGrammarResult g r)
 contextFreeMatch a xs matchFn = do
   (rest, result) <- contextFreeMatch' a xs matchFn
   case P.length rest == 0 of
-       False -> noMatch ("rest left: " ++ show rest)
+       False -> noMatch ("rest left: " ++ T.pack (show rest))
        True -> return result
 
 -- helpers. Regular
@@ -549,7 +557,7 @@ safeHead _ = Nothing
 catMaybes xs = L.foldl' f mempty xs
   where f a b = case b of
                      Nothing -> a
-                     Just x -> a ++ [x]
+                     Just x -> V.snoc a x
 
 -- helpers. Aeson
 
@@ -557,8 +565,8 @@ asKeyMap :: Value -> Maybe Object
 asKeyMap (Object a) = Just a
 asKeyMap _ = Nothing
 
-asArray :: Value -> Maybe [Value]
-asArray (Array a) = Just $ Data.Vector.Generic.toList a
+asArray :: Value -> Maybe (V.Vector Value)
+asArray (Array a) = Just a
 asArray _ = Nothing
 
 asString (String x) = Just x
@@ -572,54 +580,56 @@ asNumber _ = Nothing
 
 --- helpers
 
---gatherFunnelContextFreeFAlgebra :: MonadIO m => ContextFreeGrammarResultF MatchPattern (MatchStatusT m [Value]) [Value] -> MatchStatusT m [Value]
+vconcat :: V.Vector (V.Vector a) -> V.Vector a
+vconcat vs = V.foldl (V.++) mempty vs
+
+gatherFunnelContextFreeFAlgebra :: ContextFreeGrammarResultF MatchPattern (V.Vector Value) (V.Vector Value) -> (V.Vector Value)
 gatherFunnelContextFreeFAlgebra (CharNodeF r) = r
-gatherFunnelContextFreeFAlgebra (SeqNodeF r) = L.foldl' (++) mempty r
-gatherFunnelContextFreeFAlgebra (StarNodeEmptyF g) = []
-gatherFunnelContextFreeFAlgebra (StarNodeValueF r) = L.foldl' (++) mempty r
-gatherFunnelContextFreeFAlgebra (PlusNodeF r) = L.foldl' (++) mempty r
+gatherFunnelContextFreeFAlgebra (SeqNodeF r) = vconcat r
+gatherFunnelContextFreeFAlgebra (StarNodeEmptyF g) = V.empty
+gatherFunnelContextFreeFAlgebra (StarNodeValueF r) = vconcat r
+gatherFunnelContextFreeFAlgebra (PlusNodeF r) = vconcat r
 gatherFunnelContextFreeFAlgebra (OrNodeF g k r) = r
 gatherFunnelContextFreeFAlgebra (OptionalNodeValueF r) = r
-gatherFunnelContextFreeFAlgebra (OptionalNodeEmptyF g) = []
+gatherFunnelContextFreeFAlgebra (OptionalNodeEmptyF g) = V.empty
 
---gatherFunnelContextFree :: MonadIO m => ContextFreeGrammarResult MatchPattern [a] -> MatchStatusT m [a]
+gatherFunnelContextFree :: ContextFreeGrammarResult MatchPattern (V.Vector Value) -> V.Vector Value
 -- ContextFreeGrammarResultF MatchPattern (MatchStatusT m [a]) [a] -> MatchStatusT m [a]
 -- ContextFreeGrammarResultF MatchPattern [a] [a] -> MatchStatusT m [a]
 gatherFunnelContextFree = cata gatherFunnelContextFreeFAlgebra
 
-unique = P.reverse . L.nub . P.reverse
+--unique = P.reverse . L.nub . P.reverse
 
-gatherFunnelFAlgebra :: MonadIO m => MatchResultF [Value] -> MatchStatusT m [Value]
+gatherFunnelFAlgebra :: MonadIO m => MatchResultF (V.Vector Value) -> MatchStatusT m (V.Vector Value)
 gatherFunnelFAlgebra (MatchObjectFullResultF _ r) = return $ L.foldl' f mempty (KM.elems r)
-  where f acc (KeyReq e) = acc ++ e
-        f acc (KeyOpt e) = acc ++ e
+  where f acc (KeyReq e) = acc V.++ e
+        f acc (KeyOpt e) = acc V.++ e
         f acc (KeyExt _) = acc
 gatherFunnelFAlgebra (MatchObjectPartialResultF _ r) = return $ L.foldl' f mempty (KM.elems r)
-  where f acc (KeyReq e) = acc ++ e
-        f acc (KeyOpt e) = acc ++ e
+  where f acc (KeyReq e) = acc V.++ e
+        f acc (KeyOpt e) = acc V.++ e
         f acc (KeyExt _) = acc
-gatherFunnelFAlgebra (MatchObjectWithDefaultsResultF r _ _) = return $ L.foldl' (++) mempty (KM.elems r)
-gatherFunnelFAlgebra (MatchObjectOnlyResultF r _) = return $ L.foldl' (++) mempty (KM.elems r)
-gatherFunnelFAlgebra (MatchObjectWholeResultF r) = return $ L.foldl' (++) mempty (KM.elems r)
-gatherFunnelFAlgebra (MatchArrayContextFreeResultF c) = return $ gatherFunnelContextFree c
-gatherFunnelFAlgebra (MatchArrayOnlyResultEmptyF g r) = return $ []
-gatherFunnelFAlgebra (MatchArrayOnlyResultSomeF r v) = return $ P.concat r
+gatherFunnelFAlgebra (MatchObjectWithDefaultsResultF r _ _) = return $ V.concat (KM.elems r)
+gatherFunnelFAlgebra (MatchObjectOnlyResultF r _) = return $ V.concat (KM.elems r)
+gatherFunnelFAlgebra (MatchObjectWholeResultF r) = return $ V.concat (KM.elems r)
+--gatherFunnelFAlgebra (MatchArrayContextFreeResultF c) = return $ gatherFunnelContextFree c
+gatherFunnelFAlgebra (MatchArrayOnlyResultEmptyF g r) = return $ V.empty
+gatherFunnelFAlgebra (MatchArrayOnlyResultSomeF r v) = return $ vconcat r
 gatherFunnelFAlgebra (MatchOrResultF g k r) = return $ r
-gatherFunnelFAlgebra (MatchNotResultF g r) = return $ []
-gatherFunnelFAlgebra (MatchAndResultF r' r) = return $ r' ++ r
+gatherFunnelFAlgebra (MatchNotResultF g r) = return $ V.empty
+gatherFunnelFAlgebra (MatchAndResultF r' r) = return $ r' V.++ r
 gatherFunnelFAlgebra (MatchIfThenResultF _ _ r) = return $ r
-gatherFunnelFAlgebra (MatchFunnelResultF r) = return $ [r]
-gatherFunnelFAlgebra (MatchFunnelKeysResultF m) = return $ fmap k2s (KM.keys m)
-gatherFunnelFAlgebra (MatchFunnelKeysUResultF m) = return $ unique $ fmap k2s (KM.keys m) -- TODO what idea?
+gatherFunnelFAlgebra (MatchFunnelResultF r) = return $ V.singleton r
+gatherFunnelFAlgebra (MatchFunnelKeysResultF m) = return $ V.fromList $ fmap k2s (KM.keys m)
+gatherFunnelFAlgebra (MatchFunnelKeysUResultF m) = error "not implemented" -- return $ unique $ fmap k2s (KM.keys m) -- TODO what idea?
 gatherFunnelFAlgebra (MatchRefResultF ref r) = return $ r
 gatherFunnelFAlgebra (MatchFromMongoDBResultF _ _ _) = error "not implemented"
 gatherFunnelFAlgebra (MatchFromRedisResultF _ _ _) = error "not implemented"
-gatherFunnelFAlgebra _ = return $ []
+gatherFunnelFAlgebra _ = return $ V.empty
 
-gatherFunnel' :: MonadIO m => MatchResult -> MatchStatusT m [Value] -- TODO Monoid?
+gatherFunnel' :: MonadIO m => MatchResult -> MatchStatusT m (V.Vector Value) -- TODO Monoid?
 gatherFunnel' = cataM gatherFunnelFAlgebra
 
-gatherFunnel = undefined
 --
 -- Convert Maybe to MatchStatus (e.g. a result of KM.lookup)
 --
@@ -640,6 +650,10 @@ m2mst m v = case v of
 --fa :: MonadIO m => MatchResultF MatchResult -> MatchStatusT m a
 --fa = undefined
 --matchPattern' :: MonadIO m => (MatchResultF a -> MatchStatusT m a) -> MatchPattern -> Value -> MatchStatusT m (MatchResultF a)
+matchPattern'
+  :: (Show r, MonadIO m) =>
+     (MatchResultF r -> MatchStatusT m r)
+     -> MatchPattern -> Value -> MatchStatusT m (MatchResultF r)
 
 --mObj :: Monad m => Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj fa keepExt m a = do
@@ -650,7 +664,7 @@ mObj fa keepExt m a = do
                     case KM.lookup k a of
                       -- KeyOpt means key might be missing
                       Nothing -> if req
-                                      then noMatch $ "Required key " ++ show k ++ " not found in map"
+                                      then noMatch $ "Required key " ++ (T.pack $ show k) ++ " not found in map"
                                       else return $ first (KM.insert k r) acc
                       -- if it exists, it must match
                       Just n -> MatchStatusT $ do
@@ -673,7 +687,7 @@ mObj fa keepExt m a = do
             case KM.member k m of
                  True -> return acc
                  False -> case keepExt of
-                               False -> noMatch $ ("extra key in arg: " ++ show k)
+                               False -> noMatch $ ("extra key in arg: " ++ T.pack (show k))
                                True -> case KM.lookup k a of
                                             Nothing -> matchFailure "impossible"
                                             Just v -> return $ second (KM.insert k (KeyExt v)) acc
@@ -700,7 +714,7 @@ matchPattern' fa (MatchObjectWithDefaults m d) (Object a) = do
                               then KM.insert k v
                               else id
                     return $ second ff acc
-                else noMatch $ "extra key: " ++ show k
+                else noMatch $ "extra key: " ++ T.pack (show k)
   (mm, vv) <- L.foldl' f (return mempty) $ KM.toList a
   return $ MatchObjectWithDefaultsResultF mm d vv
 
@@ -713,7 +727,7 @@ matchPattern' fa (MatchObjectOnly m) (Object a) = do
                 do
                   rr <- fa =<< matchPattern' fa v a'
                   return $ (KM.insert k rr) acc
-            Nothing -> noMatch ("Required key " ++ (toString k) ++ " not found in object")
+            Nothing -> noMatch ("Required key " ++ (K.toText k) ++ " not found in object")
   mm <- L.foldl' f (return mempty) $ KM.toList m
   vv <- return $ (KM.filterWithKey (\k _ -> not $ KM.member k m)) a
   return $ MatchObjectOnlyResultF mm vv
@@ -739,13 +753,13 @@ matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
 
 
 matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
-  rr <- runMatchStatusT $ contextFreeMatch m (V.toList a) (\p v -> fa =<< matchPattern' fa p v)
+  rr <- runMatchStatusT $ contextFreeMatch m a (\p v -> fa =<< matchPattern' fa p v)
   return $ case rr of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResultF x)
 
-matchPattern' fa (MatchArrayContextFree m) (Object a) = noMatch ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
+matchPattern' fa (MatchArrayContextFree m) (Object a) = noMatch ("object in cf:\n\n" ++ (TL.toStrict . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.toStrict . TL.decodeUtf8 . encode $ toJSON $ a))
 
 matchPattern' fa (MatchArrayOnly m) (Array a) = do
   let f acc' e = do
@@ -754,8 +768,8 @@ matchPattern' fa (MatchArrayOnly m) (Array a) = do
           rr <- runMatchStatusT $ fa =<< matchPattern' fa m e
           return $ case rr of
               MatchFailure e -> MatchFailure e
-              MatchSuccess s -> MatchSuccess $ bimap (++[s]) (++[Nothing]) acc
-              NoMatch _ -> MatchSuccess $ second (++[Just e]) acc
+              MatchSuccess s -> MatchSuccess $ bimap (\v -> V.snoc v s) (\v -> V.snoc v Nothing) acc
+              NoMatch _ -> MatchSuccess $ second (\v -> V.snoc v (Just e)) acc
   (r, v) <- L.foldl' f (return mempty) (V.toList a)
   return $ if P.null r
               then MatchArrayOnlyResultEmptyF m (catMaybes v)
@@ -777,7 +791,7 @@ matchPattern' fa (MatchIfThen baseMatch failMsg match) v = MatchStatusT $ do
        MatchSuccess _ -> do
           rr' <- runMatchStatusT $ fa =<< matchPattern' fa match v
           return $ case rr' of
-               NoMatch x -> MatchFailure ((T.unpack failMsg) ++ show x)
+               NoMatch x -> MatchFailure (failMsg ++ (T.pack $ show x))
                MatchFailure f -> MatchFailure f
                MatchSuccess s -> MatchSuccess (MatchIfThenResultF baseMatch failMsg s)
 
@@ -796,7 +810,7 @@ matchPattern' fa (MatchOr ms) v = do
 matchPattern' fa (MatchNot ms) v = MatchStatusT $ do
   rr <- runMatchStatusT $ fa =<< matchPattern' fa ms v
   return $ case rr of
-       MatchSuccess x -> NoMatch $ "Not fail: (can't show)" -- ++ show x
+       MatchSuccess x -> NoMatch $ "Not fail: (can't show)" -- ++ (T.pack $ show x)
        MatchFailure f -> MatchFailure f
        NoMatch s -> return $ MatchNotResultF ms v
 
@@ -812,7 +826,7 @@ matchPattern' fa (MatchArrayOr ms) (Array arr) = do
         MatchStatusT $ do
           rr <- runMatchStatusT $ fa =<< matchPattern' fa (MatchOr ms) e
           return $ case rr of
-             MatchSuccess s -> MatchSuccess $ acc ++ [s]
+             MatchSuccess s -> MatchSuccess $ V.snoc acc s
              MatchFailure err -> MatchFailure err
              NoMatch err -> MatchSuccess $ acc
   r <- L.foldl' h (return []) (V.toList arr)
@@ -821,14 +835,25 @@ matchPattern' fa (MatchArrayOr ms) (Array arr) = do
                  else StarNodeValue $ fmap CharNode r
   return $ MatchArrayContextFreeResultF $ SeqNode [inner]
 
+matchPattern' fa (MatchArray ms) (Array []) = do
+  return $ MatchArrayContextFreeResultF $ SeqNode [StarNodeEmpty $ Char $ ms]
+
+matchPattern' fa (MatchArray ms) (Array arr) = do
+  rEnv <- MatchStatusT $ do
+    v <- ask
+    return $ return v
+  rr <- liftIO $ mapConcurrently (\x -> ff1 fa ms rEnv x) arr
+  rr <- P.traverse (\x -> MatchStatusT $ ReaderT (const x)) rr
+  return $ MatchArrayContextFreeResultF $ SeqNode [StarNodeValue $ fmap CharNode rr]
+
 -- specific (aka exact)
-matchPattern' fa (MatchStringExact m) (String a) = if m == a then return $ MatchStringExactResultF a else noMatch ("string mismatch: expected " ++ show m ++ " but found " ++ show a)
+matchPattern' fa (MatchStringExact m) (String a) = if m == a then return $ MatchStringExactResultF a else noMatch ("string mismatch: expected " ++ (T.pack $ show m) ++ " but found " ++ (T.pack $ show a))
 matchPattern' fa (MatchStringRegExp m) (String a) =
   if a =~ m
      then return $ MatchStringRegExpResultF m a
-     else noMatch ("string regexp mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern' fa (MatchNumberExact m) (Number a) = if m == a then return $ MatchNumberExactResultF a else noMatch ("number mismatch: expected " ++ show m ++ " but found " ++ show a)
-matchPattern' fa (MatchBoolExact m) (Bool a) = if m == a then return $ MatchBoolExactResultF a else noMatch ("bool mismatch: expected " ++ show m ++ " but found " ++ show a)
+     else noMatch ("string regexp mismatch: expected " ++ (T.pack $ show m) ++ " but found " ++ (T.pack $ show a))
+matchPattern' fa (MatchNumberExact m) (Number a) = if m == a then return $ MatchNumberExactResultF a else noMatch ("number mismatch: expected " ++ (T.pack $ show m) ++ " but found " ++ (T.pack $ show a))
+matchPattern' fa (MatchBoolExact m) (Bool a) = if m == a then return $ MatchBoolExactResultF a else noMatch ("bool mismatch: expected " ++ (T.pack $ show m) ++ " but found " ++ (T.pack $ show a))
 -- any (of a type)
 matchPattern' fa MatchStringAny (String a) = return $ MatchStringAnyResultF a
 matchPattern' fa MatchNumberAny (Number a) = return $ MatchNumberAnyResultF a
@@ -840,7 +865,7 @@ matchPattern' fa (MatchRef r) v = do
   g <- MatchStatusT $ do
     v <- asks grammarMap
     return $ return v
-  p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+  p <- (m2mst $ matchFailure $ ("Non-existant ref: " ++ r)) $ KM.lookup (K.fromText r) g
   a <- fa =<< matchPattern' fa p v
   return $ MatchRefResultF r a
 
@@ -869,11 +894,11 @@ matchPattern' fa (MatchFromMongoDB db collection r) v = do
   --liftIO $ print rr
   let jj = toJSON rr
   kx <- (m2mst $ matchFailure "impossible12312344") $ asKeyMap jj
-  let km = KM.insert (fromString "_id") (String objectId) kx
+  let km = KM.insert (fromText "_id") (String objectId) kx
   let vvv = ((toBson km) :: MongoDB.Document)
   let resultsCollection = T.concat [collection, "Results"]
   kk <- liftIO $ MongoDB.access pipe MongoDB.master db $ MongoDB.insert resultsCollection vvv
-  --liftIO $ putStrLn $ "Insert doc: " ++ show kk
+  --liftIO $ putStrLn $ "Insert doc: " ++ (T.pack $ show kk)
   return $ MatchFromMongoDBResultF db collection (T.pack $ show kk) -- TODO better conversion?
 
 
@@ -952,7 +977,7 @@ matchPattern' fa (MatchGetFromRedis db collection r) v = do
     Nothing -> matchFailure "decode fail"
     Just e -> return (e :: Value)
 
-  liftIO $ print $ "read: " ++ (T.unpack va)
+  liftIO $ print $ "read: " ++ va
   matchPattern' fa r vr
 
 matchPattern' fa (MatchGetFromFile filename r) v = do
@@ -965,13 +990,14 @@ matchPattern' fa (MatchGetFromFile filename r) v = do
   matchPattern' fa r vr
 
 -- default ca
-matchPattern' fa m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
+matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
 
+matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
 matchPattern'' fma p v = fma =<< matchPattern' fma p v
 
 -- MatchResultF a2 -> a2
 -- TODO: better playaround with recursion schemes
-matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [Value]
+matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (V.Vector Value)
 matchToFunnel = matchPattern'' gatherFunnelFAlgebra
 
 matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT m MatchResult
@@ -979,6 +1005,17 @@ matchPattern = matchPattern'' $ return . embed
 
 matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (Maybe Value)
 matchToThin = matchPattern'' matchResultToThinValueFAlgebra
+
+
+--ff1 :: (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> MatcherEnv -> Value -> IO (MatchStatus r)
+ff1
+  :: (Show a, MonadIO m) =>
+     (MatchResultF a -> MatchStatusT m a)
+     -> MatchPattern -> MatcherEnv -> Value -> IO (m (MatchStatus a))
+ff1 fa ms rEnv x = do
+    --print "foo"
+    x <- liftIO $ return $ runReaderT (runMatchStatusT $ matchPattern'' fa ms x) rEnv
+    return x
 
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
 --contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
@@ -989,10 +1026,10 @@ contextFreeGrammarResultToGrammarAlg f = go
     go (CharNodeF r) = Char (f r)
     go (SeqNodeF r) = Seq r
     go (StarNodeEmptyF g) = Star g
-    go (StarNodeValueF r) = Star (P.head r)
-    go (StarNodeIndexedF r _) = Star (P.head r)
-    go (PlusNodeF r) = Plus (P.head r)
-    go (PlusNodeIndexedF r _) = Plus (P.head r)
+    go (StarNodeValueF r) = Star (V.head r)
+    go (StarNodeIndexedF r _) = Star (V.head r)
+    go (PlusNodeF r) = Plus (V.head r)
+    go (PlusNodeIndexedF r _) = Plus (V.head r)
     go (OrNodeF g k r) = Or (KM.insert k r g)
     go (OptionalNodeValueF r) = Optional r
     go (OptionalNodeEmptyF g) = Optional g
@@ -1000,16 +1037,16 @@ contextFreeGrammarResultToGrammarAlg f = go
 contextFreeGrammarResultToGrammar f = cata $ contextFreeGrammarResultToGrammarAlg f
   where
 
-contextFreeGrammarResultToSource :: (r -> a) -> ContextFreeGrammarResult g r -> [a]
+contextFreeGrammarResultToSource :: (r -> a) -> ContextFreeGrammarResult g r -> (V.Vector a)
 contextFreeGrammarResultToSource f = cata go
   where
     go (CharNodeF r) = [f r]
-    go (SeqNodeF r) = P.concat r
+    go (SeqNodeF r) = vconcat r
     go (StarNodeEmptyF g) = []
-    go (StarNodeValueF r) = P.concat r
-    go (StarNodeIndexedF r _) = P.concat r
-    go (PlusNodeF r) = P.concat r
-    go (PlusNodeIndexedF r _) = P.concat r
+    go (StarNodeValueF r) = vconcat r
+    go (StarNodeIndexedF r _) = vconcat r
+    go (PlusNodeF r) = vconcat r
+    go (PlusNodeIndexedF r _) = vconcat r
     go (OrNodeF g k r) = r
     go (OptionalNodeValueF r) = r
     go (OptionalNodeEmptyF g) = []
@@ -1021,8 +1058,8 @@ contextFreeGrammarResultToSourceBad f = cata go
     go (StarNodeEmptyF g) = []
     go (StarNodeValueF r) = P.concat r
     go (PlusNodeF r) = P.concat r
-    go (OrNodeF g k r) = [P.concat r]
-    go (OptionalNodeValueF r) = [P.concat r]
+    go (OrNodeF g k r) = [V.concat r]
+    go (OptionalNodeValueF r) = [V.concat r]
     go (OptionalNodeEmptyF g) = []
 
 --matchResultToPatternAlg :: (MatchResultF MatchPattern) -> MatchPattern
@@ -1039,7 +1076,7 @@ matchResultToPattern = cata go where
   go (MatchObjectOnlyResultF r v) = MatchObjectOnly r
   go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
   go (MatchArrayOnlyResultEmptyF g v) = MatchArrayOnly g
-  go (MatchArrayOnlyResultSomeF r v) = MatchArrayOnly $ P.head r
+  go (MatchArrayOnlyResultSomeF r v) = MatchArrayOnly $ V.head r
   go (MatchStringExactResultF r) = MatchStringExact r
   go (MatchStringRegExpResultF e r) = MatchStringRegExp e
   go (MatchNumberExactResultF r) = MatchNumberExact r
@@ -1075,15 +1112,15 @@ matchResultToValue = cata go
         f (KeyExt v) = v
     go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r $ KM.union v d
     go (MatchObjectOnlyResultF r v) = Object $ KM.union r v
-    go (MatchArrayContextFreeResultF r) = Array $ V.fromList $ contextFreeGrammarResultToSource id r
-    go (MatchArrayOnlyResultEmptyF g v) = Array $ V.fromList $ v
+    go (MatchArrayContextFreeResultF r) = Array $ contextFreeGrammarResultToSource id r
+    go (MatchArrayOnlyResultEmptyF g v) = Array $ v
     go (MatchArrayOnlyResultSomeF r v) = rr
       where
         f (r, rr) e = case e of
-                               Just x -> (r, rr ++ [x])
-                               Nothing -> let (q:qq) = r in (qq, rr ++ [q])
+                               Just x -> (r, V.snoc rr x)
+                               Nothing -> let q = V.head r; qq = V.tail r in (qq, V.snoc rr q)
         (_, vv) = L.foldl' f (r, []) v
-        rr = (Array $ V.fromList $ vv)
+        rr = Array vv
     go (MatchStringExactResultF r) = String r
     go (MatchStringRegExpResultF m r) = String r
     go (MatchNumberExactResultF r) = Number r
@@ -1107,7 +1144,7 @@ valueToExactGrammar :: Value -> MatchPattern
 valueToExactGrammar = cata go
   where
     go (ObjectF a) = MatchObjectWithDefaults a mempty
-    go (ArrayF a) = MatchArrayContextFree $ Seq $ (fmap Char) $ V.toList a
+    go (ArrayF a) = MatchArrayContextFree $ Seq $ fmap Char a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
     go (BoolF a) = MatchBoolExact a
@@ -1157,7 +1194,7 @@ matchPatternIsWellFormed = cataM goM
       g <- MatchStatusT $ do
         v <- asks grammarMap
         return $ return v
-      p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+      p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromText r) g
       matchPatternIsWellFormed p
     goM (MatchArrayContextFreeF g) = if not $ isSeq g
                                         then return $ False
@@ -1202,8 +1239,8 @@ isStarNodeLike (OptionalNodeValue _) = True
 isStarNodeLike (OptionalNodeEmpty _) = True
 isStarNodeLike _ = False
 
-allTheSame [] = True
-allTheSame (x:xs) = P.all (== x) xs
+allTheSame v = if V.null v then True
+                           else let h = V.head v in V.foldl (\a e -> a && (e == h)) True v
 
 --contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
 --contextFreeGrammarResultIsWellFormed :: (Show g, Show r) => (g -> Bool) -> (r -> Bool) -> ContextFreeGrammarResult g r -> Bool
@@ -1223,12 +1260,12 @@ contextFreeGrammarResultIsWellFormed gf rf = paraM goM
 
     go (SeqNodeF r) = P.all id (fmap snd r)
     go (StarNodeValueF r) =
-      (not $ isStarNodeLike (fst $ P.head r))
-      && (snd $ P.head r)
+      (not $ isStarNodeLike (fst $ V.head r))
+      && (snd $ V.head r)
       && (allTheSame $ (fmap (contextFreeGrammarResultToGrammar (matchResultToPattern . fst))) $ (fmap fst r))
     go (PlusNodeF r) =
-      (not $ isStarNodeLike (fst $ P.head r))
-      && (snd $ P.head r)
+      (not $ isStarNodeLike (fst $ V.head r))
+      && (snd $ V.head r)
       && (allTheSame $ (fmap (contextFreeGrammarResultToGrammar (matchResultToPattern . fst))) $ (fmap fst r))
     go (OptionalNodeValueF r) = (not $ isStarNodeLike (fst r)) && (snd r)
 
@@ -1334,7 +1371,7 @@ matchPatternIsMovable = cataM goM
       g <- MatchStatusT $ do
         v <- asks grammarMap
         return $ return v
-      p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromString r) g
+      p <- (m2mst $ matchFailure $ "Non-existant ref: " ++ r) $ KM.lookup (K.fromText r) g
       --matchPatternIsMovable g p
       return $ True --ehhh
     goM (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable return g
@@ -1370,14 +1407,14 @@ matchPatternIsMovable = cataM goM
 isKeyReq (KeyReq _) = True
 isKeyReq _ = False
 
-getKeyReqs :: [ObjectKeyMatch b] -> [b]
-getKeyReqs xs = fmap (extractObjectKeyMatch $ error "must not be here697") $ P.filter isKeyReq xs
+getKeyReqs :: (V.Vector (ObjectKeyMatch b)) -> (V.Vector b)
+getKeyReqs xs = fmap (extractObjectKeyMatch $ error "must not be here697") $ V.filter isKeyReq xs
 
 isKeyOpt (KeyOpt _) = True
 isKeyOpt _ = False
 
-getKeyOpts :: [ObjectKeyMatch b] -> [b]
-getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here703") $ P.filter isKeyOpt xs
+getKeyOpts :: (V.Vector (ObjectKeyMatch b)) -> (V.Vector b)
+getKeyOpts xs = fmap (extractObjectKeyMatch $ error "must not be here703") $ V.filter isKeyOpt xs
 
 matchResultIsMovable :: MonadIO m => MatchResult -> MatchStatusT m Bool
 matchResultIsMovable r = matchPatternIsMovable (matchResultToPattern r)
@@ -1385,14 +1422,14 @@ matchResultIsMovable r = matchPatternIsMovable (matchResultToPattern r)
 
 -- Thick/Thin stuff
 
-tMapK1 k = Object $ KM.fromList [(K.fromString "k", k2s k)]
-tMapKV1 k v = Object $ KM.fromList [(K.fromString "k", k2s k), (K.fromString "v", v)]
+tMapK1 k = Object $ KM.fromList [(K.fromText "k", k2s k)]
+tMapKV1 k v = Object $ KM.fromList [(K.fromText "k", k2s k), (K.fromText "v", v)]
 
 int2sci :: Integral a => a -> Value
 int2sci x = Number $ Sci.scientific (toInteger x) 0
 
-enumerate :: [Value] -> [Value]
-enumerate a = fmap (\(i, a) -> Array $ V.fromList [int2sci i, a]) $ P.zip [1..] a
+enumerate :: (V.Vector Value) -> (V.Vector Value) -- TODO optimize
+enumerate a = V.fromList $ fmap (\(i, a) -> Array $ V.fromList [int2sci i, a]) $ P.zip [1..] (V.toList a)
 
 contextFreeGrammarResultToThinValue :: MonadIO m => ContextFreeGrammarResult MatchPattern (Maybe Value) -> MatchStatusT m (Maybe Value)
 contextFreeGrammarResultToThinValue = cataM go'
@@ -1411,30 +1448,30 @@ contextFreeGrammarResultToThinValue = cataM go'
                             else Array $ V.fromList []
     go' x = return $ go x
     go (CharNodeF r) = r --fmap (tMap "Char") r
-    go (SeqNodeF r) = let l = P.map fromJust $ P.filter isJust r in
-      if P.null l
+    go (SeqNodeF r) = let l = fmap fromJust $ V.filter isJust r in
+      if V.null l
          then Nothing
-         else if P.length l == 1
-                 then Just $ P.head l
-                 else Just $ Array $ V.fromList $ l
-    go (StarNodeValueF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then int2sci (P.length r)
-                               else Array $ V.fromList $ enumerate $ P.map fromJust r
-    go (StarNodeIndexedF r _) = Just $ if P.head r == Nothing
-                               then int2sci (P.length r)
-                               else Array $ V.fromList $ enumerate $ P.map fromJust r
-    go (PlusNodeF r) = Just $ if P.head r == Nothing -- aka grammar is trivial
-                               then int2sci (P.length r)
-                               else Array $ V.fromList $ enumerate $ P.map fromJust r
-    go (PlusNodeIndexedF r _) = Just $ if P.head r == Nothing
-                               then int2sci (P.length r)
-                               else Array $ V.fromList $ enumerate $ P.map fromJust r
+         else if V.length l == 1
+                 then Just $ V.head l
+                 else Just $ Array l
+    go (StarNodeValueF r) = Just $ if V.head r == Nothing -- aka grammar is trivial
+                               then int2sci (V.length r)
+                               else Array $ enumerate $ V.map fromJust r
+    go (StarNodeIndexedF r _) = Just $ if V.head r == Nothing
+                               then int2sci (V.length r)
+                               else Array $ enumerate $ V.map fromJust r
+    go (PlusNodeF r) = Just $ if V.head r == Nothing -- aka grammar is trivial
+                               then int2sci (V.length r)
+                               else Array $ enumerate $ V.map fromJust r
+    go (PlusNodeIndexedF r _) = Just $ if V.head r == Nothing
+                               then int2sci (V.length r)
+                               else Array $ enumerate $ V.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
                             then tMapK1 k
                             else tMapKV1 k (fromJust r)
     go (OptionalNodeValueF r) = Just $ if r == Nothing
                             then Bool True
-                            else Array $ V.fromList [(fromJust r)]
+                            else Array $ [(fromJust r)]
 
 
 matchResultToThinValueFAlgebra :: MonadIO m => MatchResultF (Maybe Value) -> MatchStatusT m (Maybe Value)
@@ -1484,7 +1521,7 @@ matchResultToThinValueFAlgebra = goM
     go :: MatchResultF (Maybe Value) -> Maybe Value
     go (MatchObjectOnlyResultF r v) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ r
     go (MatchArrayOnlyResultEmptyF g r) = Nothing
-    go (MatchArrayOnlyResultSomeF g r) = Just $ (Array . V.fromList) $ catMaybes g -- TODO: when Nothing?
+    go (MatchArrayOnlyResultSomeF g r) = Just $ Array $ catMaybes g -- TODO: when Nothing?
     go (MatchStringExactResultF r) = Nothing
     go (MatchStringRegExpResultF e r) = Just $ String r
     go (MatchNumberExactResultF r) = Nothing
@@ -1505,7 +1542,7 @@ matchResultToThinValueFAlgebra = goM
     go (MatchFunnelKeysResultF r) = Just $ Object r
     go (MatchFunnelKeysUResultF r) = Just $ Object r
     go (MatchRefResultF ref r) = r
-    --go x = error $ show x
+    --go x = error $ (T.pack $ show x)
     go (MatchObjectFullResultF _ _) = error "MatchObjectFullResultF"
     go (MatchObjectPartialResultF _ _) = error "MatchObjectPartialResultF"
     go (MatchArrayContextFreeResultF _) = error "MatchArrayContextFreeResultF"
@@ -1516,12 +1553,12 @@ matchResultToThinValue :: MonadIO m => MatchResult -> MatchStatusT m (Maybe Valu
 matchResultToThinValue = cataM matchResultToThinValueFAlgebra
 
 -- thin pattern
-or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
+or2 = (MatchOr (KM.fromList [(K.fromText "option1", (MatchNumberExact 1)), (K.fromText "option2", MatchNumberAny)]))
 
 
 thinSeq as v = do
         gs <- P.traverse (contextFreeGrammarIsMovable matchPatternIsMovable) as
-        v <- case P.length (P.filter id gs) of
+        v <- case P.length (V.filter id gs) of
                   0 ->
                     do
                       return $ []
@@ -1530,32 +1567,32 @@ thinSeq as v = do
                       return $ [v]
                   _ ->
                     do
-                      (m2mst $ matchFailure $ "data error10" ++ show v) $ asArray v
+                      (m2mst $ matchFailure $ "data error10" ++ (T.pack $ show v)) $ asArray v
         let f acc' (a, gg) = do
                 acc <- acc'
                 (ii, acc) <- acc'
-                let (i:is) = ii
+                let i = V.head ii; is = V.tail ii
                 if gg -- movable
-                  then fmap (\x -> (is, acc ++ [x])) (thinContextFreeMatch a (Just i))
-                  else fmap (\x -> (ii, acc ++ [x])) (thinContextFreeMatch a Nothing)
+                  then fmap (\x -> (is, V.snoc acc x)) (thinContextFreeMatch a (Just i))
+                  else fmap (\x -> (ii, V.snoc acc x)) (thinContextFreeMatch a Nothing)
 
-        r <- L.foldl' f (return (v, [])) $ P.zip as gs
-        _ <- if P.null $ fst r then return () else matchFailure $ "not all consumed" ++ show (fst r)
+        r <- V.foldl f (return (v, [])) $ V.zip as gs
+        _ <- if V.null $ fst r then return () else matchFailure $ "not all consumed" ++ (T.pack $ show (fst r))
         return $ SeqNode (snd r)
 
-throwAwayIndexes :: MonadIO m => MatchStatusT m [Value] -> Value -> MatchStatusT m [Value]
+throwAwayIndexes :: MonadIO m => MatchStatusT m (V.Vector Value) -> Value -> MatchStatusT m (V.Vector Value)
 throwAwayIndexes err (Array a') = do
   a <- return $ V.toList a'
   let f acc' x = do
         acc <- acc'
         x' <- (m2mst err) $ asArray x
         -- array of pairs
-        _ <- if P.length x' == 2 then return mempty else err
-        return $ acc ++ [P.head $ P.tail $ x']
+        _ <- if V.length x' == 2 then return mempty else err
+        return $ V.snoc acc (V.head $ V.tail $ x')
   L.foldl' f (return mempty) a
 throwAwayIndexes err _ = err
 
-getIndexes :: MonadIO m => MatchStatusT m a -> Value -> MatchStatusT m [Int]
+getIndexes :: MonadIO m => MatchStatusT m a -> Value -> MatchStatusT m (V.Vector Int)
 getIndexes ee (Array a') = do
   ee <- ee
   a <- return $ V.toList a'
@@ -1563,11 +1600,11 @@ getIndexes ee (Array a') = do
         acc <- acc'
         x' <- (m2mst (matchFailure "index problem")) $ asArray x
         -- array of pairs
-        _ <- if P.length x' == 2 then return ([] :: [Int]) else (matchFailure "index problem")
+        _ <- if P.length x' == 2 then return ([] :: (V.Vector Int)) else (matchFailure "index problem")
         let i' :: Value
-            i' = P.head $ x'
+            i' = V.head x'
         i <- (m2mst $ (matchFailure "index problem")) $ asNumber i'
-        return $ acc ++ [fromInteger $ Sci.coefficient i]
+        return $ V.snoc acc (fromInteger $ Sci.coefficient i)
   L.foldl' f (return mempty) a
 getIndexes _ _ = (matchFailure "index problem")
 
@@ -1582,20 +1619,20 @@ thinContextFreeMatch (Char a) v = MatchStatusT $ do
 thinContextFreeMatch (Seq as) Nothing = do
   vv <- contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
   if not $ vv
-     then thinSeq as (Array $ V.fromList [])
+     then thinSeq as (Array [])
      else noMatch "data error5"
 thinContextFreeMatch (Seq as) (Just v) = do
   vv <- contextFreeGrammarIsMovable matchPatternIsMovable (Seq as)
   if not $ vv
-     then noMatch ("data error6:\n\n" ++ show as ++ "\n\n" ++ show v ++ "\n\n")
+     then noMatch ("data error6:\n\n" ++ (T.pack $ show as) ++ "\n\n" ++ (T.pack $ show v) ++ "\n\n")
      else thinSeq as v
 
 thinContextFreeMatch (Or ms) (Just (Object v)) = do -- or requires an exsistance of a value (Just)
-  itsKey <- (m2mst $ matchFailure ("data error 951: " ++ show v)) $ KM.lookup (K.fromString "k") v
-  itsKey <- (m2mst $ matchFailure ("data error3" ++ show itsKey)) $ asString itsKey
-  let itsK = (K.fromString . T.unpack) itsKey
-  itsMatch <- (m2mst $ matchFailure ("data error4" ++ show ms)) $ KM.lookup itsK ms
-  mch <- thinContextFreeMatch itsMatch (KM.lookup (K.fromString "v") v)
+  itsKey <- (m2mst $ matchFailure ("data error 951: " ++ (T.pack $ show v))) $ KM.lookup (K.fromText "k") v
+  itsKey <- (m2mst $ matchFailure ("data error3" ++ (T.pack $ show itsKey))) $ asString itsKey
+  let itsK = K.fromText itsKey
+  itsMatch <- (m2mst $ matchFailure ("data error4" ++ (T.pack $ show ms))) $ KM.lookup itsK ms
+  mch <- thinContextFreeMatch itsMatch (KM.lookup (K.fromText "v") v)
   return $ OrNode (KM.delete itsK ms) itsK mch
 
 thinContextFreeMatch (Star a) (Just itsValue) = do
@@ -1605,8 +1642,8 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
   if gg
      then -- actual
         do
-          is <- (getIndexes $ matchFailure ("data error2" ++ show itsValue)) $ itsValue
-          itsValue <- (throwAwayIndexes $ matchFailure ("data error2" ++ show itsValue)) $ itsValue
+          is <- (getIndexes $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ itsValue
+          itsValue <- (throwAwayIndexes $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ itsValue
           if P.null itsValue
              then
                 return $ StarNodeEmpty a
@@ -1616,14 +1653,14 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
                 return $ StarNodeIndexed aa is
       else -- trivial
         do
-          itsValue <- (m2mst $ matchFailure ("data error2" ++ show itsValue)) $ asNumber itsValue
+          itsValue <- (m2mst $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ asNumber itsValue
           if itsValue == 0
              then
                 return $ StarNodeEmpty $ a
               else
                 do
                   aa' <- thinContextFreeMatch a Nothing
-                  let aa = P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa'
+                  let aa = V.fromList $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa'
                   return $ StarNodeValue aa
 
 thinContextFreeMatch (Plus a) (Just itsValue) = do
@@ -1631,15 +1668,15 @@ thinContextFreeMatch (Plus a) (Just itsValue) = do
   if gg
      then -- actual
         do
-          is <- (getIndexes $ matchFailure ("data error2" ++ show itsValue)) $ itsValue
-          itsValue <- (throwAwayIndexes $ matchFailure ("data error3" ++ show itsValue)) $ itsValue
+          is <- (getIndexes $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ itsValue
+          itsValue <- (throwAwayIndexes $ matchFailure ("data error3" ++ (T.pack $ show itsValue))) $ itsValue
           aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
           return $ PlusNodeIndexed aa is
       else -- trivial
         do
-          itsValue <- (m2mst $ matchFailure ("data error4" ++ show itsValue)) $ asNumber itsValue
+          itsValue <- (m2mst $ matchFailure ("data error4" ++ (T.pack $ show itsValue))) $ asNumber itsValue
           aa' <- thinContextFreeMatch a Nothing
-          let aa = P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa'
+          let aa = V.fromList $ P.take (fromIntegral $ Sci.coefficient itsValue) $ P.repeat aa'
           return $ PlusNode aa
 
 thinContextFreeMatch (Optional a) (Just itsValue) = do
@@ -1647,16 +1684,16 @@ thinContextFreeMatch (Optional a) (Just itsValue) = do
   if gg
      then
       do
-        itsValue <- (m2mst $ matchFailure ("data error1141" ++ show itsValue)) $ asArray itsValue
+        itsValue <- (m2mst $ matchFailure ("data error1141" ++ (T.pack $ show itsValue))) $ asArray itsValue
         if not (P.null itsValue)
            then
             do
-              r <- thinContextFreeMatch a (Just (P.head itsValue))
+              r <- thinContextFreeMatch a (Just (V.head itsValue))
               return $ OptionalNodeValue r
            else return $ OptionalNodeEmpty a
      else
       do
-        itsValue <- (m2mst $ matchFailure ("data error1144" ++ show itsValue)) $ asBool itsValue
+        itsValue <- (m2mst $ matchFailure ("data error1144" ++ (T.pack $ show itsValue))) $ asBool itsValue
         if itsValue
            then
             do
@@ -1664,7 +1701,7 @@ thinContextFreeMatch (Optional a) (Just itsValue) = do
               return $ OptionalNodeValue r
            else return $ OptionalNodeEmpty a
 
-thinContextFreeMatch a xs = error ("no match for: " ++ (show a) ++ " " ++ (show xs))
+thinContextFreeMatch a xs = error $ T.unpack ("no match for: " ++ ((T.pack $ show a)) ++ " " ++ ((T.pack $ show xs)))
 
 tObj :: MonadIO m => Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> (KeyMap Value) -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 tObj keepExt m a = do
@@ -1674,7 +1711,7 @@ tObj keepExt m a = do
       step k r acc req = case KM.lookup k a of
                       -- KeyOpt means key might be missing
                       Nothing -> if req
-                                    then noMatch $ "Required key " ++ show k ++ " not found in map"
+                                    then noMatch $ "Required key " ++ (T.pack $ show k) ++ " not found in map"
                                     else return $ first (KM.insert k r) acc
                       -- if it exists, it must match
                       Just n -> MatchStatusT $ do
@@ -1721,13 +1758,13 @@ thinPatternMap allowExt m a = do
              (0, False) -> do
                case a of
                     Nothing -> return $ KM.empty
-                    (Just x) -> matchFailure ("must not be here 1071: " ++ show x)
+                    (Just x) -> matchFailure ("must not be here 1071: " ++ (T.pack $ show x))
              (1, False) -> do -- very special case (replaceSingleton)
-                     aa <- (m2mst $ matchFailure ("must not be such 1073: " ++ show a)) a
+                     aa <- (m2mst $ matchFailure ("must not be such 1073: " ++ (T.pack $ show a))) a
                      return $ KM.singleton (P.head (KM.keys (KM.filter id ms))) aa
              _ -> do
-                     aa <- (m2mst $ matchFailure ("must not be such 1076: " ++ show a)) a
-                     (m2mst $ matchFailure ("must not be such 1077: " ++ show a)) $ asKeyMap aa
+                     aa <- (m2mst $ matchFailure ("must not be such 1076: " ++ (T.pack $ show a))) a
+                     (m2mst $ matchFailure ("must not be such 1077: " ++ (T.pack $ show a))) $ asKeyMap aa
 
   let f acc' k = do
         acc <- acc'
@@ -1739,10 +1776,10 @@ thinPatternMap allowExt m a = do
                                        Nothing -> do
                                          e <- thinPattern v Nothing
                                          return $ second (KM.insert k $ KeyReq e) acc
-                                       Just x -> matchFailure ("must not be here 1089: " ++ show x)
+                                       Just x -> matchFailure ("must not be here 1089: " ++ (T.pack $ show x))
              (KeyOpt v, False) -> do
-               vv <- (m2mst $ matchFailure ("doesn't exist1" ++ show na)) $ KM.lookup k na
-               flg <- (m2mst $ matchFailure ("doesn't exist5" ++ show vv)) $ asBool vv
+               vv <- (m2mst $ matchFailure ("doesn't exist1" ++ (T.pack $ show na))) $ KM.lookup k na
+               flg <- (m2mst $ matchFailure ("doesn't exist5" ++ (T.pack $ show vv))) $ asBool vv
                case flg of
                     False -> return $ first (KM.insert k v) acc
                     True -> do
@@ -1751,7 +1788,7 @@ thinPatternMap allowExt m a = do
              -- movable
              (KeyReq v, True) -> do
                case KM.lookup k na of
-                    Nothing -> noMatch ("Key not found: " ++ show k)
+                    Nothing -> noMatch ("Key not found: " ++ (T.pack $ show k))
                     Just x -> do
                       e <- thinPattern v (Just x)
                       return $ second (KM.insert k $ KeyReq e) acc
@@ -1762,7 +1799,7 @@ thinPatternMap allowExt m a = do
                       e <- thinPattern v (Just x)
                       return $ second (KM.insert k $ KeyOpt e) acc
              -- error
-             (KeyExt v, _) -> matchFailure ("must not be here" ++ show v)
+             (KeyExt v, _) -> matchFailure ("must not be here" ++ (T.pack $ show v))
 
   (os, xs) <- L.foldl' f (return mempty) (KM.keys m)
   let rst = KM.filterWithKey (\kk _ -> not $ KM.member kk m) na
@@ -1830,7 +1867,7 @@ thinPattern (MatchArrayOnly m) (Just (Array a)) = do
           runMatchStatusT $ case rr of
               MatchFailure f -> matchFailure f
               NoMatch s -> noMatch s
-              MatchSuccess r' -> return $ acc ++ [r']
+              MatchSuccess r' -> return $ V.snoc acc r'
   r <- L.foldl' f (return mempty) $ V.toList a
   return $ if P.null r
               then MatchArrayOnlyResultEmpty m []
@@ -1867,7 +1904,7 @@ thinPattern (MatchIfThen baseMatch failMsg match) v = do
           MatchStatusT $ do
             rr' <- runMatchStatusT $ thinPattern match v
             runMatchStatusT $ case rr' of
-                              NoMatch x -> matchFailure ((T.unpack failMsg) ++ show x)
+                              NoMatch x -> matchFailure (failMsg ++ (T.pack $ show x))
                               MatchFailure f -> matchFailure f
                               MatchSuccess s -> return $ MatchIfThenResult baseMatch failMsg s
 
@@ -1875,11 +1912,11 @@ thinPattern MatchAny (Just a) = return $ MatchAnyResult a
 thinPattern MatchIgnore (Just a) = matchFailure "thinPattern over Ignore"
 
 thinPattern (MatchOr ms) (Just (Object v)) = do
-  itsK <- (m2mst $ matchFailure $ "data error117" ++ show v) $ (KM.lookup "k") v
-  itsK <- (m2mst $ matchFailure $ "data error117" ++ show v) $ asString itsK
-  itsK <- return $ K.fromString $ T.unpack $ itsK
+  itsK <- (m2mst $ matchFailure $ "data error117" ++ (T.pack $ show v)) $ (KM.lookup "k") v
+  itsK <- (m2mst $ matchFailure $ "data error117" ++ (T.pack $ show v)) $ asString itsK
+  itsK <- return $ K.fromText itsK
   let itsV = KM.lookup "v" v
-  aa <- (m2mst $ noMatch $ "Wrong k" ++ show itsK) $ (KM.lookup itsK) ms
+  aa <- (m2mst $ noMatch $ "Wrong k" ++ (T.pack $ show itsK)) $ (KM.lookup itsK) ms
   r <- thinPattern aa itsV
   rr <- return $ MatchOrResult (KM.delete itsK ms) itsK r
   return $ rr
@@ -1895,7 +1932,7 @@ thinPattern MatchBoolAny (Just (Bool a)) = return $ MatchBoolAnyResult a
 -- null is just null
 thinPattern MatchNull Nothing = return $ MatchNullResult
 -- default ca
-thinPattern m a = noMatch ("thinPattern bottom reached:\n" ++ show m ++ "\n" ++ show a)
+thinPattern m a = noMatch ("thinPattern bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
 
 -- thin pattern R
 {-
@@ -1903,18 +1940,18 @@ thinPatternR (MatchObjectFullResult _ _) = error "not implemented"
 thinPatternR (MatchObjectPartialResult _ _) = error "not implemented"
 --thinPatternR (MatchObjectWithDefaultsResult r d o) = L.foldl' f (MatchStatus mempty) r-}
 
-safeGet :: [a] -> Int -> Maybe a
+safeGet :: (V.Vector a) -> Int -> Maybe a
 safeGet xs n
   | n < 0     = Nothing
              -- Definition adapted from GHC.List
-  | otherwise = P.foldr (\x r k -> case k of
+  | otherwise = V.foldr (\x r k -> case k of
                                    0 -> Just x
                                    _ -> r (k-1)) (const Nothing) xs n
 
 applyOriginalValueDefaultsCF :: ContextFreeGrammarResult MatchPattern MatchResult -> Maybe (ContextFreeGrammarResult MatchPattern MatchResult) -> ContextFreeGrammarResult MatchPattern MatchResult
 
 applyOriginalValueDefaultsCF (CharNode x) (Just (CharNode x')) = CharNode $ applyOriginalValueDefaults x (Just x')
-applyOriginalValueDefaultsCF (SeqNode x) (Just (SeqNode x')) = SeqNode $ P.map (\(e, e') -> applyOriginalValueDefaultsCF e (Just e')) $ P.zip x x'
+applyOriginalValueDefaultsCF (SeqNode x) (Just (SeqNode x')) = SeqNode $ V.map (\(e, e') -> applyOriginalValueDefaultsCF e (Just e')) $ V.zip x x'
 -- Or
 -- Star
 -- Plus
@@ -1925,19 +1962,19 @@ applyOriginalValueDefaultsCF o@(OrNode ms k m) (Just (OrNode ms' k' m')) = l
                    else o
 applyOriginalValueDefaultsCF o@(StarNodeIndexed m is) (Just (StarNodeValue m')) = l
   where
-    l = StarNodeValue $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m is
+    l = StarNodeValue $ V.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ V.zip m is
 
 applyOriginalValueDefaultsCF o@(StarNodeValue m) (Just (StarNodeValue m')) = l
   where
-    l = StarNodeValue $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m [1..]
+    l = StarNodeValue $ V.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ V.zip m [1..]
 
 applyOriginalValueDefaultsCF o@(PlusNodeIndexed m is) (Just (PlusNode m')) = l
   where
-    l = PlusNode $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m is
+    l = PlusNode $ V.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ V.zip m is
 
 applyOriginalValueDefaultsCF o@(PlusNode m) (Just (PlusNode m')) = l
   where
-    l = PlusNode $ P.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ P.zip m [1..]
+    l = PlusNode $ V.map (\(e, i) -> applyOriginalValueDefaultsCF e (safeGet m' (i - 1))) $ V.zip m [1..]
 
 applyOriginalValueDefaultsCF (OptionalNodeValue m) (Just (OptionalNodeValue m')) = l
   where
@@ -1956,7 +1993,7 @@ applyOriginalValueDefaults (MatchArrayOnlyResultEmpty m v) (Just (MatchArrayOnly
 
 applyOriginalValueDefaults (MatchArrayOnlyResultSome m v) (Just (MatchArrayOnlyResultSome m' v')) = l --error $ show (m, m', d, a)
   where
-    m'' = fmap (\(a, b) -> applyOriginalValueDefaults a (Just b)) $ P.zip m m'
+    m'' = fmap (\(a, b) -> applyOriginalValueDefaults a (Just b)) $ V.zip m m'
     l = MatchArrayOnlyResultSome m'' v'
 
 applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyResult m' a')) = l --error $ show (m, m', d, a)
@@ -2044,8 +2081,8 @@ c6f r = let
         t = extract (matchResultToThinValue mempty r)
         r0 = (thinPattern mempty p) t
         r1 = case r0 of
-                  NoMatch s -> error ("NoMatch: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
-                  MatchFailure s -> error ("MatchFailure: " ++ s ++ "\n\n" ++ show p ++ "\n\n" ++ show (matchResultToValue r))
+                  NoMatch s -> error ("NoMatch: " ++ s ++ "\n\n" ++ (T.pack $ show p) ++ "\n\n" ++ show (matchResultToValue r))
+                  MatchFailure s -> error ("MatchFailure: " ++ s ++ "\n\n" ++ (T.pack $ show p) ++ "\n\n" ++ show (matchResultToValue r))
                   MatchSuccess s -> s
       in r == r1
 
@@ -2091,61 +2128,61 @@ test = hspec $ do
   describe "handles MatchPattern nodes correctly" $ do
     it "Handles trivial MatchOr correctly. Nothing case" $ do
       let p = (MatchOr (KM.fromList [
-            (K.fromString "option1", (MatchNumberExact 1)),
-            (K.fromString "option2", (MatchNumberExact 2))]))
+            (K.fromText "option1", (MatchNumberExact 1)),
+            (K.fromText "option2", (MatchNumberExact 2))]))
           v = Number 1
       tVIs p v
     it "Handles trivial MatchOr correctly. Nothing case" $ do
       let p = (MatchOr (KM.fromList [
-            (K.fromString "option1", (MatchNumberExact 1)),
-            (K.fromString "option2", (MatchNumberExact 2))]))
+            (K.fromText "option1", (MatchNumberExact 1)),
+            (K.fromText "option2", (MatchNumberExact 2))]))
           v = Number 2
       tVIs p v
     it "Handles actual MatchOr correctly. Nothing case" $ do
       let p = (MatchOr (KM.fromList [
-            (K.fromString "option1", (MatchNumberExact 1)),
-            (K.fromString "option2", (MatchNumberAny))]))
+            (K.fromText "option1", (MatchNumberExact 1)),
+            (K.fromText "option2", (MatchNumberAny))]))
           v = Number 1
       tVIs p v
     it "Handles actual MatchOr correctly. Just case" $ do
       let p = (MatchOr (KM.fromList [
-            (K.fromString "option1", (MatchNumberExact 1)),
-            (K.fromString "option2", (MatchNumberAny))]))
+            (K.fromText "option1", (MatchNumberExact 1)),
+            (K.fromText "option2", (MatchNumberAny))]))
           v = Number 2
       tVIs p v
     it "Handles actual MatchObjectFull correctly. Some nothing, some Just case. Some opts exist, some don't" $ do
       let p = (MatchObjectFull (KM.fromList [
-            (K.fromString "a", KeyReq (MatchNumberExact 1))
-            , (K.fromString "b", KeyOpt (MatchNumberExact 2))
-            , (K.fromString "b1", KeyOpt (MatchNumberExact 3))
-            , (K.fromString "c", KeyReq (MatchNumberAny))
-            , (K.fromString "d", KeyOpt (MatchNumberAny))
-            , (K.fromString "d1", KeyOpt (MatchNumberAny))
+            (K.fromText "a", KeyReq (MatchNumberExact 1))
+            , (K.fromText "b", KeyOpt (MatchNumberExact 2))
+            , (K.fromText "b1", KeyOpt (MatchNumberExact 3))
+            , (K.fromText "c", KeyReq (MatchNumberAny))
+            , (K.fromText "d", KeyOpt (MatchNumberAny))
+            , (K.fromText "d1", KeyOpt (MatchNumberAny))
             ]))
           v = Object (KM.fromList [
-            (K.fromString "a", Number 1)
-            , (K.fromString "b", Number 2)
-            , (K.fromString "c", Number 4)
-            , (K.fromString "d", Number 5)
+            (K.fromText "a", Number 1)
+            , (K.fromText "b", Number 2)
+            , (K.fromText "c", Number 4)
+            , (K.fromText "d", Number 5)
             ])
       tVIs p v
       --2 + 2 `shouldBe` 4
   describe "matchResultToThinValue works correctly" $ do
     it "case a a" $ do
       let p = (MatchObjectFull (KM.fromList [
-            (K.fromString "a", KeyReq (MatchNumberExact 1))
+            (K.fromText "a", KeyReq (MatchNumberExact 1))
             ]))
           v = Object (KM.fromList [
-            (K.fromString "a", Number 1)
+            (K.fromText "a", Number 1)
             ])
           t = Nothing
       tIs p v t
     it "case c" $ do
       let p = (MatchObjectFull (KM.fromList [
-            (K.fromString "c", KeyReq MatchNumberAny)
+            (K.fromText "c", KeyReq MatchNumberAny)
             ]))
           v = Object (KM.fromList [
-            (K.fromString "c", Number 1)
+            (K.fromText "c", Number 1)
             ])
           t = Just $ Number 1
       tIs p v t
@@ -2225,18 +2262,18 @@ test = hspec $ do
 
 demo1 = do
   let p = (MatchObjectFull (KM.fromList [
-        (K.fromString "a", KeyReq (MatchNumberExact 1))
-        , (K.fromString "b", KeyOpt (MatchNumberExact 2))
-        , (K.fromString "b1", KeyOpt (MatchNumberExact 3))
-        , (K.fromString "c", KeyReq (MatchNumberAny))
-        , (K.fromString "d", KeyOpt (MatchNumberAny))
-        , (K.fromString "d1", KeyOpt (MatchNumberAny))
+        (K.fromText "a", KeyReq (MatchNumberExact 1))
+        , (K.fromText "b", KeyOpt (MatchNumberExact 2))
+        , (K.fromText "b1", KeyOpt (MatchNumberExact 3))
+        , (K.fromText "c", KeyReq (MatchNumberAny))
+        , (K.fromText "d", KeyOpt (MatchNumberAny))
+        , (K.fromText "d1", KeyOpt (MatchNumberAny))
         ]))
       v = Object (KM.fromList [
-        (K.fromString "a", Number 1)
-        , (K.fromString "b", Number 2)
-        , (K.fromString "c", Number 4)
-        , (K.fromString "d", Number 5)
+        (K.fromText "a", Number 1)
+        , (K.fromText "b", Number 2)
+        , (K.fromText "c", Number 4)
+        , (K.fromText "d", Number 5)
         ])
       r = extract $ matchPatternI mempty p v
       t = extract $ matchResultToThinValue mempty r
@@ -2311,7 +2348,7 @@ ex1 = do
 
 mdb :: IO ()
 mdb = do
-  let p = MatchFromMongoDB "logicore" "products" $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
+  let p = MatchFromMongoDB "logicore" "products" $ MatchObjectOnly (fromList [(fromText "item", MatchStringExact "card"), (fromText "qty", MatchNumberAny)])
   let v = String "657aa1c7ec43193e13182e9e"
   a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) emptyEnvValue
   return ()
@@ -2320,7 +2357,7 @@ mdb = do
 
 rdb :: IO ()
 rdb = do
-  let p = MatchFromRedis "logicore" "products" $ MatchObjectOnly (fromList [(fromString "item", MatchStringExact "card"), (fromString "qty", MatchNumberAny)])
+  let p = MatchFromRedis "logicore" "products" $ MatchObjectOnly (fromList [(fromText "item", MatchStringExact "card"), (fromText "qty", MatchNumberAny)])
   let v = String "hello"
   conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
   a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) $ MatcherEnv { redisConn = conn }

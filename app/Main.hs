@@ -22,7 +22,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.IO.Class (liftIO, MonadIO)
 
-import Logicore.Matcher.Core
+import Logicore.Matcher.Core hiding ((++))
 import Logicore.Matcher.Additional
 import qualified Database.Redis as Redis
 --import Logicore.Matcher.Python
@@ -116,7 +116,7 @@ mkMatchToFunnel e = do
   mp <- (m2mst $ matchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   funnelResult <- matchToFunnel mp value
   return $ Object $ (KM.fromList [
-    (K.fromString "funnel", Array $ V.fromList $ funnelResult)])
+    (K.fromString "funnel", Array $ funnelResult)])
 
 mkMatchToThin :: (Object -> MatchStatusT IO Value)
 mkMatchToThin e = do
@@ -279,8 +279,8 @@ fnEndpoint f = do
             conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
             vv <- liftIO $ runReaderT (runMatchStatusT $ f e) $ MatcherEnv { redisConn = conn, grammarMap = grammar } 
             r <- (ExceptT . return) $ case vv of
-                    MatchFailure s -> Left ("matchFailure: " ++ s)
-                    NoMatch x -> Left ("NoMatch: " ++ x)
+                    MatchFailure s -> Left ("matchFailure: " ++ T.unpack s)
+                    NoMatch x -> Left ("NoMatch: " ++ T.unpack x)
                     MatchSuccess r -> Right $ r
             return r
     send $ Web.Twain.json $ case a of
