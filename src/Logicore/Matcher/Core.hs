@@ -480,7 +480,6 @@ contextFreeMatch' (Char a) (x:xs) matchFn = MatchStatusT $ do
        MatchSuccess a' -> MatchSuccess (xs, CharNode a')
 
 contextFreeMatch' (Seq as) xs matchFn = do
-  liftIO $ putStrLn "Seq"
   let f acc' a = do
           (xs, result) <- acc'
           (xs', result') <- contextFreeMatch' a xs matchFn
@@ -938,7 +937,6 @@ matchPattern' fa (MatchGetFromRedis db collection r) v = do
     a <- asks redisConn
     return $ (return a)
 
-  --liftIO $ print c
   let dataKey = T.encodeUtf8 $ T.concat [db, ":", collection, ":", va]
   let resultKey = T.encodeUtf8 $ T.concat [db, ":", collection, "Results:", va]
   v <- liftIO $ Redis.runRedis conn $ do
@@ -954,6 +952,7 @@ matchPattern' fa (MatchGetFromRedis db collection r) v = do
     Nothing -> matchFailure "decode fail"
     Just e -> return (e :: Value)
 
+  liftIO $ print $ "read: " ++ va
   matchPattern' fa r vr
 
 matchPattern' fa (MatchGetFromFile filename r) v = do
