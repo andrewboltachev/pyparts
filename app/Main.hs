@@ -46,6 +46,7 @@ main = do
       --, post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel)
       --, post "/matchPatternWithFunnelFile" matchPatternWithFunnelFile
       , post "/matchToFunnel" (fnEndpoint mkMatchToFunnel)
+      , post "/matchToThin" (fnEndpoint mkMatchToThin)
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
       , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
       , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
@@ -116,6 +117,15 @@ mkMatchToFunnel e = do
   funnelResult <- matchToFunnel mp value
   return $ Object $ (KM.fromList [
     (K.fromString "funnel", Array $ V.fromList $ funnelResult)])
+
+mkMatchToThin :: (Object -> MatchStatusT IO Value)
+mkMatchToThin e = do
+  value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
+  pattern <- (m2mst $ matchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
+  mp <- (m2mst $ matchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
+  funnelResult <- matchToThin mp value
+  return $ Object $ (KM.fromList [
+    (K.fromString "thinValue", maybe Null id funnelResult)]) -- TODO replace null
 
 --matchPatternWithFunnelFile :: (Object -> MatchStatusT IO Value) -> ResponderM b
 -- TODO study monad transformers *FACEPALM*

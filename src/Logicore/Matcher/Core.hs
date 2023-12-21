@@ -218,6 +218,9 @@ instance FromJSON a => FromJSON (ArrayValMatch a)
 data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchObjectWithDefaults (KeyMap MatchPattern) (KeyMap Value)
                   | MatchObjectOnly (KeyMap MatchPattern)
+                  | MatchObjectWhole MatchPattern
+                  | MatchOmitField Key MatchPattern
+                  | MatchSelectFields [Key] MatchPattern
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
                   -- structures - array
                   -- | MatchArrayAll MatchPattern
@@ -254,6 +257,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchRef String
                   | MatchFromMongoDB T.Text T.Text MatchPattern
                   | MatchFromRedis T.Text T.Text MatchPattern
+                  | MatchGetFromRedis T.Text T.Text MatchPattern
                     deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsArbitrary = do
@@ -308,6 +312,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  -- | MatchArrayExactResult [MatchResult]
                  | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value) (KeyMap Value)
                  | MatchObjectOnlyResult (KeyMap MatchResult) (KeyMap Value)
+                 | MatchObjectWholeResult (KeyMap MatchResult)
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
                  | MatchArrayOnlyResultEmpty MatchPattern [Value]
                  | MatchArrayOnlyResultSome [MatchResult] [Maybe Value]
@@ -594,6 +599,7 @@ gatherFunnelFAlgebra (MatchObjectPartialResultF _ r) = return $ L.foldl' f mempt
         f acc (KeyExt _) = acc
 gatherFunnelFAlgebra (MatchObjectWithDefaultsResultF r _ _) = return $ L.foldl' (++) mempty (KM.elems r)
 gatherFunnelFAlgebra (MatchObjectOnlyResultF r _) = return $ L.foldl' (++) mempty (KM.elems r)
+gatherFunnelFAlgebra (MatchObjectWholeResultF r) = return $ L.foldl' (++) mempty (KM.elems r)
 gatherFunnelFAlgebra (MatchArrayContextFreeResultF c) = return $ gatherFunnelContextFree c
 gatherFunnelFAlgebra (MatchArrayOnlyResultEmptyF g r) = return $ []
 gatherFunnelFAlgebra (MatchArrayOnlyResultSomeF r v) = return $ P.concat r
@@ -712,12 +718,31 @@ matchPattern' fa (MatchObjectOnly m) (Object a) = do
   return $ MatchObjectOnlyResultF mm vv
 
 
-{-matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
-  rr <- runMatchStatusT $ contextFreeMatch m (V.toList a) fa =<< matchPattern' fa
+matchPattern' fa (MatchObjectWhole m) (Object a) = do
+  let f acc' (k, v) = do
+          acc <- acc' -- (mm, dd)
+          rr <- fa =<< matchPattern' fa m v
+          return $ (KM.insert k rr) acc
+  mm <- L.foldl' f (return mempty) $ KM.toList a
+  return $ MatchObjectWholeResultF mm
+
+
+matchPattern' fa (MatchOmitField fname m) (Object a) = do
+  b <- return $ KM.delete fname a
+  matchPattern' fa m (Object b)
+
+
+matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
+  b <- return $ KM.filterWithKey (\k _ -> P.elem k fnames) a
+  matchPattern' fa m (Object b)
+
+
+matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
+  rr <- runMatchStatusT $ contextFreeMatch m (V.toList a) (\p v -> fa =<< matchPattern' fa p v)
   return $ case rr of
        NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
        MatchFailure s -> MatchFailure s
-       MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResultF x)-}
+       MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResultF x)
 
 matchPattern' fa (MatchArrayContextFree m) (Object a) = noMatch ("object in cf:\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.unpack . TL.decodeUtf8 . encode $ toJSON $ a))
 
@@ -896,6 +921,39 @@ matchPattern' fa (MatchFromRedis db collection r) v = do
 
   return $ MatchFromRedisResultF db collection va-}
 
+matchPattern' fa (MatchGetFromRedis db collection r) v = do
+  --  TODO operate on Text for db etc
+  va <- (m2mst $ matchFailure "Redis should see ObjectId") $ asString v
+  -- XXX temporary
+
+  --lift $ asks redisConn
+  -- MatchStatusT (ReaderT MatcherEnv m (MatchStatus a))
+  -- runMatchStatusT
+  -- ReaderT MatcherEnv m (MatchStatus a)
+  -- runReaderT
+  -- MatcherEnv -> m (MatchStatus a)
+  conn <- MatchStatusT $ do
+    a <- asks redisConn
+    return $ (return a)
+
+  --liftIO $ print c
+  let dataKey = T.encodeUtf8 $ T.concat [db, ":", collection, ":", va]
+  let resultKey = T.encodeUtf8 $ T.concat [db, ":", collection, "Results:", va]
+  v <- liftIO $ Redis.runRedis conn $ do
+     hello <- Redis.get $ dataKey
+     return $ hello
+  v' <- case v of
+    Left e -> matchFailure "redis fail"
+    Right e -> return e
+  v'' <- case v' of
+    Nothing -> matchFailure "redis fail"
+    Just e -> return e
+  vr <- case decode $ BL.fromStrict v'' of
+    Nothing -> matchFailure "decode fail"
+    Just e -> return (e :: Value)
+
+  matchPattern' fa r vr
+
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ show m ++ "\n" ++ show a)
 
@@ -908,6 +966,9 @@ matchToFunnel = matchPattern'' gatherFunnelFAlgebra
 
 matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT m MatchResult
 matchPattern = matchPattern'' $ return . embed
+
+matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (Maybe Value)
+matchToThin = matchPattern'' matchResultToThinValueFAlgebra
 
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
 --contextFreeGrammarResultToGrammar :: (r -> p) -> (ContextFreeGrammarResult (ContextFreeGrammar p) r) -> (ContextFreeGrammar p)
@@ -1366,8 +1427,8 @@ contextFreeGrammarResultToThinValue = cataM go'
                             else Array $ V.fromList [(fromJust r)]
 
 
-matchResultToThinValue :: MonadIO m => MatchResult -> MatchStatusT m (Maybe Value)
-matchResultToThinValue = cataM goM
+matchResultToThinValueFAlgebra :: MonadIO m => MatchResultF (Maybe Value) -> MatchStatusT m (Maybe Value)
+matchResultToThinValueFAlgebra = goM
   where
     filterEmpty a = (KM.map fromJust (KM.filter isJust a))
     nonEmptyMap m = if KM.null m then Nothing else Just m
@@ -1439,6 +1500,10 @@ matchResultToThinValue = cataM goM
     go (MatchObjectPartialResultF _ _) = error "MatchObjectPartialResultF"
     go (MatchArrayContextFreeResultF _) = error "MatchArrayContextFreeResultF"
     go (MatchDefaultResultF _) = error "MatchDefaultResultF"
+
+
+matchResultToThinValue :: MonadIO m => MatchResult -> MatchStatusT m (Maybe Value)
+matchResultToThinValue = cataM matchResultToThinValueFAlgebra
 
 -- thin pattern
 or2 = (MatchOr (KM.fromList [(K.fromString "option1", (MatchNumberExact 1)), (K.fromString "option2", MatchNumberAny)]))
