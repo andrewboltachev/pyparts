@@ -66,6 +66,7 @@ import qualified Data.Set                     as S
 import Control.Applicative
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.IO.Class
 import Data.Functor.Identity
@@ -258,6 +259,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchFromMongoDB T.Text T.Text MatchPattern
                   | MatchFromRedis T.Text T.Text MatchPattern
                   | MatchGetFromRedis T.Text T.Text MatchPattern
+                  | MatchGetFromFile T.Text MatchPattern
                     deriving (Generic, Eq, Show)
 
 matchObjectWithDefaultsArbitrary = do
@@ -951,6 +953,15 @@ matchPattern' fa (MatchGetFromRedis db collection r) v = do
   vr <- case decode $ BL.fromStrict v'' of
     Nothing -> matchFailure "decode fail"
     Just e -> return (e :: Value)
+
+  matchPattern' fa r vr
+
+matchPattern' fa (MatchGetFromFile filename r) v = do
+  fdata <- liftIO $ ((fmap decode $ BL.readFile (T.unpack filename)) :: IO (Maybe Value))
+  vr <- case fdata of
+    Just x -> return x
+    Nothing -> matchFailure "can't decode file"
+    
 
   matchPattern' fa r vr
 
