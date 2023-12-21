@@ -952,7 +952,7 @@ matchPattern' fa (MatchGetFromRedis db collection r) v = do
     Nothing -> matchFailure "decode fail"
     Just e -> return (e :: Value)
 
-  liftIO $ print $ "read: " ++ va
+  liftIO $ print $ "read: " ++ (T.unpack va)
   matchPattern' fa r vr
 
 matchPattern' fa (MatchGetFromFile filename r) v = do
