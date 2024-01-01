@@ -15,6 +15,7 @@ import qualified Data.Text.Lazy             as TL
 import qualified Data.Text.Lazy.Encoding    as TL
 import qualified Data.Text.Lazy.IO          as TL
 import qualified Data.ByteString.Lazy       as BL
+import Data.Aeson.Text (encodeToLazyText)
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
@@ -87,6 +88,9 @@ getGrammarArg e = case KM.lookup (K.fromString "grammar") e of
                       return $ grammar'
                     (Just _) -> ExceptT $ return $ Left $ "JSON element grammar, when present should be of KeyMap type"
                     Nothing -> return $ mempty
+
+getToFileArg :: KeyMap Value -> Maybe String
+getToFileArg e = (KM.lookup (K.fromString "toFile") e) >>= asString >>= return . T.unpack
 
 mkMatchPattern :: (Object -> MatchStatusT IO Value)
 mkMatchPattern e = do
@@ -276,13 +280,18 @@ fnEndpoint f = do
     a <- runExceptT $ do
             e <- (m2et "JSON root element must be a map") $ asKeyMap b
             grammar <- getGrammarArg e
+            let toFile = getToFileArg e
             conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
             vv <- liftIO $ runReaderT (runMatchStatusT $ f e) $ MatcherEnv { redisConn = conn, grammarMap = grammar } 
             r <- (ExceptT . return) $ case vv of
                     MatchFailure s -> Left ("matchFailure: " ++ T.unpack s)
                     NoMatch x -> Left ("NoMatch: " ++ T.unpack x)
                     MatchSuccess r -> Right $ r
-            return r
+            case toFile of
+                    Just filename -> do
+                      liftIO $ TL.writeFile filename (encodeToLazyText r)
+                      return $ String "ok"
+                    Nothing -> return r
     send $ Web.Twain.json $ case a of
         Left e -> Object (KM.fromList [(K.fromString "error", (String . T.pack) ("Error: " ++ e))])
         Right x -> x

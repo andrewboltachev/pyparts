@@ -228,6 +228,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchObjectWhole MatchPattern
                   | MatchOmitField Key MatchPattern
                   | MatchSelectFields (V.Vector Key) MatchPattern
+                  | MatchFork (KeyMap MatchPattern)
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
                   -- structures - array
                   -- | MatchArrayAll MatchPattern
@@ -338,6 +339,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchNullResult
                  -- conditions
                  | MatchAnyResult Value
+                 | MatchAnyEmptyResult -- special
                  | MatchIgnoreResult Value
                  | MatchDefaultResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
@@ -752,6 +754,11 @@ matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
   matchPattern' fa m (Object b)
 
 
+{-matchPattern' fa (MatchFork fnames m) (Object a) = do
+  b <- return $ KM.filterWithKey (\k _ -> P.elem k fnames) a
+  matchPattern' fa m (Object b)-}
+
+
 matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
   rr <- runMatchStatusT $ contextFreeMatch m a (\p v -> fa =<< matchPattern' fa p v)
   return $ case rr of
@@ -1086,6 +1093,7 @@ matchResultToPattern = cata go where
   go (MatchBoolAnyResultF r) = MatchBoolAny
   go MatchNullResultF = MatchNull
   go (MatchAnyResultF r) = MatchAny
+  go MatchAnyEmptyResultF = MatchAny
   go (MatchIgnoreResultF r) = MatchIgnore
   go (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
   go (MatchNotResultF m _) = MatchNot m
@@ -1130,6 +1138,7 @@ matchResultToValue = cata go
     go (MatchBoolAnyResultF r) = Bool r
     go MatchNullResultF = Null
     go (MatchAnyResultF r) = r
+    go MatchAnyEmptyResultF = Object $ mempty
     go (MatchIgnoreResultF r) = r
     go (MatchOrResultF m k r) = r
     go (MatchNotResultF m v) = v
@@ -1313,6 +1322,7 @@ matchResultIsWellFormed = paraM checkM
     check (MatchBoolAnyResultF _) = True
     check MatchNullResultF = True
     check (MatchAnyResultF _) = True
+    check MatchAnyEmptyResultF = True -- as is
     check (MatchIgnoreResultF _) = True
     check (MatchIfThenResultF _ _ _) = False -- TODO
     check (MatchFunnelResultF _) = True
@@ -1530,7 +1540,8 @@ matchResultToThinValueFAlgebra = goM
     go (MatchNumberAnyResultF r) = Just $ Number r
     go (MatchBoolAnyResultF r) = Just $ Bool r
     go MatchNullResultF = Nothing
-    go (MatchAnyResultF r) = Just $ r
+    go (MatchAnyResultF r) =  Nothing --Just $ r as if Any doesn't have any data
+    go MatchAnyEmptyResultF =  Nothing
     go (MatchIgnoreResultF r) = Nothing
     go (MatchOrResultF g k r) = Just $ if r == Nothing
                                    then tMapK1 k
@@ -1908,7 +1919,8 @@ thinPattern (MatchIfThen baseMatch failMsg match) v = do
                               MatchFailure f -> matchFailure f
                               MatchSuccess s -> return $ MatchIfThenResult baseMatch failMsg s
 
-thinPattern MatchAny (Just a) = return $ MatchAnyResult a
+--thinPattern MatchAny (Just a) = return $ MatchAnyResult a XXX redefined
+thinPattern MatchAny Nothing = return $ MatchAnyEmptyResult
 thinPattern MatchIgnore (Just a) = matchFailure "thinPattern over Ignore"
 
 thinPattern (MatchOr ms) (Just (Object v)) = do
@@ -2015,6 +2027,9 @@ applyOriginalValueDefaults o@(MatchAndResult r1' r1) (Just (MatchAndResult r2' r
 applyOriginalValueDefaults (MatchIfThenResult b e m) (Just (MatchOrResult b' e' m')) = l
   where
     l = MatchIfThenResult b e (applyOriginalValueDefaults m (Just m'))
+applyOriginalValueDefaults MatchAnyEmptyResult (Just (MatchAnyResult v)) = l
+  where
+    l = (MatchAnyResult v)
 applyOriginalValueDefaults x _ = x
 
 -- The most useful
