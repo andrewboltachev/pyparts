@@ -445,8 +445,8 @@ instance Comonad MatchStatus where
   duplicate (MatchFailure m) = MatchFailure m
   duplicate (NoMatch m) = NoMatch m
 
-data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern) }
-emptyEnvValue = MatcherEnv { grammarMap = mempty }
+data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool }
+emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
 newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
 instance Functor m => Functor (MatchStatusT m) where
@@ -1013,7 +1013,6 @@ matchPattern = matchPattern'' $ return . embed
 matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (Maybe Value)
 matchToThin = matchPattern'' matchResultToThinValueFAlgebra
 
-
 --ff1 :: (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> MatcherEnv -> Value -> IO (MatchStatus r)
 ff1
   :: (Show a, MonadIO m) =>
@@ -1442,8 +1441,13 @@ enumerate :: (V.Vector Value) -> (V.Vector Value) -- TODO optimize
 enumerate a = V.fromList $ fmap (\(i, a) -> Array $ V.fromList [int2sci i, a]) $ P.zip [1..] (V.toList a)
 
 contextFreeGrammarResultToThinValue :: MonadIO m => ContextFreeGrammarResult MatchPattern (Maybe Value) -> MatchStatusT m (Maybe Value)
-contextFreeGrammarResultToThinValue = cataM go'
-  where
+contextFreeGrammarResultToThinValue a = do
+  isIndexing <- MatchStatusT $ do
+    v <- asks indexing
+    return $ return v
+
+  let
+    doEnumerate = if isIndexing then enumerate else id
     gg = contextFreeGrammarIsMovable $ matchPatternIsMovable
     --go' :: ContextFreeGrammarResultF MatchPattern (Maybe Value) (Maybe Value) -> MatchStatus (Maybe Value)
     go' (StarNodeEmptyF g) = do
@@ -1460,28 +1464,29 @@ contextFreeGrammarResultToThinValue = cataM go'
     go (CharNodeF r) = r --fmap (tMap "Char") r
     go (SeqNodeF r) = let l = fmap fromJust $ V.filter isJust r in
       if V.null l
-         then Nothing
-         else if V.length l == 1
-                 then Just $ V.head l
-                 else Just $ Array l
+        then Nothing
+        else if V.length l == 1
+                then Just $ V.head l
+                else Just $ Array l
     go (StarNodeValueF r) = Just $ if V.head r == Nothing -- aka grammar is trivial
-                               then int2sci (V.length r)
-                               else Array $ enumerate $ V.map fromJust r
+                              then int2sci (V.length r)
+                              else Array $ doEnumerate $ V.map fromJust r
     go (StarNodeIndexedF r _) = Just $ if V.head r == Nothing
-                               then int2sci (V.length r)
-                               else Array $ enumerate $ V.map fromJust r
+                              then int2sci (V.length r)
+                              else Array $ doEnumerate $ V.map fromJust r
     go (PlusNodeF r) = Just $ if V.head r == Nothing -- aka grammar is trivial
-                               then int2sci (V.length r)
-                               else Array $ enumerate $ V.map fromJust r
+                              then int2sci (V.length r)
+                              else Array $ doEnumerate $ V.map fromJust r
     go (PlusNodeIndexedF r _) = Just $ if V.head r == Nothing
-                               then int2sci (V.length r)
-                               else Array $ enumerate $ V.map fromJust r
+                              then int2sci (V.length r)
+                              else Array $ doEnumerate $ V.map fromJust r
     go (OrNodeF g k r) = Just $ if r == Nothing
                             then tMapK1 k
                             else tMapKV1 k (fromJust r)
     go (OptionalNodeValueF r) = Just $ if r == Nothing
                             then Bool True
                             else Array $ [(fromJust r)]
+  cataM go' a
 
 
 matchResultToThinValueFAlgebra :: MonadIO m => MatchResultF (Maybe Value) -> MatchStatusT m (Maybe Value)
