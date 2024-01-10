@@ -1033,7 +1033,7 @@ matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (V.Vector 
 matchToFunnel = matchPattern'' gatherFunnelFAlgebra
 
 matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT m MatchResult
-matchPattern = matchPattern'' traceFAlgebra -- $ return . embed
+matchPattern = matchPattern'' $ return . embed
 
 matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (Maybe Value)
 matchToThin = matchPattern'' matchResultToThinValueFAlgebra
