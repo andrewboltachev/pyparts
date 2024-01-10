@@ -91,6 +91,7 @@ import Text.Regex.TDFA((=~))
 import qualified Database.MongoDB as MongoDB
 import qualified Database.Redis as Redis
 import Data.Aeson.Bson hiding (String)
+import Data.IORef
 
 
 a ++ b = T.append a b
@@ -267,6 +268,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchFromMongoDB T.Text T.Text MatchPattern
                   | MatchFromRedis T.Text T.Text MatchPattern
                   | MatchGetFromRedis T.Text T.Text MatchPattern
+                  | MatchGetFromIORef MatchPattern
                   | MatchGetFromFile T.Text MatchPattern
                     deriving (Generic, Eq, Show)
 
@@ -445,7 +447,7 @@ instance Comonad MatchStatus where
   duplicate (MatchFailure m) = MatchFailure m
   duplicate (NoMatch m) = NoMatch m
 
-data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool }
+data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool, dataRef :: IORef (KeyMap Value) }
 emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
 newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
@@ -535,11 +537,11 @@ contextFreeMatch' (Optional a) xs matchFn = MatchStatusT $ do
 
 contextFreeMatch' a xs _ = error $ T.unpack ("no contextFreeMatch for:\n\n" ++ (T.pack $ show a) ++ "\n\n" ++ (T.pack $ show xs))
 
-contextFreeMatch :: (Show g, Show v, Show r, MonadIO m) => ContextFreeGrammar g -> (V.Vector v) -> (g -> v -> MatchStatusT m r) -> MatchStatusT m (ContextFreeGrammarResult g r)
+contextFreeMatch :: (Show g, Show v, Show r, MonadIO m, ToJSON v) => ContextFreeGrammar g -> (V.Vector v) -> (g -> v -> MatchStatusT m r) -> MatchStatusT m (ContextFreeGrammarResult g r)
 contextFreeMatch a xs matchFn = do
   (rest, result) <- contextFreeMatch' a xs matchFn
   case P.length rest == 0 of
-       False -> noMatch ("rest left: " ++ T.pack (show rest))
+       False -> noMatch ("rest lef1t: " ++ (T.decodeUtf8 $ BL.toStrict (encode $ rest)) ++ "\n\n" ++ "grammar was:\n" ++ (T.pack $ show a))
        True -> return result
 
 -- helpers. Regular
@@ -762,7 +764,7 @@ matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
 matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
   rr <- runMatchStatusT $ contextFreeMatch m a (\p v -> fa =<< matchPattern' fa p v)
   return $ case rr of
-       NoMatch e -> NoMatch ("context-free nomatch: " ++ e)
+       NoMatch e -> NoMatch ("context-free nomatch!!: " ++ e ++ "\n\n" ++ (T.pack $ show m) ++ "\n\n" ++ (T.pack $ show a))
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResultF x)
 
@@ -996,11 +998,34 @@ matchPattern' fa (MatchGetFromFile filename r) v = do
 
   matchPattern' fa r vr
 
+matchPattern' fa (MatchGetFromIORef m) v = do
+  va <- (m2mst $ matchFailure "Redis should see ObjectId") $ asString v
+  ref <- MatchStatusT $ do
+    a <- asks dataRef
+    return $ (return a)
+
+  v <- liftIO $ readIORef ref
+
+  vr <- case KM.lookup (fromText va) v of
+    Just x -> return x
+    _ -> matchFailure "ref error"
+
+  matchPattern' fa m vr
+
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
 
 matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
 matchPattern'' fma p v = fma =<< matchPattern' fma p v
+
+traceFAlgebra :: MonadIO m => MatchResultF MatchResult -> MatchStatusT m MatchResult
+traceFAlgebra x = do
+  let e = embed x
+  liftIO $ print $ matchResultToPattern e
+  liftIO $ BL.putStr $ encode $ matchResultToValue e
+  liftIO $ print ""
+  liftIO $ print ""
+  return $ e
 
 -- MatchResultF a2 -> a2
 -- TODO: better playaround with recursion schemes
@@ -1008,7 +1033,7 @@ matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (V.Vector 
 matchToFunnel = matchPattern'' gatherFunnelFAlgebra
 
 matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT m MatchResult
-matchPattern = matchPattern'' $ return . embed
+matchPattern = matchPattern'' traceFAlgebra -- $ return . embed
 
 matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (Maybe Value)
 matchToThin = matchPattern'' matchResultToThinValueFAlgebra
@@ -2383,3 +2408,9 @@ rdb = do
   a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) $ MatcherEnv { redisConn = conn }
   --print a
   return ()
+
+
+loadFigma :: IO ()
+loadFigma = do
+  conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
+  undefined

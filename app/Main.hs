@@ -15,7 +15,10 @@ import qualified Data.Text.Lazy             as TL
 import qualified Data.Text.Lazy.Encoding    as TL
 import qualified Data.Text.Lazy.IO          as TL
 import qualified Data.ByteString.Lazy       as BL
+import Data.Maybe
+import Data.Either
 import Data.Aeson.Text (encodeToLazyText)
+import qualified Data.List as L
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
@@ -26,6 +29,7 @@ import Control.Monad.IO.Class (liftIO, MonadIO)
 import Logicore.Matcher.Core hiding ((++))
 import Logicore.Matcher.Additional
 import qualified Database.Redis as Redis
+import Data.IORef
 --import Logicore.Matcher.Python
 
 --import Language.Haskell.TH
@@ -34,30 +38,32 @@ import qualified Database.Redis as Redis
 main :: IO ()
 main = do
   let settings = foldr ($) defaultSettings [setTimeout (5 * 60), setPort 3042]
+  theRef <- newIORef mempty
   runSettings settings $
     foldr ($)
       (notFound missing)
       [ get "/" index
       , post "echo:name" echo
+      , get "load" (load theRef)
       --, post "python-matcher-1" pythonMatcher1
       --, post "json-matcher-1" jsonMatcher1
 
       -- fn endpoints
-      , post "/matchPattern" (fnEndpoint mkMatchPattern)
-      --, post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel)
+      , post "/matchPattern" (fnEndpoint mkMatchPattern theRef)
+      --, post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel theRef)
       --, post "/matchPatternWithFunnelFile" matchPatternWithFunnelFile
-      , post "/matchToFunnel" (fnEndpoint mkMatchToFunnel)
-      , post "/matchToThin" (fnEndpoint mkMatchToThin)
-      , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern)
-      , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue)
-      , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue)
-      , post "/thinPattern" (fnEndpoint mkThinPattern)
-      , post "/applyOriginalValueDefaults" (fnEndpoint mkApplyOriginalValueDefaults)
-      , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar)
-      , post "/valueToExactResult" (fnEndpoint mkValueToExactResult)
-      --, post "/pythonStep1" (fnEndpoint mkPythonStep1)
-      --, post "/pythonStep2" (fnEndpoint mkPythonStep2)
-      --, post "/pythonStep0" (fnEndpoint mkPythonStep0)
+      , post "/matchToFunnel" (fnEndpoint mkMatchToFunnel theRef)
+      , post "/matchToThin" (fnEndpoint mkMatchToThin theRef)
+      , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern theRef)
+      , post "/matchResultToValue" (fnEndpoint mkMatchResultToValue theRef)
+      , post "/matchResultToThinValue" (fnEndpoint mkMatchResultToThinValue theRef)
+      , post "/thinPattern" (fnEndpoint mkThinPattern theRef)
+      , post "/applyOriginalValueDefaults" (fnEndpoint mkApplyOriginalValueDefaults theRef)
+      , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar theRef)
+      , post "/valueToExactResult" (fnEndpoint mkValueToExactResult theRef)
+      --, post "/pythonStep1" (fnEndpoint mkPythonStep1 theRef)
+      --, post "/pythonStep2" (fnEndpoint mkPythonStep2 theRef)
+      --, post "/pythonStep0" (fnEndpoint mkPythonStep0 theRef)
       ]
 
 
@@ -68,6 +74,25 @@ echo :: ResponderM a
 echo = do
   name <- param "name"
   send $ html $ "Hello, " <> name
+
+load :: IORef (KeyMap Value) -> ResponderM a
+load theRef = do
+  conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
+  ks <- liftIO $ Redis.runRedis conn $ Redis.keys $ "logicore:figma:*"
+  vv <- case ks of
+     Right ks' -> do
+                    let ff acc k = do
+                                 let kk = (K.fromText (T.replace "logicore:figma:" "" (T.decodeUtf8 k)))
+                                 liftIO $ print k
+                                 acc' <- acc
+                                 r <- liftIO $ Redis.runRedis conn $ Redis.get $ k
+                                 return $ KM.insert kk ((fromJust $ decode $ BL.fromStrict $ fromJust $ either (error "foo") id r) :: Value) acc'
+                    L.foldl' ff (return mempty) ks'
+     Left e -> error $ "keys error"
+  liftIO $ writeIORef theRef vv
+  send $ html $ "Read ok"
+
+
 
 
 --exp1 = runQ [| \ x -> x  |] >>= putStrLn.pprint
@@ -273,8 +298,8 @@ mkPythonStep2 e = do
                          NoMatch s -> (KM.singleton "error" $ (String . T.pack) $ "NoMatch: " ++ s)
                          MatchFailure s -> (KM.singleton "error" $ (String . T.pack) $ "matchFailure: " ++ s)-}
 
-fnEndpoint :: (Object -> MatchStatusT IO Value) -> ResponderM b
-fnEndpoint f = do
+fnEndpoint :: (Object -> MatchStatusT IO Value) -> IORef (KeyMap Value) -> ResponderM b
+fnEndpoint f theRef = do
     --_ <- liftIO $ print "fnEndpoint"
     b <- (fromBody :: ResponderM Value)
     a <- runExceptT $ do
@@ -282,9 +307,9 @@ fnEndpoint f = do
             grammar <- getGrammarArg e
             let toFile = getToFileArg e
             conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
-            vv <- liftIO $ runReaderT (runMatchStatusT $ f e) $ MatcherEnv { redisConn = conn, grammarMap = grammar, indexing = False } 
+            vv <- liftIO $ runReaderT (runMatchStatusT $ f e) $ MatcherEnv { redisConn = conn, grammarMap = grammar, indexing = False, dataRef = theRef } 
             r <- (ExceptT . return) $ case vv of
-                    MatchFailure s -> Left ("matchFailure: " ++ T.unpack s)
+                    MatchFailure s -> Left ("matchFailureee: " ++ T.unpack s)
                     NoMatch x -> Left ("NoMatch: " ++ T.unpack x)
                     MatchSuccess r -> Right $ r
             case toFile of
