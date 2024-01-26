@@ -270,6 +270,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchGetFromRedis T.Text T.Text MatchPattern
                   | MatchGetFromIORef MatchPattern
                   | MatchGetFromFile T.Text MatchPattern
+                  -- | ApplyRegroup m
                     deriving (Generic, Eq, Show)
 
 {-matchObjectWithDefaultsArbitrary = do
@@ -754,6 +755,9 @@ matchPattern' fa (MatchOmitField fname m) (Object a) = do
 matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
   b <- return $ KM.filterWithKey (\k _ -> P.elem k fnames) a
   matchPattern' fa m (Object b)
+
+
+--matchPattern' fa (MatchRegroup m) a = matchPattern' fa m a -- trivial
 
 
 {-matchPattern' fa (MatchFork fnames m) (Object a) = do
@@ -2105,6 +2109,7 @@ d2 = $(ddd [''MatchPattern,
             ''ContextFreeGrammarResult,
             ''ObjectKeyMatch
             ])
+--- _ <- TL.writeFile "/home/.../d2.json" (TL.pack d2)
 
 -- constantness
 
