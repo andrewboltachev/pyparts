@@ -2414,3 +2414,17 @@ loadFigma :: IO ()
 loadFigma = do
   conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
   undefined
+
+
+--
+main4 :: IO ()
+main4 = do
+  v <- return $ Object (fromList [(fromString "a", String "apple"), (fromString "b", String "banana")])
+  p <- return $ (MatchObjectOnly (fromList [(fromString "a", MatchAny), (fromString "b", MatchNone)]) :: MatchPattern)
+  r <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  print r
+  t <- liftIO $ runReaderT (runMatchStatusT $ matchToThin p v) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  print t
+  tv <- return $ Just (String "apple")
+  tr <- liftIO $ runReaderT (runMatchStatusT $ thinPattern p tv) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  print $ tr
