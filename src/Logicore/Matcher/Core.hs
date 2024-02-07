@@ -223,22 +223,22 @@ instance FromJSON a => FromJSON (ArrayValMatch a)
 -- Match<What>[<How>], Match<What>[<How>]Result
 
                   -- structures - object
-data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
+data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- delete
                   | MatchObjectWithDefaults (KeyMap MatchPattern) (KeyMap Value)
                   | MatchObjectOnly (KeyMap MatchPattern)
                   | MatchObjectWhole MatchPattern
-                  | MatchOmitField Key MatchPattern
-                  | MatchSelectFields (V.Vector Key) MatchPattern
-                  | MatchFork (KeyMap MatchPattern)
-                  | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern))
+                  | MatchOmitField Key MatchPattern -- think
+                  | MatchSelectFields (V.Vector Key) MatchPattern -- think
+                  | MatchFork (KeyMap MatchPattern) -- think
+                  | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern)) -- delete
                   -- structures - array
                   -- | MatchArrayAll MatchPattern
                   -- | MatchArraySome MatchPattern
                   -- | MatchArrayOne MatchPattern
                   -- | MatchArrayExact (V.Vector MatchPattern)
                   | MatchArrayContextFree (ContextFreeGrammar MatchPattern)
-                  | MatchArray MatchPattern
-                  | MatchArrayOnly MatchPattern
+                  | MatchArray MatchPattern -- think hard
+                  | MatchArrayOnly MatchPattern -- bigger pattern???
                   -- literals: match particular value of
                   | MatchStringExact !T.Text
                   | MatchStringRegExp !T.Text
@@ -252,26 +252,27 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern))
                   | MatchNull
                   -- conditions
                   | MatchAny
-                  | MatchIgnore
-                  | MatchDefault Value
+                  | MatchNone
+                  | MatchDefault Value -- remove
                   | MatchOr (KeyMap MatchPattern)
                   | MatchNot MatchPattern
-                  | MatchAnd MatchPattern MatchPattern
-                  | MatchArrayOr (KeyMap MatchPattern)
+                  | MatchAnd MatchPattern MatchPattern -- need?
+                  | MatchArrayOr (KeyMap MatchPattern) -- need?
                   | MatchIfThen MatchPattern T.Text MatchPattern
                   -- funnel
                   | MatchFunnel
                   | MatchFunnelKeys
-                  | MatchFunnelKeysU
+                  | MatchFunnelKeysU -- remove?
                   -- special
                   | MatchRef T.Text
-                  | MatchFromMongoDB T.Text T.Text MatchPattern
-                  | MatchFromRedis T.Text T.Text MatchPattern
-                  | MatchGetFromRedis T.Text T.Text MatchPattern
-                  | MatchGetFromIORef MatchPattern
-                  | MatchGetFromFile T.Text MatchPattern
-                  -- | ApplyRegroup m
+                  | MatchFromMongoDB T.Text T.Text MatchPattern -- not sure
+                  | MatchFromRedis T.Text T.Text MatchPattern -- not sure
+                  | MatchGetFromRedis T.Text T.Text MatchPattern -- not sure
+                  | MatchGetFromIORef MatchPattern -- not sure
+                  | MatchGetFromFile T.Text MatchPattern -- not sure
                     deriving (Generic, Eq, Show)
+
+-- extract: bigger patterns (also look bb) and ?
 
 {-matchObjectWithDefaultsArbitrary = do
         m <- arbitrary
@@ -296,7 +297,7 @@ instance Arbitrary MatchPattern where
       return $ MatchBoolAny,
       return $ MatchNull,
       return $ MatchAny,
-      return $ MatchIgnore,
+      return $ MatchNone,
       MatchDefault <$> arbitrary,
       MatchOr <$> arbitrary,
       MatchNot <$> arbitrary,
@@ -316,8 +317,8 @@ instance FromJSON MatchPattern
     -- No need to provide a parseJSON implementation.
 
                  -- structures - object
-data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKeyMatch MatchResult))
-                 | MatchObjectPartialResult (KeyMap MatchPattern) (KeyMap (ObjectKeyMatch MatchResult))
+data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKeyMatch MatchResult)) -- delete
+                 | MatchObjectPartialResult (KeyMap MatchPattern) (KeyMap (ObjectKeyMatch MatchResult)) -- delete
                  -- structures - array
                  -- | MatchArrayAllResult (V.Vector MatchResult)
                  -- | MatchArraySomeResult (V.Vector (ArrayValMatch MatchResult))
@@ -342,8 +343,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchNullResult
                  -- conditions
                  | MatchAnyResult Value
-                 | MatchAnyEmptyResult -- special
-                 | MatchIgnoreResult Value
+                 | MatchNoneResult Value
                  | MatchDefaultResult Value
                  | MatchOrResult (KeyMap MatchPattern) Key MatchResult
                  | MatchNotResult MatchPattern Value
@@ -393,7 +393,7 @@ instance Arbitrary MatchResult where
     MatchBoolAnyResult <$> arbitrary,
     return $ MatchNullResult,
     MatchAnyResult <$> arbitrary,
-    MatchIgnoreResult <$> arbitrary,
+    MatchNoneResult <$> arbitrary,
     MatchDefaultResult <$> arbitrary,
     MatchOrResult <$> arbitrary <*> arbitrary <*> arbitrary,
     MatchNotResult <$> arbitrary <*> arbitrary,
@@ -809,7 +809,7 @@ matchPattern' fa (MatchIfThen baseMatch failMsg match) v = MatchStatusT $ do
                MatchSuccess s -> MatchSuccess (MatchIfThenResultF baseMatch failMsg s)
 
 matchPattern' fa MatchAny a = return $ MatchAnyResultF a
-matchPattern' fa MatchIgnore a = return $ MatchIgnoreResultF a
+matchPattern' fa MatchNone a = return $ MatchNoneResultF a
 matchPattern' fa (MatchOr ms) v = do
   let f (k, a) b = MatchStatusT $ do
                 rr <- runMatchStatusT $ fa =<< matchPattern' fa a v
@@ -1121,8 +1121,7 @@ matchResultToPattern = cata go where
   go (MatchBoolAnyResultF r) = MatchBoolAny
   go MatchNullResultF = MatchNull
   go (MatchAnyResultF r) = MatchAny
-  go MatchAnyEmptyResultF = MatchAny
-  go (MatchIgnoreResultF r) = MatchIgnore
+  go (MatchNoneResultF r) = MatchNone
   go (MatchOrResultF m k r) = MatchOr (KM.insert k r m)
   go (MatchNotResultF m _) = MatchNot m
   go (MatchAndResultF r' r) = MatchAnd r' r
@@ -1166,8 +1165,7 @@ matchResultToValue = cata go
     go (MatchBoolAnyResultF r) = Bool r
     go MatchNullResultF = Null
     go (MatchAnyResultF r) = r
-    go MatchAnyEmptyResultF = Object $ mempty
-    go (MatchIgnoreResultF r) = r
+    go (MatchNoneResultF r) = r
     go (MatchOrResultF m k r) = r
     go (MatchNotResultF m v) = v
     go (MatchAndResultF r' r) = r
@@ -1258,7 +1256,7 @@ matchPatternIsWellFormed = cataM goM
     go MatchBoolAnyF = True
     go MatchNullF = True
     go MatchAnyF = True
-    go MatchIgnoreF = True
+    go MatchNoneF = True
     go (MatchOrF g) = P.all id (KM.elems g)
     go (MatchNotF g) = g
     go (MatchAndF g' g) = g' && g
@@ -1350,8 +1348,7 @@ matchResultIsWellFormed = paraM checkM
     check (MatchBoolAnyResultF _) = True
     check MatchNullResultF = True
     check (MatchAnyResultF _) = True
-    check MatchAnyEmptyResultF = True -- as is
-    check (MatchIgnoreResultF _) = True
+    check (MatchNoneResultF _) = True
     check (MatchIfThenResultF _ _ _) = False -- TODO
     check (MatchFunnelResultF _) = True
     check (MatchFunnelKeysResultF _) = True
@@ -1433,7 +1430,7 @@ matchPatternIsMovable = cataM goM
     go MatchBoolAnyF = True
     go MatchNullF = False
     go MatchAnyF = True
-    go MatchIgnoreF = False
+    go MatchNoneF = False
     go (MatchOrF g) = True --P.any id (KM.elems g)
     go (MatchNotF _) = True
     go (MatchAndF g' g) = g' || g
@@ -1574,9 +1571,8 @@ matchResultToThinValueFAlgebra = goM
     go (MatchNumberAnyResultF r) = Just $ Number r
     go (MatchBoolAnyResultF r) = Just $ Bool r
     go MatchNullResultF = Nothing
-    go (MatchAnyResultF r) =  Nothing --Just $ r as if Any doesn't have any data
-    go MatchAnyEmptyResultF =  Nothing
-    go (MatchIgnoreResultF r) = Nothing
+    go (MatchAnyResultF r) =  Just $ r
+    go (MatchNoneResultF r) = Nothing
     go (MatchOrResultF g k r) = Just $ if r == Nothing
                                    then tMapK1 k
                                    else tMapKV1 k (fromJust r)
@@ -1953,9 +1949,8 @@ thinPattern (MatchIfThen baseMatch failMsg match) v = do
                               MatchFailure f -> matchFailure f
                               MatchSuccess s -> return $ MatchIfThenResult baseMatch failMsg s
 
---thinPattern MatchAny (Just a) = return $ MatchAnyResult a XXX redefined
-thinPattern MatchAny Nothing = return $ MatchAnyEmptyResult
-thinPattern MatchIgnore (Just a) = matchFailure "thinPattern over Ignore"
+thinPattern MatchAny (Just a) = return $ MatchAnyResult a
+thinPattern MatchNone Nothing = return $ MatchNoneResult Null
 
 thinPattern (MatchOr ms) (Just (Object v)) = do
   itsK <- (m2mst $ matchFailure $ "data error117" ++ (T.pack $ show v)) $ (KM.lookup "k") v
@@ -2061,9 +2056,9 @@ applyOriginalValueDefaults o@(MatchAndResult r1' r1) (Just (MatchAndResult r2' r
 applyOriginalValueDefaults (MatchIfThenResult b e m) (Just (MatchOrResult b' e' m')) = l
   where
     l = MatchIfThenResult b e (applyOriginalValueDefaults m (Just m'))
-applyOriginalValueDefaults MatchAnyEmptyResult (Just (MatchAnyResult v)) = l
+applyOriginalValueDefaults (MatchNoneResult _) (Just (MatchNoneResult v)) = l
   where
-    l = (MatchAnyResult v)
+    l = (MatchNoneResult v)
 applyOriginalValueDefaults x _ = x
 
 -- The most useful
