@@ -2040,7 +2040,7 @@ applyOriginalValueDefaults (MatchArrayOnlyResultSome m v) (Just (MatchArrayOnlyR
 applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyResult m' a')) = l --error $ show (m, m', d, a)
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
-    l = MatchObjectOnlyResult m' a'
+    l = MatchObjectOnlyResult m'' a'
 applyOriginalValueDefaults (MatchArrayContextFreeResult m) (Just (MatchArrayContextFreeResult m')) = l
   where
     l = MatchArrayContextFreeResult (applyOriginalValueDefaultsCF m (Just m'))
@@ -2419,12 +2419,20 @@ loadFigma = do
 --
 main4 :: IO ()
 main4 = do
-  v <- return $ Object (fromList [(fromString "a", String "apple"), (fromString "b", String "banana")])
+  let e (MatchSuccess x) = x
+  v <- return $ Object (fromList [(fromString "a", String "apple"), (fromString "b", String "banana"), (fromString "c", Number 33)])
   p <- return $ (MatchObjectOnly (fromList [(fromString "a", MatchAny), (fromString "b", MatchNone)]) :: MatchPattern)
   r <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print r
+
+  -- r must be
   t <- liftIO $ runReaderT (runMatchStatusT $ matchToThin p v) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print t
-  tv <- return $ Just (String "apple")
+
+  -- t must be this:
+  tv <- return $ Just (String "xiaomi")
   tr <- liftIO $ runReaderT (runMatchStatusT $ thinPattern p tv) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
-  print $ tr
+  print tr
+
+  rr <- return $ (MatchSuccess $ applyOriginalValueDefaults (e tr) (Just (e r)))
+  print $ rr
