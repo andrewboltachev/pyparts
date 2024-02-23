@@ -1085,6 +1085,13 @@ testObjectKeysBreakdown = do
   print $ objectKeysBreakdown []
   print $ objectKeysBreakdown [Array [], Object (fromList [("a", Null)])]
 
+objectFunnelSuggestions funnelResult = case objectKeysBreakdown funnelResult of
+  (requiredKeys, []) -> [("{}", MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
+  (requiredKeys, optionalKeys) -> []
+  {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
+                                      o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
+                                  in [("{?}", MatchObjectPartial (KM.union r o))]-}
+
 --matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
 matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m Value
 matchToFunnelSuggestions p v = do
@@ -1096,8 +1103,7 @@ matchToFunnelSuggestions p v = do
     1 -> do
       case V.head typesVec of
         ArrayValueType -> return [("[]", MatchArray MatchAny)]
-        ObjectValueType -> do
-          undefined
+        ObjectValueType -> return $ objectFunnelSuggestions funnelResult
         NullValueType -> return [("null", MatchNull)]
         t -> do
               let headValue = (V.head funnelResult)
