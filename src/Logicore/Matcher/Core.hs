@@ -1062,10 +1062,32 @@ getValueType (Number _) = NumberValueType
 getValueType (Bool _) = BoolValueType
 getValueType Null = NullValueType
 
+objectKeysBreakdown funnelResult = (requiredKeys, optionalKeys)
+  where
+    f acc (Object km) = r
+      where
+        km' = KM.map (const 1) km
+        r = KM.unionWith (+) acc km'
+    f acc _ = acc
+
+    keysMap = V.foldl f (fromList []) funnelResult
+
+    m = P.maximum $ KM.elems keysMap
+
+    requiredKeys = KM.keys $ KM.filter (== m) keysMap
+    optionalKeys = KM.keys $ KM.filter (/= m) keysMap
+
+testObjectKeysBreakdown = do
+  let example = [Object (fromList [("a", String "foo"), ("b", String "bar"), ("c", String "foo")]),
+                 Object (fromList [("a", String "foo"), ("b", Number 42)]),
+                 Object (fromList [("a", String "foo"), ("b", Null)])]
+  print $ objectKeysBreakdown example
+  print $ objectKeysBreakdown []
+  print $ objectKeysBreakdown [Array [], Object (fromList [("a", Null)])]
+
 --matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
 matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m Value
 matchToFunnelSuggestions p v = do
-  let singleType = undefined
   funnelResult <- (matchPattern'' gatherFunnelFAlgebra) p v 
   let typesVec = V.map getValueType funnelResult
   let types = Data.Set.fromList $ V.toList typesVec 
@@ -1073,9 +1095,10 @@ matchToFunnelSuggestions p v = do
     0 -> return mempty
     1 -> do
       case V.head typesVec of
-        ArrayValueType -> singleType ArrayValueType
-        ObjectValueType -> singleType ObjectValueType
-        NullValueType -> singleType NullValueType
+        ArrayValueType -> return [("[]", MatchArray MatchAny)]
+        ObjectValueType -> do
+          undefined
+        NullValueType -> return [("null", MatchNull)]
         t -> do
               let headValue = (V.head funnelResult)
               if (V.all (== headValue) funnelResult)
@@ -1084,7 +1107,9 @@ matchToFunnelSuggestions p v = do
                     String s -> return [(show s, MatchStringExact s)]
                     Number n -> return [(show n, MatchNumberExact n)]
                 else
-                    singleType t
+                  case headValue of
+                    String _ -> return [("\"\"?", MatchStringAny)]
+                    Number _ -> return [("0?", MatchNumberAny)]
     _ -> return []
   let toKVObj (k, v) = Object (fromList [(fromString "k", (String . T.pack) k),
                                          (fromString "v", toJSON v)])
