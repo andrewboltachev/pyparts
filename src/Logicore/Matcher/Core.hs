@@ -36,7 +36,7 @@ module Logicore.Matcher.Core where
 import Prelude as P hiding ((++))
 
 import qualified Data.Vector.Generic
---import qualified Data.Set
+import qualified Data.Set
 import qualified Data.List        as L
 import GHC.Generics
 import Data.Aeson
@@ -1044,6 +1044,51 @@ matchPattern = matchPattern'' $ return . embed
 
 matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (Maybe Value)
 matchToThin = matchPattern'' matchResultToThinValueFAlgebra
+
+-- Suggestions
+
+data ValueType = ArrayValueType
+  | ObjectValueType
+  | StringValueType
+  | NumberValueType
+  | BoolValueType
+  | NullValueType deriving (Eq, Show, Ord)
+
+getValueType :: Value -> ValueType
+getValueType (Array _) = ArrayValueType
+getValueType (Object _) = ObjectValueType
+getValueType (String _) = StringValueType
+getValueType (Number _) = NumberValueType
+getValueType (Bool _) = BoolValueType
+getValueType Null = NullValueType
+
+matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [MatchPattern]
+matchToFunnelSuggestions p v = do
+  let singleType = undefined
+  funnelResult <- (matchPattern'' gatherFunnelFAlgebra) p v 
+  let typesVec = V.map getValueType funnelResult
+  let types = Data.Set.fromList $ V.toList typesVec 
+  case Data.Set.size types of
+    0 -> return []
+    1 -> do
+      case V.head typesVec of
+        ArrayValueType -> singleType ArrayValueType
+        ObjectValueType -> singleType ObjectValueType
+        NullValueType -> singleType NullValueType
+        t -> do
+              let headValue = (V.head funnelResult)
+              if (V.all (== headValue) funnelResult)
+                then
+                  case headValue of
+                    String s -> return [MatchStringExact s]
+                    Number n -> return [MatchNumberExact n]
+                else
+                    singleType t
+    _ -> return []
+
+-- Array Object String Number Bool Null
+-- one type
+-- one value (for primitives)
 
 --ff1 :: (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> MatcherEnv -> Value -> IO (MatchStatus r)
 ff1
