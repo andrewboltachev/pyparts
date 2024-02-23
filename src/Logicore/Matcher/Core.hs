@@ -1062,14 +1062,15 @@ getValueType (Number _) = NumberValueType
 getValueType (Bool _) = BoolValueType
 getValueType Null = NullValueType
 
-matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [MatchPattern]
+--matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
+matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m Value
 matchToFunnelSuggestions p v = do
   let singleType = undefined
   funnelResult <- (matchPattern'' gatherFunnelFAlgebra) p v 
   let typesVec = V.map getValueType funnelResult
   let types = Data.Set.fromList $ V.toList typesVec 
-  case Data.Set.size types of
-    0 -> return []
+  r <- case Data.Set.size types of
+    0 -> return mempty
     1 -> do
       case V.head typesVec of
         ArrayValueType -> singleType ArrayValueType
@@ -1080,11 +1081,14 @@ matchToFunnelSuggestions p v = do
               if (V.all (== headValue) funnelResult)
                 then
                   case headValue of
-                    String s -> return [MatchStringExact s]
-                    Number n -> return [MatchNumberExact n]
+                    String s -> return [(show s, MatchStringExact s)]
+                    Number n -> return [(show n, MatchNumberExact n)]
                 else
                     singleType t
     _ -> return []
+  let toKVObj (k, v) = Object (fromList [(fromString "k", (String . T.pack) k),
+                                         (fromString "v", toJSON v)])
+  return $ Array $ V.map toKVObj r
 
 -- Array Object String Number Bool Null
 -- one type
