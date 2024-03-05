@@ -1039,6 +1039,19 @@ traceFAlgebra x = do
 matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (V.Vector Value)
 matchToFunnel = matchPattern'' gatherFunnelFAlgebra
 
+placeholder :: Value
+placeholder = String "..."
+
+optimizeValue :: Value -> Value
+optimizeValue (Object km) = Object $ KM.map (const placeholder) km
+optimizeValue (Array v) = Array $ V.map (const placeholder) v
+optimizeValue x = x
+
+matchToFunnelOptimized :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (V.Vector Value)
+matchToFunnelOptimized p v = do
+  r <- matchToFunnel p v
+  return $ V.map optimizeValue r
+
 matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT m MatchResult
 matchPattern = matchPattern'' $ return . embed
 

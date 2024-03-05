@@ -53,6 +53,7 @@ main = do
       --, post "/matchPatternWithFunnel" (fnEndpoint mkMatchPatternWithFunnel theRef)
       --, post "/matchPatternWithFunnelFile" matchPatternWithFunnelFile
       , post "/matchToFunnel" (fnEndpoint mkMatchToFunnel theRef)
+      , post "/matchToFunnelOptimized" (fnEndpoint mkMatchToFunnelOptimized theRef)
       , post "/matchToFunnelSuggestions" (fnEndpoint mkMatchToFunnelSuggestions theRef)
       , post "/matchToThin" (fnEndpoint mkMatchToThin theRef)
       , post "/matchResultToPattern" (fnEndpoint mkMatchResultToPattern theRef)
@@ -145,6 +146,15 @@ mkMatchToFunnel e = do
   pattern <- (m2mst $ matchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
   mp <- (m2mst $ matchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
   funnelResult <- matchToFunnel mp value
+  return $ Object $ (KM.fromList [
+    (K.fromString "funnel", Array $ funnelResult)])
+
+mkMatchToFunnelOptimized :: (Object -> MatchStatusT IO Value)
+mkMatchToFunnelOptimized e = do
+  value <- (m2mst $ matchFailure "JSON root element must have value") $ KM.lookup (K.fromString "value") e
+  pattern <- (m2mst $ matchFailure "JSON root element must have pattern") $ KM.lookup (K.fromString "pattern") e
+  mp <- (m2mst $ matchFailure "Cannot decode MatchPattern from presented pattern") $ (((decode . encode) pattern) :: Maybe MatchPattern) -- TODO
+  funnelResult <- matchToFunnelOptimized mp value
   return $ Object $ (KM.fromList [
     (K.fromString "funnel", Array $ funnelResult)])
 
