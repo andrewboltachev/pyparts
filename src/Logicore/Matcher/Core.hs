@@ -1039,12 +1039,23 @@ traceFAlgebra x = do
 matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (V.Vector Value)
 matchToFunnel = matchPattern'' gatherFunnelFAlgebra
 
-placeholder :: Value
-placeholder = String "..."
+shortenText :: T.Text -> T.Text
+shortenText x = if T.length x > 50
+                then T.take 50 x <> "..."
+                else x
+
+optimizeInner :: Value -> Value
+optimizeInner (Object x) = if KM.null x
+                           then Object mempty
+                           else Object (KM.singleton "..." (String "..."))
+optimizeInner (Array []) = Array []
+optimizeInner (Array x) = Array [String "..."]
+optimizeInner (String x) = String (shortenText x)
+optimizeInner x = x
 
 optimizeValue :: Value -> Value
-optimizeValue (Object km) = Object $ KM.map (const placeholder) km
-optimizeValue (Array v) = Array $ V.map (const placeholder) v
+optimizeValue (Object km) = Object $ KM.map optimizeInner km
+optimizeValue (Array v) = Array $ V.map optimizeInner v
 optimizeValue x = x
 
 matchToFunnelOptimized :: MonadIO m => MatchPattern -> Value -> MatchStatusT m (V.Vector Value)
@@ -1104,6 +1115,9 @@ objectFunnelSuggestions funnelResult = case objectKeysBreakdown funnelResult of
   {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
                                       o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
                                   in [("{?}", MatchObjectPartial (KM.union r o))]-}
+  (requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
+                                      o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
+                                  in [("{?}", MatchObjectPartial (KM.union r o))]
 
 --matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
 matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m Value
@@ -1115,7 +1129,7 @@ matchToFunnelSuggestions p v = do
     0 -> return mempty
     1 -> do
       case V.head typesVec of
-        ArrayValueType -> return [("[]", MatchArray MatchAny)]
+        ArrayValueType -> return [("[*]", MatchArray MatchAny)]
         ObjectValueType -> return $ objectFunnelSuggestions funnelResult
         NullValueType -> return [("null", MatchNull)]
         t -> do
@@ -1125,10 +1139,12 @@ matchToFunnelSuggestions p v = do
                   case headValue of
                     String s -> return [(show s, MatchStringExact s)]
                     Number n -> return [(show n, MatchNumberExact n)]
+                    Bool n -> return [(show n, MatchBoolExact n)]
                 else
                   case headValue of
                     String _ -> return [("\"\"?", MatchStringAny)]
                     Number _ -> return [("0?", MatchNumberAny)]
+                    Bool _ -> return [("t|f?", MatchBoolAny)]
     _ -> return []
   let toKVObj (k, v) = Object (fromList [(fromString "k", (String . T.pack) k),
                                          (fromString "v", toJSON v)])
