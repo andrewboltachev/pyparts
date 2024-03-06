@@ -1109,15 +1109,21 @@ testObjectKeysBreakdown = do
   print $ objectKeysBreakdown []
   print $ objectKeysBreakdown [Array [], Object (fromList [("a", Null)])]
 
+data MatchPatternSuggestion = SimpleValueSuggestion MatchPattern
+                              | KeyBreakdownSuggestion [Key] deriving (Generic, Eq, Show)
+
+instance ToJSON MatchPatternSuggestion where
+    -- No need to provide implementation.
+
+instance FromJSON MatchPatternSuggestion
+    -- No need to provide a parseJSON implementation.
+
 objectFunnelSuggestions funnelResult = case objectKeysBreakdown funnelResult of
-  (requiredKeys, []) -> [("{}", MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
-  (requiredKeys, optionalKeys) -> []
+  (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
+  (requiredKeys, optionalKeys) -> [("||", KeyBreakdownSuggestion requiredKeys)]
   {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
                                       o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
                                   in [("{?}", MatchObjectPartial (KM.union r o))]-}
-  (requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
-                                      o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
-                                  in [("{?}", MatchObjectPartial (KM.union r o))]
 
 --matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
 matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m Value
@@ -1129,22 +1135,22 @@ matchToFunnelSuggestions p v = do
     0 -> return mempty
     1 -> do
       case V.head typesVec of
-        ArrayValueType -> return [("[*]", MatchArray MatchAny)]
+        ArrayValueType -> return [("[*]", SimpleValueSuggestion $ MatchArray MatchAny)]
         ObjectValueType -> return $ objectFunnelSuggestions funnelResult
-        NullValueType -> return [("null", MatchNull)]
+        NullValueType -> return [("null", SimpleValueSuggestion $ MatchNull)]
         t -> do
               let headValue = (V.head funnelResult)
               if (V.all (== headValue) funnelResult)
                 then
                   case headValue of
-                    String s -> return [(show s, MatchStringExact s)]
-                    Number n -> return [(show n, MatchNumberExact n)]
-                    Bool n -> return [(show n, MatchBoolExact n)]
+                    String s -> return [(show s, SimpleValueSuggestion $ MatchStringExact s)]
+                    Number n -> return [(show n, SimpleValueSuggestion $ MatchNumberExact n)]
+                    Bool n -> return [(show n, SimpleValueSuggestion $ MatchBoolExact n)]
                 else
                   case headValue of
-                    String _ -> return [("\"\"?", MatchStringAny)]
-                    Number _ -> return [("0?", MatchNumberAny)]
-                    Bool _ -> return [("t|f?", MatchBoolAny)]
+                    String _ -> return [("\"\"?", SimpleValueSuggestion $ MatchStringAny)]
+                    Number _ -> return [("0?", SimpleValueSuggestion $ MatchNumberAny)]
+                    Bool _ -> return [("t|f?", SimpleValueSuggestion $ MatchBoolAny)]
     _ -> return []
   let toKVObj (k, v) = Object (fromList [(fromString "k", (String . T.pack) k),
                                          (fromString "v", toJSON v)])
