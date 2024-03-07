@@ -1109,8 +1109,21 @@ testObjectKeysBreakdown = do
   print $ objectKeysBreakdown []
   print $ objectKeysBreakdown [Array [], Object (fromList [("a", Null)])]
 
+getStringKeys funnelResult requiredKeys = r
+  where
+    f acc (Object km) = r
+      where
+        km' = KM.map (\x -> getValueType x == StringValueType) km
+        r = KM.intersectionWith (&&) acc km'
+    f acc _ = acc
+
+    keysMap = V.foldl f (fromList $ fmap (\k -> (k, True)) requiredKeys) funnelResult
+
+    r = KM.keys $ KM.filter id keysMap
+
+
 data MatchPatternSuggestion = SimpleValueSuggestion MatchPattern
-                              | KeyBreakdownSuggestion [Key] deriving (Generic, Eq, Show)
+                              | KeyBreakdownSuggestion (KeyMap [T.Text]) deriving (Generic, Eq, Show)
 
 instance ToJSON MatchPatternSuggestion where
     -- No need to provide implementation.
@@ -1118,9 +1131,18 @@ instance ToJSON MatchPatternSuggestion where
 instance FromJSON MatchPatternSuggestion
     -- No need to provide a parseJSON implementation.
 
+keysValues :: V.Vector Value -> [Key] -> KeyMap [T.Text]
+keysValues funnelResult keys = KM.fromList $ fmap f keys
+  where
+    f' k (Object km) = fromJust $ asString $ fromJust $ KM.lookup k km 
+    f k = (k, L.nub $ V.toList $ fmap (f' k) funnelResult)
+
 objectFunnelSuggestions funnelResult = case objectKeysBreakdown funnelResult of
   (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
-  (requiredKeys, optionalKeys) -> [("||", KeyBreakdownSuggestion requiredKeys)]
+  (requiredKeys, optionalKeys) -> let stringKeys = getStringKeys funnelResult requiredKeys
+                                  in if P.null stringKeys
+                                     then []
+                                     else [("||", KeyBreakdownSuggestion (keysValues funnelResult stringKeys))]
   {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
                                       o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
                                   in [("{?}", MatchObjectPartial (KM.union r o))]-}
