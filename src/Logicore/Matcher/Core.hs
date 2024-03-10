@@ -2238,6 +2238,12 @@ applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyRes
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
     l = MatchObjectOnlyResult m'' a'
+
+applyOriginalValueDefaults (MatchRecordResultValue m) (Just (MatchRecordResultValue m')) = l --error $ show (m, m', d, a)
+  where
+    m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
+    l = MatchRecordResultValue m''
+
 applyOriginalValueDefaults (MatchArrayContextFreeResult m) (Just (MatchArrayContextFreeResult m')) = l
   where
     l = MatchArrayContextFreeResult (applyOriginalValueDefaultsCF m (Just m'))
