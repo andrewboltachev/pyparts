@@ -1726,6 +1726,11 @@ matchResultToThinValueFAlgebra = goM
       return $ Just $ case P.head $ KM.elems $ r of
             Just _ -> Object $ (KM.map fromJust r)
             Nothing -> Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys r
+    goM (MatchRecordResultEmptyF g) = do
+      gg <- matchPatternIsMovable g
+      return $ Just $ case gg of
+            True -> Object $ KM.empty
+            False -> Array $ []
     goM x = return $ go x
 
     go :: MatchResultF (Maybe Value) -> Maybe Value
@@ -2063,34 +2068,26 @@ thinPattern (MatchObjectOnly m) a = do
   return $ MatchObjectOnlyResult rr (KM.empty)
 
 
-thinPattern (MatchRecord m) a = do
+thinPattern (MatchRecord m) (Just a) = do
   gg <- matchPatternIsMovable m
   if gg
-    then do
-      return undefined
-    else do
-      return undefined
-  {-let f :: MonadIO m => MatchStatusT m (KeyMap MatchResult) -> Key -> MatchStatusT m (KeyMap MatchResult)
-      f acc' k = do
-        acc <- acc'
-        g <- (m2mst $ matchFailure "impossible") $ KM.lookup k m
-        gg' <- (m2mst $ matchFailure "impossible") $ KM.lookup k gg
-        let v = if
-                  isOne
-                  then
-                    if gg'
-                       then a
-                       else Nothing
-                    else
-                      do
-                        a' <- a
-                        ka <- asKeyMap a'
-                        KM.lookup k ka
-        r <- thinPattern g v
-        return $ KM.insert k r acc
-
-  rr <- L.foldl' f (return mempty) (KM.keys m)
-  return $ MatchObjectOnlyResult rr (KM.empty)-}
+    then
+      do
+        a' <- (m2mst $ matchFailure ("must be object 2076")) $ asKeyMap a
+        if KM.null a'
+          then return $ MatchRecordResultEmpty m
+          else do
+            rr <- KM.traverse (thinPattern m) (fmap Just a')
+            return $ MatchRecordResultValue rr
+    else
+      do
+        a' <- (m2mst $ matchFailure ("must be array 2076")) $ asArray a
+        a'' <- P.traverse (\e -> (m2mst $ matchFailure ("must be array of strings 2076")) $ asString e) (V.toList a')
+        if V.null a'
+          then return $ MatchRecordResultEmpty m
+          else do
+            rr <- thinPattern m Nothing
+            return $ MatchRecordResultValue (KM.fromList (P.zip (P.map K.fromText a'') (P.repeat rr)))
 
 
 thinPattern (MatchArrayContextFree m) a = MatchStatusT $ do
