@@ -230,6 +230,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchObjectWithDefaults (KeyMap MatchPattern) (KeyMap Value)
                   | MatchObjectOnly (KeyMap MatchPattern)
                   | MatchObjectWhole MatchPattern
+                  | MatchRecord MatchPattern
                   | MatchOmitField Key MatchPattern -- think
                   | MatchSelectFields (V.Vector Key) MatchPattern -- think
                   | MatchFork (KeyMap MatchPattern) -- think
@@ -330,6 +331,8 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value) (KeyMap Value)
                  | MatchObjectOnlyResult (KeyMap MatchResult) (KeyMap Value)
                  | MatchObjectWholeResult (KeyMap MatchResult)
+                 | MatchRecordResultValue (KeyMap MatchResult)
+                 | MatchRecordResultEmpty MatchPattern
                  | MatchArrayContextFreeResult (ContextFreeGrammarResult MatchPattern MatchResult)
                  | MatchArrayOnlyResultEmpty MatchPattern (V.Vector Value)
                  | MatchArrayOnlyResultSome (V.Vector MatchResult) (V.Vector (Maybe Value))
@@ -620,6 +623,8 @@ gatherFunnelFAlgebra (MatchObjectPartialResultF _ r) = return $ L.foldl' f mempt
 gatherFunnelFAlgebra (MatchObjectWithDefaultsResultF r _ _) = return $ V.concat (KM.elems r)
 gatherFunnelFAlgebra (MatchObjectOnlyResultF r _) = return $ V.concat (KM.elems r)
 gatherFunnelFAlgebra (MatchObjectWholeResultF r) = return $ V.concat (KM.elems r)
+gatherFunnelFAlgebra (MatchRecordResultValueF r) = return $ V.concat (KM.elems r)
+gatherFunnelFAlgebra (MatchRecordResultEmptyF _) = return $ []
 gatherFunnelFAlgebra (MatchArrayContextFreeResultF c) = return $ gatherFunnelContextFree c
 gatherFunnelFAlgebra (MatchArrayOnlyResultEmptyF g r) = return $ V.empty
 gatherFunnelFAlgebra (MatchArrayOnlyResultSomeF r v) = return $ vconcat r
@@ -748,6 +753,17 @@ matchPattern' fa (MatchObjectWhole m) (Object a) = do
           return $ (KM.insert k rr) acc
   mm <- L.foldl' f (return mempty) $ KM.toList a
   return $ MatchObjectWholeResultF mm
+
+
+matchPattern' fa (MatchRecord m) (Object a) = do
+  let f acc' (k, v) = do
+          acc <- acc' -- (mm, dd)
+          rr <- fa =<< matchPattern' fa m v
+          return $ (KM.insert k rr) acc
+  mm <- L.foldl' f (return mempty) $ KM.toList a
+  return $ if KM.null a
+            then MatchRecordResultEmptyF m
+            else MatchRecordResultValueF mm
 
 
 matchPattern' fa (MatchOmitField fname m) (Object a) = do
@@ -1137,15 +1153,19 @@ keysValues funnelResult keys = KM.fromList $ fmap f keys
     f' k (Object km) = fromJust $ asString $ fromJust $ KM.lookup k km 
     f k = (k, L.nub $ V.toList $ fmap (f' k) funnelResult)
 
-objectFunnelSuggestions funnelResult = case objectKeysBreakdown funnelResult of
-  (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
-  (requiredKeys, optionalKeys) -> let stringKeys = getStringKeys funnelResult requiredKeys
-                                  in if P.null stringKeys
-                                     then []
-                                     else [("||", KeyBreakdownSuggestion (keysValues funnelResult stringKeys))]
-  {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
-                                      o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
-                                  in [("{?}", MatchObjectPartial (KM.union r o))]-}
+objectFunnelSuggestions funnelResult = r
+  where
+    r' = case objectKeysBreakdown funnelResult of
+      (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
+      (requiredKeys, optionalKeys) -> let stringKeys = getStringKeys funnelResult requiredKeys
+                                      in if P.null stringKeys
+                                        then []
+                                        else [("||", KeyBreakdownSuggestion (keysValues funnelResult stringKeys))]
+      {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
+                                          o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
+                                      in [("{?}", MatchObjectPartial (KM.union r o))]-}
+    r = V.cons ("{r}", SimpleValueSuggestion $ MatchRecord MatchAny) r'
+
 
 --matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
 matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m Value
@@ -1249,6 +1269,8 @@ matchResultToPattern = cata go where
       f _ = True
   go (MatchObjectWithDefaultsResultF r d v) = MatchObjectWithDefaults r d
   go (MatchObjectOnlyResultF r v) = MatchObjectOnly r
+  go (MatchRecordResultValueF r) = P.head $ KM.elems r
+  go (MatchRecordResultEmptyF g) = g
   go (MatchArrayContextFreeResultF r) = MatchArrayContextFree $ contextFreeGrammarResultToGrammar id r
   go (MatchArrayOnlyResultEmptyF g v) = MatchArrayOnly g
   go (MatchArrayOnlyResultSomeF r v) = MatchArrayOnly $ V.head r
@@ -1287,6 +1309,8 @@ matchResultToValue = cata go
         f (KeyExt v) = v
     go (MatchObjectWithDefaultsResultF r d v) = Object $ KM.union r $ KM.union v d
     go (MatchObjectOnlyResultF r v) = Object $ KM.union r v
+    go (MatchRecordResultValueF r) = Object $ r
+    go (MatchRecordResultEmptyF _) = Object $ KM.empty
     go (MatchArrayContextFreeResultF r) = Array $ contextFreeGrammarResultToSource id r
     go (MatchArrayOnlyResultEmptyF g v) = Array $ v
     go (MatchArrayOnlyResultSomeF r v) = rr
@@ -1559,6 +1583,7 @@ matchPatternIsMovable = cataM goM
         f acc (KeyReq x) = error $ "must not be here"
     go (MatchObjectWithDefaultsF g _) = getAny $ mconcat $ P.map Any (KM.elems g)
     go (MatchObjectOnlyF g) = getAny $ mconcat $ P.map Any (KM.elems g)
+    go (MatchRecordF g) = True
     go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
     go (MatchArrayOnlyF g) = True
     go (MatchStringExactF _) = False
@@ -1697,10 +1722,15 @@ matchResultToThinValueFAlgebra = goM
           return $ fmap Object $ Just $ filterEmpty $ u'
     goM (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
     goM (MatchObjectWithDefaultsResultF r d a) = goM (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
+    goM (MatchRecordResultValueF r) = do
+      return $ Just $ case P.head $ KM.elems $ r of
+            Just _ -> Object $ (KM.map fromJust r)
+            Nothing -> Array $ V.fromList $ (fmap (String . K.toText)) $ KM.keys r
     goM x = return $ go x
 
     go :: MatchResultF (Maybe Value) -> Maybe Value
     go (MatchObjectOnlyResultF r v) = fmap (replaceSingleton . Object) $ nonEmptyMap $ filterEmpty $ r
+    go (MatchRecordResultEmptyF _) = Just $ Object $ KM.empty
     go (MatchArrayOnlyResultEmptyF g r) = Nothing
     go (MatchArrayOnlyResultSomeF g r) = Just $ Array $ catMaybes g -- TODO: when Nothing?
     go (MatchStringExactResultF r) = Nothing
@@ -2031,6 +2061,36 @@ thinPattern (MatchObjectOnly m) a = do
 
   rr <- L.foldl' f (return mempty) (KM.keys m)
   return $ MatchObjectOnlyResult rr (KM.empty)
+
+
+thinPattern (MatchRecord m) a = do
+  gg <- matchPatternIsMovable m
+  if gg
+    then do
+      return undefined
+    else do
+      return undefined
+  {-let f :: MonadIO m => MatchStatusT m (KeyMap MatchResult) -> Key -> MatchStatusT m (KeyMap MatchResult)
+      f acc' k = do
+        acc <- acc'
+        g <- (m2mst $ matchFailure "impossible") $ KM.lookup k m
+        gg' <- (m2mst $ matchFailure "impossible") $ KM.lookup k gg
+        let v = if
+                  isOne
+                  then
+                    if gg'
+                       then a
+                       else Nothing
+                    else
+                      do
+                        a' <- a
+                        ka <- asKeyMap a'
+                        KM.lookup k ka
+        r <- thinPattern g v
+        return $ KM.insert k r acc
+
+  rr <- L.foldl' f (return mempty) (KM.keys m)
+  return $ MatchObjectOnlyResult rr (KM.empty)-}
 
 
 thinPattern (MatchArrayContextFree m) a = MatchStatusT $ do
