@@ -1180,15 +1180,17 @@ keysValues funnelResult keys = KM.fromList $ fmap f keys
     f' k (Object km) = fromJust $ asString $ fromJust $ KM.lookup k km 
     f k = (k, L.nub $ V.toList $ fmap (f' k) funnelResult)
 
+mapOfAny ks = KM.fromList $ fmap (\k -> (k, MatchAny)) ks
+
 objectFunnelSuggestions funnelResult = r
   where
     s1 requiredKeys = let stringKeys = getStringKeys funnelResult requiredKeys
                                       in if P.null stringKeys
                                         then []
                                         else [("||", KeyBreakdownSuggestion (keysValues funnelResult stringKeys))]
-    s2 requiredKeys optionalKeys = [("{?}", SimpleValueSuggestion $ undefined)]
+    s2 requiredKeys optionalKeys = [("{?}", SimpleValueSuggestion $ MatchObjectOptional (mapOfAny requiredKeys) (mapOfAny optionalKeys))]
     r' = case objectKeysBreakdown funnelResult of
-      (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
+      (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (mapOfAny requiredKeys))]
       (requiredKeys, optionalKeys) -> V.concat [s1 requiredKeys, s2 requiredKeys optionalKeys]
       {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
                                           o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
