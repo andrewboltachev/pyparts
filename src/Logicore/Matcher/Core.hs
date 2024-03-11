@@ -41,12 +41,12 @@ import qualified Data.List        as L
 import GHC.Generics
 import Data.Aeson
 --import Data.ByteString            as B
-import Data.ByteString.Lazy       as BL hiding (putStrLn)
-import Data.Text                  as T
-import Data.Text.Encoding         as T
+import qualified Data.ByteString.Lazy       as BL hiding (putStrLn)
+import qualified Data.Text                  as T
+import qualified Data.Text.Encoding         as T
 --import Data.Text.IO               as T
-import Data.Text.Lazy             as TL
-import Data.Text.Lazy.Encoding    as TL
+import qualified Data.Text.Lazy             as TL
+import qualified Data.Text.Lazy.Encoding    as TL
 --import Data.Text.Lazy.IO          as TL
 --import Data.Map                   as M
 import Data.Aeson.KeyMap          as KM
@@ -229,6 +229,7 @@ instance FromJSON a => FromJSON (ArrayValMatch a)
 data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- delete
                   | MatchObjectWithDefaults (KeyMap MatchPattern) (KeyMap Value)
                   | MatchObjectOnly (KeyMap MatchPattern)
+                  | MatchObjectOptional (KeyMap MatchPattern) (KeyMap MatchPattern)
                   | MatchObjectWhole MatchPattern
                   | MatchRecord MatchPattern
                   | MatchOmitField Key MatchPattern -- think
@@ -330,6 +331,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  -- | MatchArrayExactResult (V.Vector MatchResult)
                  | MatchObjectWithDefaultsResult (KeyMap MatchResult) (KeyMap Value) (KeyMap Value)
                  | MatchObjectOnlyResult (KeyMap MatchResult) (KeyMap Value)
+                 | MatchObjectOptionalResult (KeyMap MatchResult) (KeyMap MatchResult)
                  | MatchObjectWholeResult (KeyMap MatchResult)
                  | MatchRecordResultValue (KeyMap MatchResult)
                  | MatchRecordResultEmpty MatchPattern
@@ -622,6 +624,7 @@ gatherFunnelFAlgebra (MatchObjectPartialResultF _ r) = return $ L.foldl' f mempt
         f acc (KeyExt _) = acc
 gatherFunnelFAlgebra (MatchObjectWithDefaultsResultF r _ _) = return $ V.concat (KM.elems r)
 gatherFunnelFAlgebra (MatchObjectOnlyResultF r _) = return $ V.concat (KM.elems r)
+gatherFunnelFAlgebra (MatchObjectOptionalResultF r o) = return $ V.concat [(V.concat (KM.elems r)), (V.concat (KM.elems o))]
 gatherFunnelFAlgebra (MatchObjectWholeResultF r) = return $ V.concat (KM.elems r)
 gatherFunnelFAlgebra (MatchRecordResultValueF r) = return $ V.concat (KM.elems r)
 gatherFunnelFAlgebra (MatchRecordResultEmptyF _) = return $ []
@@ -744,6 +747,30 @@ matchPattern' fa (MatchObjectOnly m) (Object a) = do
   mm <- L.foldl' f (return mempty) $ KM.toList m
   vv <- return $ (KM.filterWithKey (\k _ -> not $ KM.member k m)) a
   return $ MatchObjectOnlyResultF mm vv
+
+
+matchPattern' fa (MatchObjectOptional m o) (Object a) = do
+  let reqKeys = (Data.Set.fromList $ KM.keys m)
+      keys = (Data.Set.fromList $ KM.keys a)
+      diffSet = reqKeys `Data.Set.difference` keys
+  if (not $ Data.Set.null diffSet)
+    then noMatch $ "Required keys missing: " ++ ((T.pack . show) diffSet)
+    else return ()
+  let f acc' (k, v) = do
+          acc <- acc'
+          case KM.lookup k m of
+            Just m' ->
+                do
+                  rr <- fa =<< matchPattern' fa m' v
+                  return $ first (KM.insert k rr) acc
+            Nothing -> case KM.lookup k o of
+                          Just o' ->
+                              do
+                                rr <- fa =<< matchPattern' fa o' v
+                                return $ second (KM.insert k rr) acc
+                          Nothing -> noMatch ("Extra key found: " ++ (K.toText k))
+  (v1, v2) <- L.foldl' f (return mempty) $ KM.toList a
+  return $ MatchObjectOptionalResultF v1 v2
 
 
 matchPattern' fa (MatchObjectWhole m) (Object a) = do
@@ -1155,17 +1182,29 @@ keysValues funnelResult keys = KM.fromList $ fmap f keys
 
 objectFunnelSuggestions funnelResult = r
   where
-    r' = case objectKeysBreakdown funnelResult of
-      (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
-      (requiredKeys, optionalKeys) -> let stringKeys = getStringKeys funnelResult requiredKeys
+    s1 requiredKeys = let stringKeys = getStringKeys funnelResult requiredKeys
                                       in if P.null stringKeys
                                         then []
                                         else [("||", KeyBreakdownSuggestion (keysValues funnelResult stringKeys))]
+    s2 requiredKeys optionalKeys = [("{?}", SimpleValueSuggestion $ undefined)]
+    r' = case objectKeysBreakdown funnelResult of
+      (requiredKeys, []) -> [("{}", SimpleValueSuggestion $ MatchObjectOnly (fromList (fmap (\k -> (k, MatchAny)) requiredKeys)))]
+      (requiredKeys, optionalKeys) -> V.concat [s1 requiredKeys, s2 requiredKeys optionalKeys]
       {-(requiredKeys, optionalKeys) -> let r = (fromList (fmap (\k -> (k, KeyReq $ MatchAny)) requiredKeys))
                                           o = (fromList (fmap (\k -> (k, KeyOpt $ MatchAny)) requiredKeys))
                                       in [("{?}", MatchObjectPartial (KM.union r o))]-}
     r = V.cons ("{r}", SimpleValueSuggestion $ MatchRecord MatchAny) r'
 
+allEqual xs = if V.null xs then True else let x = V.head xs in V.all (==x) xs
+
+arrayFunnelSuggestions funnelResult = r
+  where
+    r' = if allEqual $ V.map (V.length . fromJust . asArray) funnelResult
+          then
+              let h = (V.length . fromJust . asArray . V.head) funnelResult
+              in [("[…]", SimpleValueSuggestion $ MatchArrayContextFree $ Seq $ V.fromList $ (P.take h (P.repeat $ Char MatchAny)))]
+          else []
+    r = V.cons ("[*]", SimpleValueSuggestion $ MatchArray MatchAny) r'
 
 --matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
 matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m Value
@@ -1177,7 +1216,7 @@ matchToFunnelSuggestions p v = do
     0 -> return mempty
     1 -> do
       case V.head typesVec of
-        ArrayValueType -> return [("[*]", SimpleValueSuggestion $ MatchArray MatchAny)]
+        ArrayValueType -> return $ arrayFunnelSuggestions funnelResult
         ObjectValueType -> return $ objectFunnelSuggestions funnelResult
         NullValueType -> return [("null", SimpleValueSuggestion $ MatchNull)]
         t -> do
