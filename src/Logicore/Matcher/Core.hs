@@ -1223,17 +1223,19 @@ matchToFunnelSuggestions p v = do
         NullValueType -> return [("null", SimpleValueSuggestion $ MatchNull)]
         t -> do
               let headValue = (V.head funnelResult)
-              if (V.all (== headValue) funnelResult)
-                then
-                  case headValue of
-                    String s -> return [(show s, SimpleValueSuggestion $ MatchStringExact s)]
-                    Number n -> return [(show n, SimpleValueSuggestion $ MatchNumberExact n)]
-                    Bool n -> return [(show n, SimpleValueSuggestion $ MatchBoolExact n)]
-                else
-                  case headValue of
-                    String _ -> return [("\"\"?", SimpleValueSuggestion $ MatchStringAny)]
-                    Number _ -> return [("0?", SimpleValueSuggestion $ MatchNumberAny)]
-                    Bool _ -> return [("t|f?", SimpleValueSuggestion $ MatchBoolAny)]
+              let one = if (V.all (== headValue) funnelResult)
+                          then
+                            case headValue of
+                              String s -> [(show s, SimpleValueSuggestion $ MatchStringExact s)]
+                              Number n -> [(show n, SimpleValueSuggestion $ MatchNumberExact n)]
+                              Bool n -> [(show n, SimpleValueSuggestion $ MatchBoolExact n)]
+                          else
+                            []
+              let two = case headValue of
+                          String _ -> [("\"\"?", SimpleValueSuggestion $ MatchStringAny)]
+                          Number _ -> [("0?", SimpleValueSuggestion $ MatchNumberAny)]
+                          Bool _ -> [("t|f?", SimpleValueSuggestion $ MatchBoolAny)]
+              return $ V.concat [one, two]
     _ -> return []
   let toKVObj (k, v) = Object (fromList [(fromString "k", (String . T.pack) k),
                                          (fromString "v", toJSON v)])

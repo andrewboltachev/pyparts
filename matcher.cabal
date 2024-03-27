@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.1.
+-- This file has been generated from package.yaml by hpack version 0.36.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -51,6 +51,7 @@ library
     , comonad
     , containers
     , data-fix
+    , free
     , hedis
     , hspec
     , mongoDB
@@ -86,6 +87,7 @@ executable matcher-exe
     , comonad
     , containers
     , data-fix
+    , free
     , hedis
     , hspec
     , matcher
@@ -123,6 +125,7 @@ test-suite matcher-test
     , comonad
     , containers
     , data-fix
+    , free
     , hedis
     , hspec
     , matcher
