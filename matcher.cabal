@@ -32,6 +32,7 @@ library
       Logicore.Matcher.Examples.Utils
       Logicore.Matcher.Experimental
       Logicore.Matcher.Helpers
+      Logicore.Matcher.Python
       Logicore.Matcher.RS
       Logicore.Matcher.Utils
       Logicore.Matcher.ValueBaseFunctor
