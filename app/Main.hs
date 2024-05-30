@@ -27,7 +27,7 @@ import Control.Monad.Trans.Except
 import Control.Monad.IO.Class (liftIO, MonadIO)
 
 import Logicore.Matcher.Core hiding ((++))
-import Logicore.Matcher.Python hiding ((++))
+import Logicore.Matcher.Python
 import Logicore.Matcher.Additional
 import qualified Database.Redis as Redis
 import Data.IORef
@@ -64,6 +64,7 @@ main = do
       , post "/applyOriginalValueDefaults" (fnEndpoint mkApplyOriginalValueDefaults theRef)
       , post "/valueToExactGrammar" (fnEndpoint mkValueToExactGrammar theRef)
       , post "/pythonValueToExactGrammar" (fnEndpoint mkPythonValueToExactGrammar theRef)
+      , post "/pythonModValueToGrammar" (fnEndpoint mkPythonModValueToGrammar theRef)
       , post "/valueToExactResult" (fnEndpoint mkValueToExactResult theRef)
       --, post "/pythonStep1" (fnEndpoint mkPythonStep1 theRef)
       --, post "/pythonStep2" (fnEndpoint mkPythonStep2 theRef)
@@ -275,6 +276,13 @@ mkPythonValueToExactGrammar :: (Object -> MatchStatusT IO Value)
 mkPythonValueToExactGrammar e = do
   pythonValue <- (m2mst $ matchFailure "JSON root element must have pythonValue") $ KM.lookup (K.fromString "pythonValue") e
   output <- return $ pythonValueToExactGrammar pythonValue
+  outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
+  return $ Object $ (KM.fromList [(K.fromString "grammar", outputValue)])
+
+mkPythonModValueToGrammar :: (Object -> MatchStatusT IO Value)
+mkPythonModValueToGrammar e = do
+  pythonModValue <- (m2mst $ matchFailure "JSON root element must have pythonModValue") $ KM.lookup (K.fromString "pythonModValue") e
+  output <- return $ pythonModValueToGrammar pythonModValue
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "grammar", outputValue)])
 
