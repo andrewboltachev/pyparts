@@ -104,14 +104,27 @@ cleanUpPythonWSKeys a = case KM.lookup "type" a of
 
 -- process
 
-special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Pass")]))])),("type",MatchStringExact "SimpleStatementLine")]))])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])),("type",MatchStringExact "If")])
+special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Star $ Char MatchAny])),("type",MatchStringExact "SimpleStatementLine")]))])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])),("type",MatchStringExact "If")])
 
 runG1 r = fromJust $ KM.lookup "body" $ fromJust $ asKeyMap $ fromJust $ extract $ matchResultToThinValueI r
-TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $
+
+
+extractSeq body = fromJust $ case pythonModValueToGrammar body of
+                          MatchArrayContextFree a -> Just a
+                          _ -> Nothing
 
 processArrayItem :: Value -> MatchPattern -> ContextFreeGrammar MatchPattern
 processArrayItem v p = case matchPatternI special_if v of
-  MatchSuccess s -> Star $ Char $ pythonModValueToGrammar $ runG1 s
+  MatchSuccess s -> fromJust $ do
+    t' <- asKeyMap $ runG1 s
+    test <- KM.lookup "test" t'
+    body <- KM.lookup "body" t'
+    return $ case test of
+      "\"__star\"" -> Star $ extractSeq body
+      "\"__plus\"" -> Plus $ extractSeq body
+      "\"__maybe\"" -> Optional $ extractSeq body
+      "\"__seq\"" -> Char $ MatchArrayContextFree $ extractSeq body
+      _ -> Char p
   _ -> Char p
 
 pythonValueToExactGrammar :: Value -> MatchPattern
@@ -136,4 +149,4 @@ pythonModValueToGrammar = para go
 
 e1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../star1.json")) :: Value
 
-r1 = TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $ matchPatternI special_if e1
+r1 = P.putStrLn $ TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $ matchPatternI special_if e1
