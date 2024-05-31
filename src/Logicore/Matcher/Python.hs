@@ -78,10 +78,6 @@ import System.IO.Unsafe (unsafePerformIO)
 -- local...
 import Logicore.Matcher.Core
 
--- g1 = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("body",MatchArrayContextFree (Star (Char (MatchAny)))),("type",MatchStringExact "SimpleStatementLine")]))])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),("star",MatchStringExact ""),("type",MatchStringExact "Arg"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "SimpleString"),("value",MatchStringAny)]))]))])),("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__star")])),("type",MatchStringExact "Call")])),("type",MatchStringExact "If")])
-
-special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Pass")]))])),("type",MatchStringExact "SimpleStatementLine")]))])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])),("type",MatchStringExact "If")])
-
 -- cleanup keys
 
 pythonWSKeys :: KeyMap [Key]
@@ -107,6 +103,8 @@ cleanUpPythonWSKeys a = case KM.lookup "type" a of
   Just _ -> a
 
 -- process
+
+special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Pass")]))])),("type",MatchStringExact "SimpleStatementLine")]))])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])),("type",MatchStringExact "If")])
 
 runG1 r = fromJust $ KM.lookup "body" $ fromJust $ asKeyMap $ fromJust $ extract $ matchResultToThinValueI r
 TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $
