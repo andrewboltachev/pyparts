@@ -276,8 +276,8 @@ mkPythonValueToExactGrammar :: (Object -> MatchStatusT IO Value)
 mkPythonValueToExactGrammar e = do
   pythonValue <- (m2mst $ matchFailure "JSON root element must have pythonValue") $ KM.lookup (K.fromString "pythonValue") e
   output <- return $ pythonValueToExactGrammar pythonValue
-  outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
-  return $ Object $ (KM.fromList [(K.fromString "grammar", outputValue)])
+  -- outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
+  return $ Object $ (KM.fromList [(K.fromString "grammar", String $ T.pack $ show output)])
 
 mkPythonModValueToGrammar :: (Object -> MatchStatusT IO Value)
 mkPythonModValueToGrammar e = do
