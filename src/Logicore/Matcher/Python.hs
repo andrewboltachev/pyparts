@@ -104,27 +104,36 @@ cleanUpPythonWSKeys a = case KM.lookup "type" a of
 
 -- process
 
-special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Star $ Char MatchAny])),("type",MatchStringExact "SimpleStatementLine")]))])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])),("type",MatchStringExact "If")])
+special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Star $ Char MatchAny])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])),("type",MatchStringExact "If")])
 
-runG1 r = fromJust $ KM.lookup "body" $ fromJust $ asKeyMap $ fromJust $ extract $ matchResultToThinValueI r
+special_v = MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])
+
+getMatch p v = case matchPatternI p v of
+  MatchSuccess r -> extract $ matchResultToThinValueI r
+  _ -> Nothing
 
 
-extractSeq body = fromJust $ case pythonModValueToGrammar body of
-                          MatchArrayContextFree a -> Just a
-                          _ -> Nothing
+extractSeq body = case pythonModValueToGrammar body of
+                          MatchArrayContextFree a -> a
+                          _ -> error "must not be here"
 
 processArrayItem :: Value -> MatchPattern -> ContextFreeGrammar MatchPattern
-processArrayItem v p = case matchPatternI special_if v of
-  MatchSuccess s -> fromJust $ do
-    t' <- asKeyMap $ runG1 s
-    test <- KM.lookup "test" t'
-    body <- KM.lookup "body" t'
-    return $ case test of
-      "\"__star\"" -> Star $ extractSeq body
-      "\"__plus\"" -> Plus $ extractSeq body
-      "\"__maybe\"" -> Optional $ extractSeq body
-      "\"__seq\"" -> Char $ MatchArrayContextFree $ extractSeq body
-      _ -> Char p
+processArrayItem v p = case getMatch special_if v of
+  Just s -> let
+    rr = do
+      t' <- asKeyMap s
+      test <- KM.lookup "test" t'
+      test' <- asString test
+      body <- KM.lookup "body" t'
+      return $ case test' of
+        "__star" -> Star $ extractSeq body
+        "__plus" -> Plus $ extractSeq body
+        "__maybe" -> Optional $ extractSeq body
+        "__seq" -> Char $ MatchArrayContextFree $ extractSeq body
+        _ -> Char p
+    in case rr of
+        Just rr -> rr
+        Nothing -> error "shouldn't be this"
   _ -> Char p
 
 pythonValueToExactGrammar :: Value -> MatchPattern
@@ -137,10 +146,13 @@ pythonValueToExactGrammar = para go
     go (BoolF a) = MatchBoolExact a
     go NullF = MatchNull
 
+
 pythonModValueToGrammar :: Value -> MatchPattern
 pythonModValueToGrammar = para go
   where
-    go (ObjectF a) = MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+    go (ObjectF a) = let
+                        
+                     in MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = MatchArrayContextFree $ Seq $ fmap (uncurry processArrayItem) a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
