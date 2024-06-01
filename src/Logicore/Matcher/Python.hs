@@ -150,9 +150,11 @@ pythonValueToExactGrammar = para go
 pythonModValueToGrammar :: Value -> MatchPattern
 pythonModValueToGrammar = para go
   where
-    go (ObjectF a) = let
-                        
-                     in MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+    go (ObjectF a) = case getMatch special_v (Object (KM.map fst a)) >>= asString of
+        Just r -> case r of
+          "__v" -> MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
+          _ -> MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+        Nothing -> MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = MatchArrayContextFree $ Seq $ fmap (uncurry processArrayItem) a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a

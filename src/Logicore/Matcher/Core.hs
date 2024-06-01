@@ -1857,7 +1857,7 @@ throwAwayIndexes err _ = err
 
 getIndexes :: MonadIO m => MatchStatusT m a -> Value -> MatchStatusT m (V.Vector Int)
 getIndexes ee (Array a') = do
-  ee <- ee
+  --ee <- ee
   a <- return $ V.toList a'
   let f acc' x = do
         acc <- acc'
@@ -1905,8 +1905,8 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
   if gg
      then -- actual
         do
-          is <- (getIndexes $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ itsValue
-          itsValue <- (throwAwayIndexes $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ itsValue
+          is <- (getIndexes $ matchFailure ("data error21 " ++ (T.pack $ show itsValue))) $ itsValue
+          itsValue <- (throwAwayIndexes $ matchFailure ("data error22 " ++ (T.pack $ show itsValue))) $ itsValue
           if P.null itsValue
              then
                 return $ StarNodeEmpty a
@@ -1916,7 +1916,7 @@ thinContextFreeMatch (Star a) (Just itsValue) = do
                 return $ StarNodeIndexed aa is
       else -- trivial
         do
-          itsValue <- (m2mst $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ asNumber itsValue
+          itsValue <- (m2mst $ matchFailure ("data error23 " ++ (T.pack $ show itsValue))) $ asNumber itsValue
           if itsValue == 0
              then
                 return $ StarNodeEmpty $ a
@@ -1931,7 +1931,7 @@ thinContextFreeMatch (Plus a) (Just itsValue) = do
   if gg
      then -- actual
         do
-          is <- (getIndexes $ matchFailure ("data error2" ++ (T.pack $ show itsValue))) $ itsValue
+          is <- (getIndexes $ matchFailure ("data error24 " ++ (T.pack $ show itsValue))) $ itsValue
           itsValue <- (throwAwayIndexes $ matchFailure ("data error3" ++ (T.pack $ show itsValue))) $ itsValue
           aa <- P.traverse (thinContextFreeMatch a) (fmap Just itsValue)
           return $ PlusNodeIndexed aa is
