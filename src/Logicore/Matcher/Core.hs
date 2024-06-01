@@ -1832,7 +1832,7 @@ thinSeq as v = do
                     do
                       (m2mst $ matchFailure $ "data error10" ++ (T.pack $ show v)) $ asArray v
         let f acc' (a, gg) = do
-                acc <- acc'
+                --acc <- acc'
                 (ii, acc) <- acc'
                 let i = V.head ii; is = V.tail ii
                 if gg -- movable
