@@ -108,6 +108,10 @@ special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("bod
 
 special_v = MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])
 
+option_match = MatchObjectOnly (fromList [("cases",MatchArray (MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchAny),("type",MatchStringExact "IndentedBlock")])),("guard",MatchNull),("pattern",MatchObjectOnly (fromList [("type",MatchStringExact "MatchValue"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "SimpleString"),("value",MatchStringAny)]))])),("type",MatchStringExact "MatchCase")]))),("subject",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__o")])),("type",MatchStringExact "Match")])
+
+
+
 getMatch p v = case matchPatternI p v of
   MatchSuccess r -> extract $ matchResultToThinValueI r
   _ -> Nothing
@@ -147,13 +151,22 @@ pythonValueToExactGrammar = para go
     go NullF = MatchNull
 
 
+handle_m1 :: Value -> [(T.Text, Value)]
+handle_m1 m1 = V.toList $ fmap (\x -> let m = fromJust $ asKeyMap $ V.head $ V.tail $ fromJust $ asArray x in (fromJust $ asString =<< KM.lookup "pattern" m, (V.head $ fromJust $ asArray $ fromJust $ (KM.lookup "body") $ fromJust $ asKeyMap $ V.head $ fromJust $ asArray =<< KM.lookup "body" m))) (fromJust $ asArray m1)
+-- [("\"a1\"",Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("type",String "Pass")])),("\"a2\"",Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("type",String "Pass")]))]
+
+
 pythonModValueToGrammar :: Value -> MatchPattern
 pythonModValueToGrammar = para go
   where
     go (ObjectF a) = case getMatch special_v (Object (KM.map fst a)) >>= asString of
         Just r -> case r of
+          "__f" -> MatchFunnel
           "__v" -> MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
-          _ -> MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+          "__a" -> MatchAny
+          _ -> case getMatch option_match (Object (KM.map fst a)) of 
+            Just m' -> MatchOr $ KM.fromList $ fmap (bimap K.fromText pythonModValueToGrammar) $ handle_m1 m'
+            _ -> MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
         Nothing -> MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = MatchArrayContextFree $ Seq $ fmap (uncurry processArrayItem) a
     go (StringF a) = MatchStringExact a
@@ -162,5 +175,7 @@ pythonModValueToGrammar = para go
     go NullF = MatchNull
 
 e1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../star1.json")) :: Value
+o1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../opt1.json")) :: MatchPattern
+m1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../match_r.json")) :: Value
 
 r1 = P.putStrLn $ TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $ matchPatternI special_if e1

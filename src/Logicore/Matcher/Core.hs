@@ -249,6 +249,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchStringRegExp !T.Text
                   | MatchNumberExact !Sci.Scientific
                   | MatchBoolExact !Bool
+                  | MatchStringContextFree (ContextFreeGrammar String)
                   -- literals: match any of
                   | MatchStringAny
                   | MatchNumberAny
@@ -343,6 +344,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchStringRegExpResult !T.Text !T.Text
                  | MatchNumberExactResult !Sci.Scientific
                  | MatchBoolExactResult !Bool
+                 | MatchStringContextFreeResult (ContextFreeGrammarResult String String)
                  -- literals: match any of
                  | MatchStringAnyResult !T.Text
                  | MatchNumberAnyResult !Sci.Scientific
@@ -660,6 +662,10 @@ m2mst m v = case v of
               Just x -> return x
               Nothing -> m
 
+
+matchString :: String -> Char -> MatchStatusT m [Char]
+matchString = undefined
+
 -- pattern -> value -> result. result = value × pattern (is a product)
 -- Both pattern and value can be derived from a result using trivial projections
 -- (look category theory product)
@@ -819,6 +825,13 @@ matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
        MatchSuccess x -> MatchSuccess (MatchArrayContextFreeResultF x)
 
 matchPattern' fa (MatchArrayContextFree m) (Object a) = noMatch ("object in cf:\n\n" ++ (TL.toStrict . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.toStrict . TL.decodeUtf8 . encode $ toJSON $ a))
+
+matchPattern' fa (MatchStringContextFree m) (String a) = MatchStatusT $ do
+  rr <- runMatchStatusT $ contextFreeMatch m (V.fromList $ T.unpack a) (\p v -> matchString p v)
+  return $ case rr of
+       NoMatch e -> NoMatch ("context-free nomatch!!: " ++ e ++ "\n\n" ++ (T.pack $ show m) ++ "\n\n" ++ (T.pack $ show a))
+       MatchFailure s -> MatchFailure s
+       MatchSuccess x -> MatchSuccess (MatchStringContextFreeResultF x)
 
 matchPattern' fa (MatchArrayOnly m) (Array a) = do
   let f acc' e = do
