@@ -24,6 +24,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.Identity
 import Control.Monad.IO.Class (liftIO, MonadIO)
 
 import Logicore.Matcher.Core hiding ((++))
@@ -282,7 +283,7 @@ mkPythonValueToExactGrammar e = do
 mkPythonModValueToGrammar :: (Object -> MatchStatusT IO Value)
 mkPythonModValueToGrammar e = do
   pythonModValue <- (m2mst $ matchFailure "JSON root element must have pythonModValue") $ KM.lookup (K.fromString "pythonModValue") e
-  output <- return $ pythonModValueToGrammar pythonModValue
+  output <- liftIO $ runIdentityT $ pythonModValueToGrammar pythonModValue
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "grammar", outputValue)])
 
