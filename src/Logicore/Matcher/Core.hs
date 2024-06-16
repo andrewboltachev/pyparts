@@ -598,7 +598,7 @@ asNumber _ = Nothing
 vconcat :: V.Vector (V.Vector a) -> V.Vector a
 vconcat vs = V.foldl (V.++) mempty vs
 
-gatherFunnelContextFreeFAlgebra :: ContextFreeGrammarResultF MatchPattern (V.Vector Value) (V.Vector Value) -> (V.Vector Value)
+--gatherFunnelContextFreeFAlgebra :: ContextFreeGrammarResultF MatchPattern (V.Vector Value) (V.Vector Value) -> (V.Vector Value)
 gatherFunnelContextFreeFAlgebra (CharNodeF r) = r
 gatherFunnelContextFreeFAlgebra (SeqNodeF r) = vconcat r
 gatherFunnelContextFreeFAlgebra (StarNodeEmptyF g) = V.empty
@@ -608,7 +608,7 @@ gatherFunnelContextFreeFAlgebra (OrNodeF g k r) = r
 gatherFunnelContextFreeFAlgebra (OptionalNodeValueF r) = r
 gatherFunnelContextFreeFAlgebra (OptionalNodeEmptyF g) = V.empty
 
-gatherFunnelContextFree :: ContextFreeGrammarResult MatchPattern (V.Vector Value) -> V.Vector Value
+--gatherFunnelContextFree :: ContextFreeGrammarResult MatchPattern (V.Vector Value) -> V.Vector Value
 -- ContextFreeGrammarResultF MatchPattern (MatchStatusT m [a]) [a] -> MatchStatusT m [a]
 -- ContextFreeGrammarResultF MatchPattern [a] [a] -> MatchStatusT m [a]
 gatherFunnelContextFree = cata gatherFunnelContextFreeFAlgebra
