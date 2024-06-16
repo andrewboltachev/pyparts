@@ -118,6 +118,8 @@ option_match = MatchObjectOnly (fromList [
   ("subject",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__o")])),
   ("type",MatchStringExact "Match")])
 
+ref = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value",MatchObjectOnly (fromList [("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),("star",MatchStringExact ""),("type",MatchStringExact "Arg"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))]))])),("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__ref")])),("type",MatchStringExact "Call")]))]))])),("type",MatchStringExact "SimpleStatementLine")])
+
 
 
 getMatch p v = case matchPatternI p v of
@@ -175,7 +177,9 @@ pythonModValueToGrammar = paraM go
     go :: MonadIO m => (ValueF (Value, MatchPattern)) -> IdentityT m MatchPattern
     go (ObjectF a) = do
       --liftIO $ print (Object (KM.map fst a))
-      case getMatch line_a (Object (KM.map fst a)) of
+      case getMatch ref (Object (KM.map fst a)) of
+           Just n -> return $ MatchRef (fromJust $ asString n)
+           _ -> case getMatch line_a (Object (KM.map fst a)) of
                   Just "__a" -> return $ MatchAny
                   Just "__f" -> return $ MatchFunnel
                   _ ->
@@ -183,11 +187,12 @@ pythonModValueToGrammar = paraM go
                         Just r -> case r of
                           "__f" -> return $ MatchFunnel
                           "__v" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
+                          "__s" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "SimpleString"), ("value", MatchAny)])
                           "__a" -> return $ MatchAny
                           _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
                         Nothing -> do
                                       --if (KM.lookup "type" (KM.map fst a)) == Just (String "Match") then error $ show $ (Object (KM.map fst a)) else Just ()
-                                      liftIO $ print line_a
+                                      --liftIO $ print line_a
                                       case getMatch option_match (Object (KM.map fst a)) of
                                         Just m' -> do
                                           liftIO $ BL.putStr $ encode $ m'
