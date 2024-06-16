@@ -250,6 +250,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchNumberExact !Sci.Scientific
                   | MatchBoolExact !Bool
                   | MatchStringContextFree (ContextFreeGrammar Char)
+                  | MatchStringChars MatchPattern
                   -- literals: match any of
                   | MatchStringAny
                   | MatchNumberAny
@@ -345,6 +346,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchNumberExactResult !Sci.Scientific
                  | MatchBoolExactResult !Bool
                  | MatchStringContextFreeResult (ContextFreeGrammarResult Char Char)
+                 | MatchStringCharsResult MatchResult
                  -- literals: match any of
                  | MatchStringAnyResult !T.Text
                  | MatchNumberAnyResult !Sci.Scientific
@@ -833,6 +835,10 @@ matchPattern' fa (MatchStringContextFree m) (String a) = MatchStatusT $ do
        NoMatch e -> NoMatch ("context-free nomatch!!: " ++ e ++ "\n\n" ++ (T.pack $ show m) ++ "\n\n" ++ (T.pack $ show a))
        MatchFailure s -> MatchFailure s
        MatchSuccess x -> MatchSuccess (MatchStringContextFreeResultF x)
+
+matchPattern' fa (MatchStringChars m) (String a) = do
+  rr <- matchPattern' fa m (Array (V.fromList $ fmap (\c -> String $ T.pack [c]) $ T.unpack a)) >>= fa
+  return $ MatchStringCharsResultF rr
 
 matchPattern' fa (MatchArrayOnly m) (Array a) = do
   let f acc' e = do
@@ -1351,9 +1357,19 @@ matchResultToPattern = cata go where
   go (MatchFunnelKeysUResultF r) = MatchFunnelKeysU
   go (MatchRefResultF ref r) = MatchRef ref
 
+-- ghci> matchPatternI (MatchStringChars (MatchArrayContextFree (Seq [(Char (MatchStringExact "a")), (Star (Char (MatchStringExact "b")))]))) (String "abb")
+-- MatchSuccess (MatchArrayContextFreeResult (SeqNode [CharNode (MatchStringExactResult "a"),StarNodeValue [CharNode (MatchStringExactResult "b"),CharNode (MatchStringExactResult "b")]]))
+-- ghci> contextFreeGrammarResultToSource id (SeqNode [CharNode (MatchStringExactResult "a"),StarNodeValue [CharNode (MatchStringExactResult "b"),CharNode (MatchStringExactResult "b")]])
+-- [MatchStringExactResult "a",MatchStringExactResult "b",MatchStringExactResult "b"]
+
+-- ghci> matchResultToValue $ extract $ matchPatternI (MatchStringChars (MatchArrayContextFree (Seq [(Char (MatchStringExact "a")), (Star (Char (MatchStringExact "b")))]))) (String "abb")
+-- String "abb"
+
 matchResultToValue :: MatchResult -> Value
 matchResultToValue = cata go
   where
+    stringResultToSource (Array a) = V.foldl f "" a where
+      f acc (String s) = acc <> s
     --go :: (MatchResultF MatchPattern) -> Value
     go (MatchObjectFullResultF g r) = Object (KM.map f r)
       where
@@ -1371,6 +1387,7 @@ matchResultToValue = cata go
     go (MatchRecordResultValueF r) = Object $ r
     go (MatchRecordResultEmptyF _) = Object $ KM.empty
     go (MatchArrayContextFreeResultF r) = Array $ contextFreeGrammarResultToSource id r
+    go (MatchStringCharsResultF r) = String $ stringResultToSource r
     go (MatchArrayOnlyResultEmptyF g v) = Array $ v
     go (MatchArrayOnlyResultSomeF r v) = rr
       where
@@ -1633,6 +1650,7 @@ matchPatternIsMovable = cataM goM
       --matchPatternIsMovable g p
       return $ True --ehhh
     goM (MatchArrayContextFreeF g) = contextFreeGrammarIsMovable return g
+    goM (MatchStringCharsF g) = return g
     goM x = return $ go x
 
     go (MatchObjectFullF g) = L.foldl' f False (KM.elems g)
@@ -1739,6 +1757,8 @@ contextFreeGrammarResultToThinValue a = do
                             else Array $ [(fromJust r)]
   cataM go' a
 
+-- ghci> matchResultToThinValueI $ extract $ matchPatternI (MatchStringChars (MatchArrayContextFree (Seq [(Char (MatchStringExact "a")), (Star (Char (MatchStringExact "b")))]))) (String "abb")
+-- MatchSuccess (Just (Number 2.0))
 
 matchResultToThinValueFAlgebra :: MonadIO m => MatchResultF (Maybe Value) -> MatchStatusT m (Maybe Value)
 matchResultToThinValueFAlgebra = goM
@@ -1781,6 +1801,7 @@ matchResultToThinValueFAlgebra = goM
           let u' = KM.union (KM.map f (KM.filter ff r)) (fmap optf g')
           return $ fmap Object $ Just $ filterEmpty $ u'
     goM (MatchArrayContextFreeResultF r) = contextFreeGrammarResultToThinValue r
+    goM (MatchStringCharsResultF r) = return $ r
     goM (MatchObjectWithDefaultsResultF r d a) = goM (MatchObjectFullResultF (KM.empty) (fmap KeyReq r))
     goM (MatchRecordResultValueF r) = do
       return $ Just $ case P.head $ KM.elems $ r of
@@ -2219,6 +2240,12 @@ thinPattern (MatchOr ms) (Just (Object v)) = do
   r <- thinPattern aa itsV
   rr <- return $ MatchOrResult (KM.delete itsK ms) itsK r
   return $ rr
+
+
+thinPattern (MatchStringChars m) a = do
+  gg <- matchPatternIsMovable m
+  t <- thinPattern m a
+  return $ MatchStringCharsResult t
 
 -- specific (aka exact)
 thinPattern (MatchStringExact m) Nothing = return $ MatchStringExactResult m
