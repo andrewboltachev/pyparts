@@ -249,7 +249,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchStringRegExp !T.Text
                   | MatchNumberExact !Sci.Scientific
                   | MatchBoolExact !Bool
-                  | MatchStringContextFree (ContextFreeGrammar String)
+                  | MatchStringContextFree (ContextFreeGrammar Char)
                   -- literals: match any of
                   | MatchStringAny
                   | MatchNumberAny
@@ -344,7 +344,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchStringRegExpResult !T.Text !T.Text
                  | MatchNumberExactResult !Sci.Scientific
                  | MatchBoolExactResult !Bool
-                 | MatchStringContextFreeResult (ContextFreeGrammarResult String String)
+                 | MatchStringContextFreeResult (ContextFreeGrammarResult Char Char)
                  -- literals: match any of
                  | MatchStringAnyResult !T.Text
                  | MatchNumberAnyResult !Sci.Scientific
@@ -663,8 +663,8 @@ m2mst m v = case v of
               Nothing -> m
 
 
-matchString :: String -> Char -> MatchStatusT m [Char]
-matchString = undefined
+matchString :: MonadIO m => Char -> Char -> MatchStatusT m Char
+matchString x y = if x == y then (return y) else (noMatch "no string match")
 
 -- pattern -> value -> result. result = value × pattern (is a product)
 -- Both pattern and value can be derived from a result using trivial projections
@@ -827,6 +827,7 @@ matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
 matchPattern' fa (MatchArrayContextFree m) (Object a) = noMatch ("object in cf:\n\n" ++ (TL.toStrict . TL.decodeUtf8 . encode $ m) ++ "\n\n" ++ (TL.toStrict . TL.decodeUtf8 . encode $ toJSON $ a))
 
 matchPattern' fa (MatchStringContextFree m) (String a) = MatchStatusT $ do
+  --contextFreeMatch (Seq [(Char 'f')]) (V.fromList "foo") (\x y -> if x == y then (return y) else (noMatch "no string match"))
   rr <- runMatchStatusT $ contextFreeMatch m (V.fromList $ T.unpack a) (\p v -> matchString p v)
   return $ case rr of
        NoMatch e -> NoMatch ("context-free nomatch!!: " ++ e ++ "\n\n" ++ (T.pack $ show m) ++ "\n\n" ++ (T.pack $ show a))

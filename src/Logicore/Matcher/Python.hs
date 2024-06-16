@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 
 module Logicore.Matcher.Python where
@@ -111,9 +112,9 @@ special_v = MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value"
 
 option_match = MatchObjectOnly (fromList [
   ("cases",MatchArray (MatchObjectOnly (fromList [
-                                          ("body",MatchObjectOnly (fromList [("body",MatchAny),("type",MatchStringExact "IndentedBlock")])),
+                                          ("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char $ MatchAny])),("type",MatchStringExact "IndentedBlock")])),
                                           ("guard",MatchNull),
-                                          ("pattern",MatchObjectOnly (fromList [("type",MatchStringExact "MatchValue"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "SimpleString"),("value",MatchStringAny)]))])),("type",MatchStringExact "MatchCase")]))),
+                                          ("pattern",MatchObjectOnly (fromList [("type",MatchStringExact "MatchAs"),("name",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))])),("type",MatchStringExact "MatchCase")]))),
   ("subject",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__o")])),
   ("type",MatchStringExact "Match")])
 
@@ -161,9 +162,12 @@ pythonValueToExactGrammar = para go
 
 
 handle_m1 :: Value -> [(Key, Value)]
-handle_m1 m1 = V.toList $ fmap (\x -> let m = fromJust $ asKeyMap x in (K.fromText $ fromJust $ asString =<< KM.lookup "pattern" m, (V.head $ fromJust $ asArray $ fromJust $ (KM.lookup "body") $ fromJust $ asKeyMap $ fromJust $ (KM.lookup "body") $ fromJust $ asKeyMap $ V.head $ fromJust $ asArray =<< KM.lookup "body" m))) (fromJust $ asArray m1)
--- [("\"a1\"",Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("type",String "Pass")])),("\"a2\"",Object (fromList [("semicolon",String "MaybeSentinel.DEFAULT"),("type",String "Pass")]))]
+handle_m1 m' = V.toList $ fmap (\x -> let m = fromJust $ asKeyMap x in (K.fromText $ fromJust $ asString =<< KM.lookup "pattern" m, (fromJust $ KM.lookup "body" m))) (fromJust $ asArray m')
 
+
+line_a = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))]))])),("type",MatchStringExact "SimpleStatementLine")])
+--line_a = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value", (MatchObjectOnly (fromList [("type", MatchStringExact "Name", "value", MatchStringExact "__a")])))]))])),("type",MatchStringExact "SimpleStatementLine")])
+--line_f = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value",MatchFunnel)]))])),("type",MatchStringExact "SimpleStatementLine")])
 
 pythonModValueToGrammar :: MonadIO m => Value -> IdentityT m MatchPattern
 pythonModValueToGrammar = paraM go
@@ -171,20 +175,26 @@ pythonModValueToGrammar = paraM go
     go :: MonadIO m => (ValueF (Value, MatchPattern)) -> IdentityT m MatchPattern
     go (ObjectF a) = do
       --liftIO $ print (Object (KM.map fst a))
-      case getMatch special_v (Object (KM.map fst a)) >>= asString of
-        Just r -> case r of
-          "__f" -> return $ MatchFunnel
-          "__v" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
-          "__a" -> return $ MatchAny
-          _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
-        Nothing -> do
-                --if (KM.lookup "type" (KM.map fst a)) == Just (String "Match") then error $ show $ (Object (KM.map fst a)) else Just ()
-                case getMatch option_match (Object (KM.map fst a)) of
-                  Just m' -> do
-                    let m'' = KM.fromList $ handle_m1 m'
-                    rrr <- KM.traverse pythonModValueToGrammar m''
-                    return $ MatchOr rrr
-                  _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+      case getMatch line_a (Object (KM.map fst a)) of
+                  Just "__a" -> return $ MatchAny
+                  Just "__f" -> return $ MatchFunnel
+                  _ ->
+                      case getMatch special_v (Object (KM.map fst a)) >>= asString of
+                        Just r -> case r of
+                          "__f" -> return $ MatchFunnel
+                          "__v" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
+                          "__a" -> return $ MatchAny
+                          _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+                        Nothing -> do
+                                      --if (KM.lookup "type" (KM.map fst a)) == Just (String "Match") then error $ show $ (Object (KM.map fst a)) else Just ()
+                                      liftIO $ print line_a
+                                      case getMatch option_match (Object (KM.map fst a)) of
+                                        Just m' -> do
+                                          liftIO $ BL.putStr $ encode $ m'
+                                          let m'' = KM.fromList $ handle_m1 m'
+                                          rrr <- KM.traverse pythonModValueToGrammar m''
+                                          return $ MatchOr rrr
+                                        _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = do
         rr <- P.traverse (uncurry processArrayItem) a
         return $ MatchArrayContextFree $ Seq $ rr
