@@ -2241,6 +2241,8 @@ thinPattern (MatchOr ms) (Just (Object v)) = do
   rr <- return $ MatchOrResult (KM.delete itsK ms) itsK r
   return $ rr
 
+-- ghci> matchResultToValue $ extract $ thinPatternI (MatchStringChars (MatchArrayContextFree (Seq [(Char (MatchStringExact "a")), (Star (Char (MatchStringExact "b")))]))) (Just (Number 5.0))
+-- String "abbbbb"
 
 thinPattern (MatchStringChars m) a = do
   gg <- matchPatternIsMovable m
