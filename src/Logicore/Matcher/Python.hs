@@ -118,7 +118,15 @@ option_match = MatchObjectOnly (fromList [
   ("subject",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__o")])),
   ("type",MatchStringExact "Match")])
 
-ref = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value",MatchObjectOnly (fromList [("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),("star",MatchStringExact ""),("type",MatchStringExact "Arg"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))]))])),("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__ref")])),("type",MatchStringExact "Call")]))]))])),("type",MatchStringExact "SimpleStatementLine")])
+simple_ref = MatchObjectOnly (fromList [("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),("star",MatchStringExact ""),("type",MatchStringExact "Arg"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))]))])),("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__ref")])),("type",MatchStringExact "Call")])
+
+ref = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value", simple_ref)]))])),("type",MatchStringExact "SimpleStatementLine")])
+
+
+
+simple_l = MatchObjectOnly (fromList [("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),("star",MatchStringExact ""),("type",MatchStringExact "Arg"),("value",MatchAny)]))])),("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__l")])),("type",MatchStringExact "Call")])
+
+l_expr = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value", simple_l)]))])),("type",MatchStringExact "SimpleStatementLine")])
 
 
 
@@ -171,35 +179,41 @@ line_a = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (Ma
 --line_a = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value", (MatchObjectOnly (fromList [("type", MatchStringExact "Name", "value", MatchStringExact "__a")])))]))])),("type",MatchStringExact "SimpleStatementLine")])
 --line_f = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Expr"),("value",MatchFunnel)]))])),("type",MatchStringExact "SimpleStatementLine")])
 
+line_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("type",MatchStringExact "Pass")]))])),("type",MatchStringExact "SimpleStatementLine")]))])),("type",MatchStringExact "IndentedBlock")])),("orelse",MatchNull),("test",MatchObjectOnly (fromList [("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),("star",MatchStringExact ""),("type",MatchStringExact "Arg"),("value", MatchAny)]))])),("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__if")])),("type",MatchStringExact "Call")])),("type",MatchStringExact "If")])
+
 pythonModValueToGrammar :: MonadIO m => Value -> IdentityT m MatchPattern
 pythonModValueToGrammar = paraM go
   where
     go :: MonadIO m => (ValueF (Value, MatchPattern)) -> IdentityT m MatchPattern
     go (ObjectF a) = do
       --liftIO $ print (Object (KM.map fst a))
-      case getMatch ref (Object (KM.map fst a)) of
-           Just n -> return $ MatchRef (fromJust $ asString n)
-           _ -> case getMatch line_a (Object (KM.map fst a)) of
-                  Just "__a" -> return $ MatchAny
-                  Just "__f" -> return $ MatchFunnel
-                  _ ->
-                      case getMatch special_v (Object (KM.map fst a)) >>= asString of
-                        Just r -> case r of
-                          "__f" -> return $ MatchFunnel
-                          "__v" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
-                          "__s" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "SimpleString"), ("value", MatchAny)])
-                          "__a" -> return $ MatchAny
-                          _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
-                        Nothing -> do
-                                      --if (KM.lookup "type" (KM.map fst a)) == Just (String "Match") then error $ show $ (Object (KM.map fst a)) else Just ()
-                                      --liftIO $ print line_a
-                                      case getMatch option_match (Object (KM.map fst a)) of
-                                        Just m' -> do
-                                          liftIO $ BL.putStr $ encode $ m'
-                                          let m'' = KM.fromList $ handle_m1 m'
-                                          rrr <- KM.traverse pythonModValueToGrammar m''
-                                          return $ MatchOr rrr
-                                        _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+      case getMatch l_expr (Object (KM.map fst a)) of
+       Just l -> pythonModValueToGrammar l
+       _ -> case getMatch ref (Object (KM.map fst a)) of
+              Just n -> return $ MatchRef (fromJust $ asString n)
+              _ -> case getMatch simple_ref (Object (KM.map fst a)) of
+                      Just n -> return $ MatchRef (fromJust $ asString n)
+                      _ -> case getMatch line_a (Object (KM.map fst a)) of
+                            Just "__a" -> return $ MatchAny
+                            Just "__f" -> return $ MatchFunnel
+                            _ ->
+                                case getMatch special_v (Object (KM.map fst a)) >>= asString of
+                                  Just r -> case r of
+                                    "__f" -> return $ MatchFunnel
+                                    "__v" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
+                                    "__s" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "SimpleString"), ("value", MatchAny)])
+                                    "__a" -> return $ MatchAny
+                                    _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+                                  Nothing -> do
+                                                --if (KM.lookup "type" (KM.map fst a)) == Just (String "Match") then error $ show $ (Object (KM.map fst a)) else Just ()
+                                                --liftIO $ print line_a
+                                                case getMatch option_match (Object (KM.map fst a)) of
+                                                  Just m' -> do
+                                                    liftIO $ BL.putStr $ encode $ m'
+                                                    let m'' = KM.fromList $ handle_m1 m'
+                                                    rrr <- KM.traverse pythonModValueToGrammar m''
+                                                    return $ MatchOr rrr
+                                                  _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = do
         rr <- P.traverse (uncurry processArrayItem) a
         return $ MatchArrayContextFree $ Seq $ rr
