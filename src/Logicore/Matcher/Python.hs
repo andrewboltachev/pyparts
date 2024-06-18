@@ -130,6 +130,20 @@ l_expr = MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char (Ma
 
 
 
+kw_expr = MatchObjectOnly (fromList [
+  ("keyword",MatchNull),
+  ("star",MatchStringExact ""),
+  ("type",MatchStringExact "Arg"),
+  ("value",MatchObjectOnly (fromList [
+        ("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),
+                                                                             ("star",MatchStringExact ""),
+                                                                             ("type",MatchStringExact "Arg"),
+                                                                             ("value",MatchAny)]))])),
+        ("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__kw")])),
+        ("type",MatchStringExact "Call")]))])
+
+
+
 getMatch p v = case matchPatternI p v of
   MatchSuccess r -> extract $ matchResultToThinValueI r
   _ -> Nothing
@@ -141,29 +155,43 @@ extractSeq body = do
     MatchArrayContextFree a -> a
     _ -> error "must not be here"
 
+v_object = matchObjectFull' (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
+
+kw_object a = (matchObjectFull' (fromList [
+  ("keyword", MatchOr (fromList [("null", MatchNull), ("keyword", v_object)])),
+  ("star",MatchStringExact ""),
+  ("type",MatchStringExact "Arg"),
+  ("value", a)]))
+
 processArrayItem :: MonadIO m => Value -> MatchPattern -> IdentityT m (ContextFreeGrammar MatchPattern)
-processArrayItem v p = case getMatch special_if v of
-  Just s -> let
-    rr = do
-      t' <- asKeyMap s
-      test <- KM.lookup "test" t'
-      test' <- asString test
-      body <- KM.lookup "body" t'
-      return $ case test' of
-        "__star" -> fmap Star $ extractSeq body
-        "__plus" -> fmap Plus $ extractSeq body
-        "__maybe" -> fmap Optional $ extractSeq body
-        "__seq" -> fmap (Char . MatchArrayContextFree) $ extractSeq body
-        _ -> return $ Char p
-    in case rr of
-        Just rr -> rr
-        Nothing -> error "shouldn't be this"
-  _ -> return $ Char p
+processArrayItem v p = r where
+  r :: MonadIO m => IdentityT m (ContextFreeGrammar MatchPattern)
+  r = case getMatch kw_expr v of
+        Just e -> do
+            rr <- pythonModValueToGrammar e
+            return $ Star $ Char $ kw_object rr
+        _ -> case getMatch special_if v of
+          Just s -> let
+            rr = do
+              t' <- asKeyMap s
+              test <- KM.lookup "test" t'
+              test' <- asString test
+              body <- KM.lookup "body" t'
+              return $ case test' of
+                "__star" -> fmap Star $ extractSeq body
+                "__plus" -> fmap Plus $ extractSeq body
+                "__maybe" -> fmap Optional $ extractSeq body
+                "__seq" -> fmap (Char . MatchArrayContextFree) $ extractSeq body
+                _ -> return $ Char p
+            in case rr of
+                Just rr -> rr
+                Nothing -> error "shouldn't be this"
+          _ -> return $ Char p
 
 pythonValueToExactGrammar :: Value -> MatchPattern
 pythonValueToExactGrammar = para go
   where
-    go (ObjectF a) = MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+    go (ObjectF a) = matchObjectFull' (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = MatchArrayContextFree $ Seq $ fmap (Char . snd) a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
@@ -200,20 +228,21 @@ pythonModValueToGrammar = paraM go
                                 case getMatch special_v (Object (KM.map fst a)) >>= asString of
                                   Just r -> case r of
                                     "__f" -> return $ MatchFunnel
-                                    "__v" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
-                                    "__s" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "SimpleString"), ("value", MatchAny)])
+                                    "__v" -> return $ v_object
+                                    "__s" -> return $ matchObjectFull' (fromList [("type", MatchStringExact "SimpleString"), ("value", MatchAny)])
+                                    "__n" -> return $ matchObjectFull' (fromList [("type", MatchStringExact "Integer"), ("value", MatchAny)])
                                     "__a" -> return $ MatchAny
-                                    _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+                                    _ -> return $ matchObjectFull' (KM.map snd $ cleanUpPythonWSKeys a)
                                   Nothing -> do
                                                 --if (KM.lookup "type" (KM.map fst a)) == Just (String "Match") then error $ show $ (Object (KM.map fst a)) else Just ()
                                                 --liftIO $ print line_a
                                                 case getMatch option_match (Object (KM.map fst a)) of
                                                   Just m' -> do
-                                                    liftIO $ BL.putStr $ encode $ m'
+                                                    --liftIO $ BL.putStr $ encode $ m'
                                                     let m'' = KM.fromList $ handle_m1 m'
                                                     rrr <- KM.traverse pythonModValueToGrammar m''
                                                     return $ MatchOr rrr
-                                                  _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
+                                                  _ -> return $ matchObjectFull' (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = do
         rr <- P.traverse (uncurry processArrayItem) a
         return $ MatchArrayContextFree $ Seq $ rr
@@ -226,4 +255,4 @@ e1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile ".
 o1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../opt1.json")) :: MatchPattern
 m1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../match_r.json")) :: Value
 
-r1 = P.putStrLn $ TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $ matchPatternI special_if e1
+--r1 = P.putStrLn $ TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $ matchPatternI special_if e1

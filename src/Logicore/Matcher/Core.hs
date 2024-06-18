@@ -279,6 +279,8 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchGetFromFile T.Text MatchPattern -- not sure
                     deriving (Generic, Eq, Show)
 
+matchObjectFull' o = MatchObjectFull $ KM.map KeyReq o
+
 -- extract: bigger patterns (also look bb) and ?
 
 {-matchObjectWithDefaultsArbitrary = do
