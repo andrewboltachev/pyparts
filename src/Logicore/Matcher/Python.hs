@@ -155,9 +155,9 @@ extractSeq body = do
     MatchArrayContextFree a -> a
     _ -> error "must not be here"
 
-v_object = matchObjectFull' (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
+v_object = MatchObjectOnly (fromList [("type", MatchStringExact "Name"), ("value", MatchAny)])
 
-kw_object a = (matchObjectFull' (fromList [
+kw_object a = (MatchObjectOnly (fromList [
   ("keyword", MatchOr (fromList [("null", MatchNull), ("keyword", v_object)])),
   ("star",MatchStringExact ""),
   ("type",MatchStringExact "Arg"),
@@ -191,7 +191,7 @@ processArrayItem v p = r where
 pythonValueToExactGrammar :: Value -> MatchPattern
 pythonValueToExactGrammar = para go
   where
-    go (ObjectF a) = matchObjectFull' (KM.map snd $ cleanUpPythonWSKeys a)
+    go (ObjectF a) = MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = MatchArrayContextFree $ Seq $ fmap (Char . snd) a
     go (StringF a) = MatchStringExact a
     go (NumberF a) = MatchNumberExact a
@@ -229,10 +229,10 @@ pythonModValueToGrammar = paraM go
                                   Just r -> case r of
                                     "__f" -> return $ MatchFunnel
                                     "__v" -> return $ v_object
-                                    "__s" -> return $ matchObjectFull' (fromList [("type", MatchStringExact "SimpleString"), ("value", MatchAny)])
-                                    "__n" -> return $ matchObjectFull' (fromList [("type", MatchStringExact "Integer"), ("value", MatchAny)])
+                                    "__s" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "SimpleString"), ("value", MatchAny)])
+                                    "__n" -> return $ MatchObjectOnly (fromList [("type", MatchStringExact "Integer"), ("value", MatchAny)])
                                     "__a" -> return $ MatchAny
-                                    _ -> return $ matchObjectFull' (KM.map snd $ cleanUpPythonWSKeys a)
+                                    _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
                                   Nothing -> do
                                                 --if (KM.lookup "type" (KM.map fst a)) == Just (String "Match") then error $ show $ (Object (KM.map fst a)) else Just ()
                                                 --liftIO $ print line_a
@@ -242,7 +242,7 @@ pythonModValueToGrammar = paraM go
                                                     let m'' = KM.fromList $ handle_m1 m'
                                                     rrr <- KM.traverse pythonModValueToGrammar m''
                                                     return $ MatchOr rrr
-                                                  _ -> return $ matchObjectFull' (KM.map snd $ cleanUpPythonWSKeys a)
+                                                  _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
     go (ArrayF a) = do
         rr <- P.traverse (uncurry processArrayItem) a
         return $ MatchArrayContextFree $ Seq $ rr
