@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import Network.Wai.Handler.Warp (runSettings, defaultSettings, setPort, setTimeout)
+import Network.Wai.Handler.Warp (runSettings, defaultSettings, setPort, setTimeout, Settings)
 import Web.Twain
 import Data.Aeson
 import qualified Data.Aeson.KeyMap          as KM
@@ -39,12 +39,12 @@ import Data.IORef
 
 main :: IO ()
 main = do
-  let settings = foldr ($) defaultSettings [setTimeout (5 * 60), setPort 3042]
+  let settings = L.foldr ($) defaultSettings ([setTimeout (5 * 60), setPort 3042] :: [Settings -> Settings])
   theRef <- newIORef mempty
   runSettings settings $
     foldr ($)
       (notFound missing)
-      [ get "/" index
+      ([ get "/" index
       , post "echo:name" echo
       , get "load" (load theRef)
       --, post "python-matcher-1" pythonMatcher1
@@ -70,7 +70,7 @@ main = do
       --, post "/pythonStep1" (fnEndpoint mkPythonStep1 theRef)
       --, post "/pythonStep2" (fnEndpoint mkPythonStep2 theRef)
       --, post "/pythonStep0" (fnEndpoint mkPythonStep0 theRef)
-      ]
+      ] :: [Application -> Application])
 
 
 index :: ResponderM a
