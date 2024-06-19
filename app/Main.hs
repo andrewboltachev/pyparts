@@ -345,7 +345,7 @@ fnEndpoint f theRef = do
             grammar <- getGrammarArg e
             let toFile = getToFileArg e
             conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
-            vv <- liftIO $ runReaderT (runMatchStatusT $ f e) $ MatcherEnv { redisConn = conn, grammarMap = grammar, indexing = True, dataRef = theRef } 
+            vv <- liftIO $ runReaderT (runMatchStatusT $ f e) $ MatcherEnv { redisConn = conn, grammarMap = grammar, indexing = False, dataRef = theRef } 
             r <- (ExceptT . return) $ case vv of
                     MatchFailure s -> Left ("matchFailureee: " ++ T.unpack s)
                     NoMatch x -> Left ("NoMatch: " ++ T.unpack x)
