@@ -68,6 +68,7 @@ import qualified Data.Set                     as S
 import Control.Applicative
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.IO.Class
@@ -277,6 +278,9 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchGetFromRedis T.Text T.Text MatchPattern -- not sure
                   | MatchGetFromIORef MatchPattern -- not sure
                   | MatchGetFromFile T.Text MatchPattern -- not sure
+                  -- advanced
+                  | MatchLet (KeyMap MatchPattern) MatchPattern
+                  | MatchVar T.Text
                     deriving (Generic, Eq, Show)
 
 matchObjectFull' o = MatchObjectFull $ KM.map KeyReq o
@@ -371,6 +375,9 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchRefResult T.Text MatchResult
                  | MatchFromMongoDBResult T.Text T.Text T.Text
                  | MatchFromRedisResult T.Text T.Text T.Text
+                 -- advanced
+                 | MatchLetResult (KeyMap MatchResult) MatchResult
+                 | MatchVarResult T.Text
                    deriving (Generic, Eq, Show)
 
 {-matchObjectWithDefaultsResultArbitrary = do
@@ -462,10 +469,13 @@ instance Comonad MatchStatus where
   duplicate (MatchFailure m) = MatchFailure m
   duplicate (NoMatch m) = NoMatch m
 
+--data MatchFail = NoMatch T.Text | MatchFailure T.Text deriving (Eq, Show)
+
 data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool, dataRef :: IORef (KeyMap Value) }
 emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
 newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
+--newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: StateT (KeyMap a) (ReaderT MatcherEnv m) (MatchStatus a) }
 instance Functor m => Functor (MatchStatusT m) where
   fmap f (MatchStatusT ma) = MatchStatusT $ (fmap . fmap) f ma
 
@@ -1083,6 +1093,10 @@ matchPattern' fa (MatchGetFromIORef m) v = do
     _ -> matchFailure "ref error"
 
   matchPattern' fa m vr
+
+matchPattern' fa (MatchLet m m') a = do
+  r <- fa =<< matchPattern' fa m' a
+  return $ MatchLetResultF mempty r
 
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
