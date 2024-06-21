@@ -499,10 +499,10 @@ matchFailure :: Monad m => T.Text -> MatchStatusT m a
 matchFailure x = MatchStatusT (return (MatchFailure x))
 
 instance MonadTrans MatchStatusT where
-  lift = MatchStatusT . StateT . (\v -> \s -> fmap (\m -> (m, s)) v) . ReaderT . const . (fmap MatchSuccess)
+  lift a = MatchStatusT $ lift $ lift $ fmap return a
 
 instance (MonadIO m) => MonadIO (MatchStatusT m) where
-  liftIO = lift. liftIO
+  liftIO = lift . liftIO
 
 
 -- functions
@@ -675,6 +675,22 @@ m2mst :: MonadIO m => MatchStatusT m a -> Maybe a -> MatchStatusT m a
 m2mst m v = case v of
               Just x -> return x
               Nothing -> m
+
+
+askMatcherEnv :: Monad m => MatchStatusT m MatcherEnv
+askMatcherEnv = MatchStatusT $ lift $ fmap return ask
+
+
+asksMatcherEnv :: Monad m => (MatcherEnv -> a) -> MatchStatusT m a
+asksMatcherEnv f = MatchStatusT $ lift $ fmap return $ asks f
+
+
+{-
+ghci> :i ReaderT
+type role ReaderT representational representational nominal
+type ReaderT :: * -> (* -> *) -> * -> *
+newtype ReaderT r m a = ReaderT {runReaderT :: r -> m a}
+-}
 
 
 matchString :: MonadIO m => Char -> Char -> MatchStatusT m Char
