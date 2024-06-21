@@ -970,7 +970,7 @@ matchPattern' fa MatchBoolAny (Bool a) = return $ MatchBoolAnyResultF a
 matchPattern' fa MatchNull Null = return MatchNullResultF
 -- refs, finally :-)
 matchPattern' fa (MatchRef r) v = do
-  g <- MatchStatusT . StateT . (\v -> \s -> fmap (\m -> (m, s)) v) $ do
+  g <- MatchStatusT . lift $ do
     v <- asks grammarMap
     return $ return v
   p <- (m2mst $ matchFailure $ ("Non-existant ref: " ++ r)) $ KM.lookup (K.fromText r) g
