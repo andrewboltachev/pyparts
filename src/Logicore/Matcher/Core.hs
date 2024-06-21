@@ -474,8 +474,11 @@ instance Comonad MatchStatus where
 data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool, dataRef :: IORef (KeyMap Value) }
 emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
+data MatchState = MatchState { _matchVars :: (KeyMap MatchResult) } deriving (Eq, Show)
+emptyMatchState = MatchState { _matchVars = KM.empty }
+
 --newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
-newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: StateT [String] (ReaderT MatcherEnv m) (MatchStatus a) }
+newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: StateT MatchState (ReaderT MatcherEnv m) (MatchStatus a) }
 instance Functor m => Functor (MatchStatusT m) where
   fmap f (MatchStatusT ma) = MatchStatusT $ (fmap . fmap) f ma
 
@@ -503,6 +506,12 @@ instance MonadTrans MatchStatusT where
 
 instance (MonadIO m) => MonadIO (MatchStatusT m) where
   liftIO = lift . liftIO
+
+askMatcherEnv :: Monad m => MatchStatusT m MatcherEnv
+askMatcherEnv = MatchStatusT $ lift $ fmap return ask
+
+asksMatcherEnv :: Monad m => (MatcherEnv -> a) -> MatchStatusT m a
+asksMatcherEnv f = MatchStatusT $ lift $ fmap return $ asks f
 
 
 -- functions
@@ -675,14 +684,6 @@ m2mst :: MonadIO m => MatchStatusT m a -> Maybe a -> MatchStatusT m a
 m2mst m v = case v of
               Just x -> return x
               Nothing -> m
-
-
-askMatcherEnv :: Monad m => MatchStatusT m MatcherEnv
-askMatcherEnv = MatchStatusT $ lift $ fmap return ask
-
-
-asksMatcherEnv :: Monad m => (MatcherEnv -> a) -> MatchStatusT m a
-asksMatcherEnv f = MatchStatusT $ lift $ fmap return $ asks f
 
 
 {-
@@ -1304,7 +1305,7 @@ ff1
      -> MatchPattern -> MatcherEnv -> Value -> IO (m (MatchStatus a))
 ff1 fa ms rEnv x = do
     --print "foo"
-    x <- liftIO $ return $ runReaderT (evalStateT (runMatchStatusT $ matchPattern'' fa ms x) mempty) rEnv
+    x <- liftIO $ return $ runReaderT (evalStateT (runMatchStatusT $ matchPattern'' fa ms x) emptyMatchState) rEnv
     return x
 
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
@@ -2470,7 +2471,7 @@ extractSuccess (MatchSuccess x) = x
 versionForTests :: MatchStatusT IO a -> MatchStatus a
 -- matchPattern :: MatchPattern -> Value -> MatchStatusT IO MatchResult
 
-versionForTests f = unsafePerformIO $ liftIO $ runReaderT (evalStateT (runMatchStatusT $ f) mempty) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined }
+versionForTests f = unsafePerformIO $ liftIO $ runReaderT (evalStateT (runMatchStatusT $ f) emptyMatchState) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined }
 
 matchPatternI p v = versionForTests $ matchPattern p v
 matchToThinI p v = versionForTests $ matchToThin p v
@@ -2747,7 +2748,7 @@ mdb :: IO ()
 mdb = do
   let p = MatchFromMongoDB "logicore" "products" $ MatchObjectOnly (fromList [(fromText "item", MatchStringExact "card"), (fromText "qty", MatchNumberAny)])
   let v = String "657aa1c7ec43193e13182e9e"
-  a <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) mempty) emptyEnvValue
+  a <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) emptyMatchState) emptyEnvValue
   return ()
   --print a
 
@@ -2757,7 +2758,7 @@ rdb = do
   let p = MatchFromRedis "logicore" "products" $ MatchObjectOnly (fromList [(fromText "item", MatchStringExact "card"), (fromText "qty", MatchNumberAny)])
   let v = String "hello"
   conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
-  a <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) mempty) $ MatcherEnv { redisConn = conn }
+  a <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) emptyMatchState) $ MatcherEnv { redisConn = conn }
   --print a
   return ()
 
@@ -2773,16 +2774,16 @@ main4 :: IO ()
 main4 = do
   v <- return $ Object (fromList [(fromString "a", String "apple"), (fromString "b", String "banana"), (fromString "c", Number 33)])
   p <- return $ (MatchObjectOnly (fromList [(fromString "a", MatchAny), (fromString "b", MatchNone)]) :: MatchPattern)
-  r <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) mempty) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  r <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) emptyMatchState) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print r
 
   -- r must be
-  t <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) mempty) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  t <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) emptyMatchState) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print t
 
   -- t must be this:
   tv <- return $ Just (String "xiaomi")
-  tr <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ thinPattern p tv) mempty) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  tr <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ thinPattern p tv) emptyMatchState) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print tr
 
   rr <- return $ (MatchSuccess $ applyOriginalValueDefaults (extractSuccess tr) (Just (extractSuccess r)))
