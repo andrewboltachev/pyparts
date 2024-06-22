@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -428,8 +429,6 @@ instance Arbitrary MatchResult where
     --MatchFunnelKeysUResult <$> arbitrary
     --MatchRefResult <$> arbitrary <*> arbitrary-}
 
-type MatchResultResult = MatchResult
-
 makeBaseFunctor ''MatchResult
 
 instance ToJSON MatchResult where
@@ -479,13 +478,14 @@ instance Comonad MatchStatus where
 data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool, dataRef :: IORef (KeyMap Value) }
 emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
-data MatchState = MatchState { _matchVars :: (KeyMap (Either MatchPattern MatchResultResult)) } deriving (Eq, Show)
+data MatchState = MatchState { _matchVars :: (KeyMap (Either MatchPattern MatchResult)) } deriving (Eq, Show)
 emptyMatchState = MatchState { _matchVars = KM.empty }
 
 makeLenses ''MatchState
 
 --newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
 newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: StateT MatchState (ReaderT MatcherEnv m) (MatchStatus a) }
+
 instance Functor m => Functor (MatchStatusT m) where
   fmap f (MatchStatusT ma) = MatchStatusT $ (fmap . fmap) f ma
 
@@ -763,6 +763,7 @@ mObj fa keepExt m a = do
                                True -> case KM.lookup k a of
                                             Nothing -> matchFailure "impossible"
                                             Just v -> return $ second (KM.insert k (KeyExt v)) acc
+
 
 matchPattern' fa (MatchObjectFull m) (Object a) = (fmap $ uncurry MatchObjectFullResultF) (mObj fa False m a)
 matchPattern' fa (MatchObjectPartial m) (Object a) = (fmap $ uncurry MatchObjectPartialResultF) (mObj fa True m a)
@@ -1159,8 +1160,8 @@ matchPattern' fa (MatchLet ms m) a = do
   -- Remove current (it's required to keep them, not remove)
   putMatcherState matchVars (KM.filterWithKey (\k _ -> not $ KM.member k ms) varsAfter)
   let res' = fmap (fromRight undefined) res
-  vv <- P.traverse fa res'
-  return $ MatchLetResultF vv r
+  --vv <- P.traverse fa res'
+  return $ MatchLetResultF undefined r
 
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
