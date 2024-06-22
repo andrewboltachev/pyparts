@@ -41,6 +41,7 @@ import qualified Data.Set
 import qualified Data.List        as L
 import GHC.Generics
 import Data.Aeson
+import Data.Either
 --import Data.ByteString            as B
 import qualified Data.ByteString.Lazy       as BL hiding (putStrLn)
 import qualified Data.Text                  as T
@@ -427,6 +428,8 @@ instance Arbitrary MatchResult where
     --MatchFunnelKeysUResult <$> arbitrary
     --MatchRefResult <$> arbitrary <*> arbitrary-}
 
+type MatchResultResult = MatchResult
+
 makeBaseFunctor ''MatchResult
 
 instance ToJSON MatchResult where
@@ -476,7 +479,7 @@ instance Comonad MatchStatus where
 data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool, dataRef :: IORef (KeyMap Value) }
 emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
-data MatchState = MatchState { _matchVars :: (KeyMap (Either MatchPattern MatchResult)) } deriving (Eq, Show)
+data MatchState = MatchState { _matchVars :: (KeyMap (Either MatchPattern MatchResultResult)) } deriving (Eq, Show)
 emptyMatchState = MatchState { _matchVars = KM.empty }
 
 makeLenses ''MatchState
@@ -1129,6 +1132,7 @@ matchPattern' fa (MatchGetFromIORef m) v = do
 
 matchPattern' fa (MatchLet ms m) a = do
   varsBefore <- getMatcherState matchVars
+  -- Check
   let
     s1 = S.fromList . KM.keys $ varsBefore
     s2 = S.fromList . KM.keys $ ms
@@ -1137,10 +1141,26 @@ matchPattern' fa (MatchLet ms m) a = do
       if not (S.null s3)
       then matchFailure $ "keys clash: " ++ (T.pack . show $ s3)
       else return ()
+  -- Append new vars
   putMatcherState matchVars (KM.union varsBefore (KM.map Left ms))
+  -- Do action
   r <- fa =<< matchPattern' fa m a
-  --putMatcherState matchVars varsBefore
-  return $ MatchLetResultF mempty r
+  -- Collect values
+  varsAfter <- getMatcherState matchVars
+  let res = KM.filterWithKey (\k v -> (KM.member k ms) && isRight v) varsAfter
+  let
+    s1 = S.fromList . KM.keys $ ms
+    s2 = S.fromList . KM.keys $ res
+    s3 = S.difference s1 s2
+    in
+      if not (S.null s3)
+      then matchFailure $ "vars not assigned: " ++ (T.pack . show $ s3)
+      else return ()
+  -- Remove current (it's required to keep them, not remove)
+  putMatcherState matchVars (KM.filterWithKey (\k _ -> not $ KM.member k ms) varsAfter)
+  let res' = fmap (fromRight undefined) res
+  vv <- P.traverse fa res'
+  return $ MatchLetResultF vv r
 
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
