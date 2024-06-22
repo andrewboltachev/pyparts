@@ -478,10 +478,10 @@ instance Comonad MatchStatus where
 data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool, dataRef :: IORef (KeyMap Value) }
 emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
-data MatchState = MatchState { _matchVars :: (KeyMap (Either MatchPattern MatchResult)) } deriving (Eq, Show)
-emptyMatchState = MatchState { _matchVars = KM.empty }
+--data MatchState = MatchState { _matchVars :: (KeyMap (Either MatchPattern r)) } deriving (Eq, Show)
+--emptyMatchState = MatchState { _matchVars = KM.empty }
 
-makeLenses ''MatchState
+--makeLenses ''MatchState
 
 newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
 
@@ -726,8 +726,8 @@ matchString x y = if x == y then (return y) else (noMatch "no string match")
 
 matchPattern'
   :: (Show r, MonadIO m) =>
-     (MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) r)
-     -> MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) (MatchResultF r)
+     (MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern r)) m) r)
+     -> MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern r)) m) (MatchResultF r)
 
 --mObj :: Monad m => Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj fa keepExt m a = do
@@ -1157,16 +1157,35 @@ matchPattern' fa (MatchLet ms m) a = do
   lift $ put (KM.filterWithKey (\k _ -> not $ KM.member k ms) varsAfter)
   return $ MatchLetResultF (fmap (fromRight undefined) res) r
 
+matchPattern' fa (MatchVar n) a = do
+  varsBefore <- lift $ get
+  let k = K.fromText n
+  case KM.lookup k varsBefore of
+    Just varDef -> case varDef of
+                Left p -> do
+                  r <- fa p a
+                  lift $ modify (KM.insert k (Right r))
+                  return ()
+                Right e -> do
+                  {-p <- matchResultToPattern e
+                  r <- fa m a
+                  case e == r of
+                    False -> matchFailure $ "var matched differently: " ++ n
+                    True -> ...-}
+                  return ()
+    Nothing -> matchFailure $ "non-existing var: " ++ n
+  return $ MatchVarResultF n
+
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
 
 --matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
 
-p1 :: (Show r, MonadIO m) => MatchStatusT m r -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) r
+p1 :: (Show r, MonadIO m) => MatchStatusT m r -> MatchStatusT (StateT (KeyMap (Either MatchPattern r)) m) r
 p1 x = MatchStatusT $ ReaderT (\env -> lift (runReaderT (runMatchStatusT $ x) env))
 
 matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
-matchPattern'' falg p v = let --f :: (Show r, MonadIO m) => MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) r
+matchPattern'' falg p v = let --f :: (Show r, MonadIO m) => MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern r)) m) r
                               f a b = (p1 . falg) =<< matchPattern' f a b
                            in MatchStatusT $ ReaderT (\env -> evalStateT (runReaderT (runMatchStatusT $ f p v) env) KM.empty)
 
