@@ -721,10 +721,13 @@ matchString x y = if x == y then (return y) else (noMatch "no string match")
 --fa :: MonadIO m => MatchResultF MatchResult -> MatchStatusT m a
 --fa = undefined
 --matchPattern' :: MonadIO m => (MatchResultF a -> MatchStatusT m a) -> MatchPattern -> Value -> MatchStatusT m (MatchResultF a)
+
+--type MatchWithState m r = 
+
 matchPattern'
   :: (Show r, MonadIO m) =>
-     (MatchPattern -> Value -> MatchStatusT m r)
-     -> MatchPattern -> Value -> MatchStatusT m (MatchResultF r)
+     (MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) r)
+     -> MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) (MatchResultF r)
 
 --mObj :: Monad m => Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj fa keepExt m a = do
@@ -1160,10 +1163,14 @@ matchPattern' fa (MatchGetFromIORef m) v = do
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
 
 --matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
---matchPattern'' fma p v = fma =<< matchPattern'  p v
+
+p1 :: (Show r, MonadIO m) => MatchStatusT m r -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) r
+p1 x = MatchStatusT $ ReaderT (\env -> lift (runReaderT (runMatchStatusT $ x) env))
+
 matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
-matchPattern'' falg p v = let f a b = falg =<< (matchPattern' f a b)
-                           in f p v
+matchPattern'' falg p v = let --f :: (Show r, MonadIO m) => MatchPattern -> Value -> MatchStatusT (StateT (KeyMap (Either MatchPattern MatchResult)) m) r
+                              f a b = (p1 . falg) =<< matchPattern' f a b
+                           in MatchStatusT $ ReaderT (\env -> evalStateT (runReaderT (runMatchStatusT $ f p v) env) KM.empty)
 
 traceFAlgebra :: MonadIO m => MatchResultF MatchResult -> MatchStatusT m MatchResult
 traceFAlgebra x = do
