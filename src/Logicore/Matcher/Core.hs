@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE RankNTypes #-}
 
 
 module Logicore.Matcher.Core where
@@ -65,6 +66,7 @@ import Data.Maybe (isJust, fromJust)
 import Data.Monoid
 import qualified Data.Set                     as S
 
+import Control.Lens hiding (indexing)
 import Control.Applicative
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
@@ -477,6 +479,8 @@ emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 data MatchState = MatchState { _matchVars :: (KeyMap MatchResult) } deriving (Eq, Show)
 emptyMatchState = MatchState { _matchVars = KM.empty }
 
+makeLenses ''MatchState
+
 --newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: ReaderT MatcherEnv m (MatchStatus a) }
 newtype MatchStatusT m a = MatchStatusT { runMatchStatusT :: StateT MatchState (ReaderT MatcherEnv m) (MatchStatus a) }
 instance Functor m => Functor (MatchStatusT m) where
@@ -512,6 +516,18 @@ askMatcherEnv = MatchStatusT $ lift $ fmap return ask
 
 asksMatcherEnv :: Monad m => (MatcherEnv -> a) -> MatchStatusT m a
 asksMatcherEnv f = MatchStatusT $ lift $ fmap return $ asks f
+
+
+getMatcherState :: Monad m => Lens' MatchState r -> MatchStatusT m r
+getMatcherState l = MatchStatusT $ fmap return $ use l
+
+
+putMatcherState :: Monad m => Lens' MatchState r -> r -> MatchStatusT m ()
+putMatcherState l v = MatchStatusT $ fmap return $ modify (set l v)
+
+
+modifyMatcherState :: Monad m => Lens' MatchState r -> (r -> r) -> MatchStatusT m ()
+modifyMatcherState l f = MatchStatusT $ fmap return $ modify (over l f)
 
 
 -- functions
@@ -1112,7 +1128,9 @@ matchPattern' fa (MatchGetFromIORef m) v = do
   matchPattern' fa m vr
 
 matchPattern' fa (MatchLet m m') a = do
+  vars <- getMatcherState matchVars
   r <- fa =<< matchPattern' fa m' a
+  --vars <- putMatcherState matchVars
   return $ MatchLetResultF mempty r
 
 -- default ca

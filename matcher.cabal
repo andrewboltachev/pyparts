@@ -55,6 +55,7 @@ library
     , free
     , hedis
     , hspec
+    , lens
     , mongoDB
     , recursion-schemes
     , regex-tdfa >=1.3.2 && <1.4
@@ -91,6 +92,7 @@ executable matcher-exe
     , free
     , hedis
     , hspec
+    , lens
     , matcher
     , mongoDB
     , recursion-schemes
@@ -129,6 +131,7 @@ test-suite matcher-test
     , free
     , hedis
     , hspec
+    , lens
     , matcher
     , mongoDB
     , recursion-schemes
