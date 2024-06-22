@@ -1466,9 +1466,17 @@ matchResultToPattern = cata go where
 -- ghci> matchResultToValue $ extract $ matchPatternI (MatchStringChars (MatchArrayContextFree (Seq [(Char (MatchStringExact "a")), (Star (Char (MatchStringExact "b")))]))) (String "abb")
 -- String "abb"
 
-matchResultToValue :: MatchResult -> Value
-matchResultToValue = cata go
+matchResultToValue' :: MatchResult -> StateT (KeyMap Value) Identity Value
+matchResultToValue' = cataM goM
   where
+    goM (MatchLetResultF m a) = do
+      modify (KM.union m)
+      return a
+    goM (MatchVarResultF n) = do
+      vars <- get
+      let value = fromJust $ KM.lookup (K.fromText n) vars
+      return $ value
+    goM x = return $ go x
     stringResultToSource (Array a) = V.foldl f "" a where
       f acc (String s) = acc <> s
     --go :: (MatchResultF MatchPattern) -> Value
@@ -1515,6 +1523,9 @@ matchResultToValue = cata go
     go (MatchFunnelKeysResultF r) = Object r
     go (MatchFunnelKeysUResultF r) = Object r
     go (MatchRefResultF ref r) = r
+
+matchResultToValue :: MatchResult -> Value
+matchResultToValue r = runIdentity $ evalStateT (matchResultToValue' r) KM.empty
 
 valueToExactGrammar :: Value -> MatchPattern
 valueToExactGrammar = cata go
@@ -1738,8 +1749,8 @@ liftObjectKeyMatch m = L.foldl' f (MatchSuccess mempty) (KM.keys m)
                KeyReq (NoMatch s) -> NoMatch s
 
 
-matchPatternIsMovable :: MonadIO m => MatchPattern -> MatchStatusT m Bool
-matchPatternIsMovable = cataM goM
+matchPatternIsMovable' :: MonadIO m => MatchPattern -> MatchStatusT (StateT (KeyMap Bool) m) Bool
+matchPatternIsMovable' = cataM goM
   where
     goM (MatchRefF r) = do
       g <- asksMatcherEnv grammarMap
