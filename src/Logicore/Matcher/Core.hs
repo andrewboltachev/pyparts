@@ -722,10 +722,10 @@ matchString x y = if x == y then (return y) else (noMatch "no string match")
 --fa :: MonadIO m => MatchResultF MatchResult -> MatchStatusT m a
 --fa = undefined
 --matchPattern' :: MonadIO m => (MatchResultF a -> MatchStatusT m a) -> MatchPattern -> Value -> MatchStatusT m (MatchResultF a)
-matchPattern'
+{-matchPattern'
   :: (Show r, MonadIO m) =>
-     (MatchResultF r -> MatchStatusT m r)
-     -> MatchPattern -> Value -> MatchStatusT m (MatchResultF r)
+     (MatchPattern -> Value -> MatchStatusT m r)
+     -> MatchPattern -> Value -> MatchStatusT m (MatchResultF r)-}
 
 --mObj :: Monad m => Bool -> KeyMap (ObjectKeyMatch MatchPattern) -> Object -> MatchStatusT m (KeyMap MatchPattern, KeyMap (ObjectKeyMatch MatchResult))
 mObj fa keepExt m a = do
@@ -740,7 +740,7 @@ mObj fa keepExt m a = do
                                       else return $ first (KM.insert k r) acc
                       -- if it exists, it must match
                       Just n -> MatchStatusT $ do
-                        rr <- runMatchStatusT $ fa =<< matchPattern' fa r n
+                        rr <- runMatchStatusT $ fa r n
                         return $ case rr of
                              NoMatch s -> NoMatch s
                              MatchFailure s -> MatchFailure s
@@ -776,7 +776,7 @@ matchPattern' fa (MatchObjectWithDefaults m d) (Object a) = do
             then
                 do
                   m' <- (m2mst $ matchFailure "impossible") $ KM.lookup k m
-                  rr <- fa =<< matchPattern' fa m' v
+                  rr <- fa m' v
                   return $ first (KM.insert k rr) acc
             else
               if KM.member k d
@@ -798,7 +798,7 @@ matchPattern' fa (MatchObjectOnly m) (Object a) = do
           case KM.lookup k a of
             Just a' ->
                 do
-                  rr <- fa =<< matchPattern' fa v a'
+                  rr <- fa v a'
                   return $ (KM.insert k rr) acc
             Nothing -> noMatch ("Required key " ++ (K.toText k) ++ " not found in object")
   mm <- L.foldl' f (return mempty) $ KM.toList m
@@ -818,12 +818,12 @@ matchPattern' fa (MatchObjectOptional m o) (Object a) = do
           case KM.lookup k m of
             Just m' ->
                 do
-                  rr <- fa =<< matchPattern' fa m' v
+                  rr <- fa m' v
                   return $ first (KM.insert k rr) acc
             Nothing -> case KM.lookup k o of
                           Just o' ->
                               do
-                                rr <- fa =<< matchPattern' fa o' v
+                                rr <- fa o' v
                                 return $ second (KM.insert k rr) acc
                           Nothing -> noMatch ("Extra key found: " ++ (K.toText k))
   (v1, v2) <- L.foldl' f (return mempty) $ KM.toList a
@@ -833,7 +833,7 @@ matchPattern' fa (MatchObjectOptional m o) (Object a) = do
 matchPattern' fa (MatchObjectWhole m) (Object a) = do
   let f acc' (k, v) = do
           acc <- acc' -- (mm, dd)
-          rr <- fa =<< matchPattern' fa m v
+          rr <- fa m v
           return $ (KM.insert k rr) acc
   mm <- L.foldl' f (return mempty) $ KM.toList a
   return $ MatchObjectWholeResultF mm
@@ -842,7 +842,7 @@ matchPattern' fa (MatchObjectWhole m) (Object a) = do
 matchPattern' fa (MatchRecord m) (Object a) = do
   let f acc' (k, v) = do
           acc <- acc' -- (mm, dd)
-          rr <- fa =<< matchPattern' fa m v
+          rr <- fa m v
           return $ (KM.insert k rr) acc
   mm <- L.foldl' f (return mempty) $ KM.toList a
   return $ if KM.null a
@@ -869,7 +869,7 @@ matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
 
 
 matchPattern' fa (MatchArrayContextFree m) (Array a) = MatchStatusT $ do
-  rr <- runMatchStatusT $ contextFreeMatch m a (\p v -> fa =<< matchPattern' fa p v)
+  rr <- runMatchStatusT $ contextFreeMatch m a (\p v -> fa p v)
   return $ case rr of
        NoMatch e -> NoMatch ("context-free nomatch!!: " ++ e ++ "\n\n" ++ (T.pack $ show m) ++ "\n\n" ++ (T.pack $ show a))
        MatchFailure s -> MatchFailure s
@@ -886,14 +886,14 @@ matchPattern' fa (MatchStringContextFree m) (String a) = MatchStatusT $ do
        MatchSuccess x -> MatchSuccess (MatchStringContextFreeResultF x)
 
 matchPattern' fa (MatchStringChars m) (String a) = do
-  rr <- matchPattern' fa m (Array (V.fromList $ fmap (\c -> String $ T.pack [c]) $ T.unpack a)) >>= fa
+  rr <- fa m (Array (V.fromList $ fmap (\c -> String $ T.pack [c]) $ T.unpack a))
   return $ MatchStringCharsResultF rr
 
 matchPattern' fa (MatchArrayOnly m) (Array a) = do
   let f acc' e = do
         acc <- acc'
         MatchStatusT $ do
-          rr <- runMatchStatusT $ fa =<< matchPattern' fa m e
+          rr <- runMatchStatusT $ fa m e
           return $ case rr of
               MatchFailure e -> MatchFailure e
               MatchSuccess s -> MatchSuccess $ bimap (\v -> V.snoc v s) (\v -> V.snoc v Nothing) acc
@@ -912,12 +912,12 @@ matchPattern' fa MatchFunnelKeysU (Object v) = return $ MatchFunnelKeysUResultF 
 matchPattern' fa MatchFunnelKeysU _ = matchFailure "MatchFunnelKeysU met not an Object"
 
 matchPattern' fa (MatchIfThen baseMatch failMsg match) v = MatchStatusT $ do
-  rr <- runMatchStatusT $ fa =<< matchPattern' fa baseMatch v
+  rr <- runMatchStatusT $ fa baseMatch v
   case rr of
        NoMatch x -> return $ NoMatch x
        MatchFailure f -> return $ MatchFailure f
        MatchSuccess _ -> do
-          rr' <- runMatchStatusT $ fa =<< matchPattern' fa match v
+          rr' <- runMatchStatusT $ fa match v
           return $ case rr' of
                NoMatch x -> MatchFailure (failMsg ++ (T.pack $ show x))
                MatchFailure f -> MatchFailure f
@@ -927,7 +927,7 @@ matchPattern' fa MatchAny a = return $ MatchAnyResultF a
 matchPattern' fa MatchNone a = return $ MatchNoneResultF a
 matchPattern' fa (MatchOr ms) v = do
   let f (k, a) b = MatchStatusT $ do
-                rr <- runMatchStatusT $ fa =<< matchPattern' fa a v
+                rr <- runMatchStatusT $ fa a v
                 runMatchStatusT $ case rr of
                      MatchSuccess x -> return (k, x)
                      MatchFailure f -> matchFailure f
@@ -936,15 +936,15 @@ matchPattern' fa (MatchOr ms) v = do
   return $ MatchOrResultF (KM.delete k ms) k res
 
 matchPattern' fa (MatchNot ms) v = MatchStatusT $ do
-  rr <- runMatchStatusT $ fa =<< matchPattern' fa ms v
+  rr <- runMatchStatusT $ fa ms v
   return $ case rr of
        MatchSuccess x -> NoMatch $ "Not fail: (can't show)" -- ++ (T.pack $ show x)
        MatchFailure f -> MatchFailure f
        NoMatch s -> return $ MatchNotResultF ms v
 
 matchPattern' fa (MatchAnd ms' ms) v = do
-  s' <- fa =<< matchPattern' fa ms' v
-  s <- fa =<< matchPattern' fa ms v
+  s' <- fa ms' v
+  s <- fa ms v
   return $ MatchAndResultF s' s
 
 
@@ -952,7 +952,7 @@ matchPattern' fa (MatchArrayOr ms) (Array arr) = do
   let h acc' e = do
         acc <- acc'
         MatchStatusT $ do
-          rr <- runMatchStatusT $ fa =<< matchPattern' fa (MatchOr ms) e
+          rr <- runMatchStatusT $ fa (MatchOr ms) e
           return $ case rr of
              MatchSuccess s -> MatchSuccess $ V.snoc acc s
              MatchFailure err -> MatchFailure err
@@ -994,7 +994,7 @@ matchPattern' fa (MatchRef r) v = do
     v <- asks grammarMap
     return $ return v
   p <- (m2mst $ matchFailure $ ("Non-existant ref: " ++ r)) $ KM.lookup (K.fromText r) g
-  a <- fa =<< matchPattern' fa p v
+  a <- fa p v
   return $ MatchRefResultF r a
 
 -- wow
@@ -1017,7 +1017,7 @@ matchPattern' fa (MatchFromMongoDB db collection r) v = do
   vv <- (m2mst $ matchFailure $ "MongoDB Id not found: " ++ T.unpack v) vv'
   vx <- return $ toAeson vv
   --liftIO $ putStrLn $ "Read from db ok"
-  rr <- fa =<< matchPattern' fa r (Object vx) -- one option is this
+  rr <- fa r (Object vx) -- one option is this
   --liftIO $ putStrLn $ "Match from db ok"
   --liftIO $ print rr
   let jj = toJSON rr
@@ -1062,7 +1062,7 @@ matchPattern' fa (MatchFromRedis db collection r) v = do
     Just e -> return (e :: Value)
   --liftIO $ print vr
 
-  rr <- fa =<< matchPattern' fa r vr
+  rr <- fa r vr
   --liftIO $ putStrLn $ "Match from db ok"
   --liftIO $ print rr
 
@@ -1145,7 +1145,7 @@ matchPattern' fa (MatchLet ms m) a = do
   -- Append new vars
   putMatcherState matchVars (KM.union varsBefore (KM.map Left ms))
   -- Do action
-  r <- fa =<< matchPattern' fa m a
+  r <- fa m a
   -- Collect values
   varsAfter <- getMatcherState matchVars
   let res = KM.filterWithKey (\k v -> (KM.member k ms) && isRight v) varsAfter
@@ -1166,8 +1166,11 @@ matchPattern' fa (MatchLet ms m) a = do
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
 
+--matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
+--matchPattern'' fma p v = fma =<< matchPattern'  p v
 matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
-matchPattern'' fma p v = fma =<< matchPattern' fma p v
+matchPattern'' falg p v = let f a b = falg =<< (matchPattern' f a b)
+                           in f p v
 
 traceFAlgebra :: MonadIO m => MatchResultF MatchResult -> MatchStatusT m MatchResult
 traceFAlgebra x = do
