@@ -476,7 +476,7 @@ instance Comonad MatchStatus where
 data MatcherEnv = MatcherEnv { redisConn :: Redis.Connection, grammarMap :: (KeyMap MatchPattern), indexing :: Bool, dataRef :: IORef (KeyMap Value) }
 emptyEnvValue = MatcherEnv { grammarMap = mempty, indexing = False }
 
-data MatchState = MatchState { _matchVars :: (KeyMap MatchResult) } deriving (Eq, Show)
+data MatchState = MatchState { _matchVars :: (KeyMap (Either MatchPattern MatchResult)) } deriving (Eq, Show)
 emptyMatchState = MatchState { _matchVars = KM.empty }
 
 makeLenses ''MatchState
@@ -1127,10 +1127,19 @@ matchPattern' fa (MatchGetFromIORef m) v = do
 
   matchPattern' fa m vr
 
-matchPattern' fa (MatchLet m m') a = do
-  vars <- getMatcherState matchVars
-  r <- fa =<< matchPattern' fa m' a
-  --vars <- putMatcherState matchVars
+matchPattern' fa (MatchLet ms m) a = do
+  varsBefore <- getMatcherState matchVars
+  let
+    s1 = S.fromList . KM.keys $ varsBefore
+    s2 = S.fromList . KM.keys $ ms
+    s3 = S.intersection s1 s2
+    in
+      if not (S.null s3)
+      then matchFailure $ "keys clash: " ++ (T.pack . show $ s3)
+      else return ()
+  putMatcherState matchVars (KM.union varsBefore (KM.map Left ms))
+  r <- fa =<< matchPattern' fa m a
+  --putMatcherState matchVars varsBefore
   return $ MatchLetResultF mempty r
 
 -- default ca
