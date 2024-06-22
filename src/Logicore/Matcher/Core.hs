@@ -1127,8 +1127,8 @@ matchPattern' fa (MatchGetFromIORef m) v = do
 
   matchPattern' fa m vr
 
-{-matchPattern' fa (MatchLet ms m) a = do
-  varsBefore <- getMatcherState matchVars
+matchPattern' fa (MatchLet ms m) a = do
+  varsBefore <- lift $ get
   -- Check
   let
     s1 = S.fromList . KM.keys $ varsBefore
@@ -1139,11 +1139,11 @@ matchPattern' fa (MatchGetFromIORef m) v = do
       then matchFailure $ "keys clash: " ++ (T.pack . show $ s3)
       else return ()
   -- Append new vars
-  putMatcherState matchVars (KM.union varsBefore (KM.map Left ms))
+  lift $ put (KM.union varsBefore (KM.map Left ms))
   -- Do action
   r <- fa m a
   -- Collect values
-  varsAfter <- getMatcherState matchVars
+  varsAfter <- lift get
   let res = KM.filterWithKey (\k v -> (KM.member k ms) && isRight v) varsAfter
   let
     s1 = S.fromList . KM.keys $ ms
@@ -1154,10 +1154,8 @@ matchPattern' fa (MatchGetFromIORef m) v = do
       then matchFailure $ "vars not assigned: " ++ (T.pack . show $ s3)
       else return ()
   -- Remove current (it's required to keep them, not remove)
-  putMatcherState matchVars (KM.filterWithKey (\k _ -> not $ KM.member k ms) varsAfter)
-  let res' = fmap (fromRight undefined) res
-  --vv <- P.traverse fa res'
-  return $ MatchLetResultF undefined r-}
+  lift $ put (KM.filterWithKey (\k _ -> not $ KM.member k ms) varsAfter)
+  return $ MatchLetResultF (fmap (fromRight undefined) res) r
 
 -- default ca
 matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n" ++ (T.pack $ show a))
