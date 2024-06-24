@@ -494,7 +494,7 @@ instance (Applicative m, Monad m) => Applicative (MatchStatusT s m) where
 
 instance (Monad m) => Monad (MatchStatusT s m) where
   return = pure
-  (>>=) :: MatchStatusT m a -> (a -> MatchStatusT m b) -> MatchStatusT m b
+  (>>=) :: MatchStatusT s m a -> (a -> MatchStatusT s m b) -> MatchStatusT s m b
   (MatchStatusT ma) >>= f = MatchStatusT $ ma >>= (f')
       where f' ma = case ma of
                       MatchSuccess x -> (runMatchStatusT . f) x
@@ -508,7 +508,7 @@ matchFailure :: Monad m => T.Text -> MatchStatusT s m a
 matchFailure x = MatchStatusT (return (MatchFailure x))
 
 instance MonadTrans (MatchStatusT s) where
-  lift a = MatchStatusT $ lift $ fmap return a
+  lift a = MatchStatusT $ lift $ lift $ fmap return a
 
 instance (MonadIO m) => MonadIO (MatchStatusT s m) where
   liftIO = lift . liftIO
@@ -1128,7 +1128,7 @@ matchPattern' fa (MatchGetFromIORef m) v = do
   matchPattern' fa m vr
 
 matchPattern' fa (MatchLet ms m) a = do
-  varsBefore <- lift $ get
+  varsBefore <- getMatcherState id
   -- Check
   let
     s1 = S.fromList . KM.keys $ varsBefore
@@ -1139,11 +1139,11 @@ matchPattern' fa (MatchLet ms m) a = do
       then matchFailure $ "keys clash: " ++ (T.pack . show $ s3)
       else return ()
   -- Append new vars
-  lift $ put (KM.union varsBefore (KM.map Left ms))
+  putMatcherState id (KM.union varsBefore (KM.map Left ms))
   -- Do action
   r <- fa m a
   -- Collect values
-  varsAfter <- lift get
+  varsAfter <- getMatcherState id
   let res = KM.filterWithKey (\k v -> (KM.member k ms) && isRight v) varsAfter
   let
     s1 = S.fromList . KM.keys $ ms
@@ -1154,17 +1154,17 @@ matchPattern' fa (MatchLet ms m) a = do
       then matchFailure $ "vars not assigned: " ++ (T.pack . show $ s3)
       else return ()
   -- Remove current (it's required to keep them, not remove)
-  lift $ put (KM.filterWithKey (\k _ -> not $ KM.member k ms) varsAfter)
+  putMatcherState id (KM.filterWithKey (\k _ -> not $ KM.member k ms) varsAfter)
   return $ MatchLetResultF (fmap (fromRight undefined) res) r
 
 matchPattern' fa (MatchVar n) a = do
-  varsBefore <- lift $ get
+  varsBefore <- getMatcherState id
   let k = K.fromText n
   case KM.lookup k varsBefore of
     Just varDef -> case varDef of
                 Left p -> do
                   r <- fa p a
-                  lift $ modify (KM.insert k (Right r))
+                  modifyMatcherState id (KM.insert k (Right r))
                   return ()
                 Right e -> do
                   {-p <- matchResultToPattern e
@@ -1181,7 +1181,7 @@ matchPattern' fa m a = noMatch ("bottom reached:\n" ++ (T.pack $ show m) ++ "\n"
 
 --matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> Value -> MatchStatusT m r
 
-matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT s m r) -> MatchPattern -> Value -> MatchStatusT s m r
+matchPattern'' :: (Show r, MonadIO m) => (MatchResultF r -> MatchStatusT (KeyMap (Either MatchPattern r)) m r) -> MatchPattern -> Value -> MatchStatusT (KeyMap (Either MatchPattern r)) m r
 matchPattern'' falg p v = let f a b = falg =<< matchPattern' f a b
                            in f p v
 
@@ -1196,7 +1196,7 @@ traceFAlgebra x = do
 
 -- MatchResultF a2 -> a2
 -- TODO: better playaround with recursion schemes
-matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT s m (V.Vector Value)
+matchToFunnel :: MonadIO m => MatchPattern -> Value -> MatchStatusT (KeyMap (Either MatchPattern (V.Vector Value))) m (V.Vector Value)
 matchToFunnel = matchPattern'' gatherFunnelFAlgebra
 
 shortenText :: T.Text -> T.Text
@@ -1218,15 +1218,15 @@ optimizeValue (Object km) = Object $ KM.map optimizeInner km
 optimizeValue (Array v) = Array $ V.map optimizeInner v
 optimizeValue x = x
 
-matchToFunnelOptimized :: MonadIO m => MatchPattern -> Value -> MatchStatusT s m (V.Vector Value)
+matchToFunnelOptimized :: MonadIO m => MatchPattern -> Value -> MatchStatusT (KeyMap (Either MatchPattern (V.Vector Value))) m (V.Vector Value)
 matchToFunnelOptimized p v = do
   r <- matchToFunnel p v
   return $ V.map optimizeValue r
 
-matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT s m MatchResult
+matchPattern :: MonadIO m => MatchPattern -> Value -> MatchStatusT (KeyMap (Either MatchPattern MatchResult)) m MatchResult
 matchPattern = matchPattern'' $ return . embed
 
-matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT s m (Maybe Value)
+matchToThin :: MonadIO m => MatchPattern -> Value -> MatchStatusT (KeyMap (Either MatchPattern (Maybe Value))) m (Maybe Value)
 matchToThin = matchPattern'' matchResultToThinValueFAlgebra
 
 -- Suggestions
@@ -1326,7 +1326,7 @@ arrayFunnelSuggestions funnelResult = r
     r = V.cons ("[*]", SimpleValueSuggestion $ MatchArray MatchAny) r'
 
 --matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT m [(String, MatchPattern)]
-matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT s m Value
+matchToFunnelSuggestions :: MonadIO m => MatchPattern -> Value -> MatchStatusT (KeyMap (Either MatchPattern (V.Vector Value))) m Value
 matchToFunnelSuggestions p v = do
   funnelResult <- (matchPattern'' gatherFunnelFAlgebra) p v 
   let typesVec = V.map getValueType funnelResult
@@ -1365,11 +1365,11 @@ matchToFunnelSuggestions p v = do
 --ff1 :: (MatchResultF r -> MatchStatusT m r) -> MatchPattern -> MatcherEnv -> Value -> IO (MatchStatus r)
 ff1
   :: (Show a, MonadIO m) =>
-     (MatchResultF a -> MatchStatusT s m a)
+     (MatchResultF a -> MatchStatusT (KeyMap (Either MatchPattern a)) m a)
      -> MatchPattern -> MatcherEnv -> Value -> IO (m (MatchStatus a))
 ff1 fa ms rEnv x = do
     --print "foo"
-    x <- liftIO $ return $ runReaderT (runMatchStatusT $ matchPattern'' fa ms x) rEnv
+    x <- liftIO $ return $ runReaderT (evalStateT (runMatchStatusT $ matchPattern'' fa ms x) KM.empty) rEnv
     return x
 
 --contextFreeGrammarResultToGrammar :: (MatchResult -> MatchPattern) -> (ContextFreeGrammarResult (ContextFreeGrammar MatchPattern) MatchResult) -> (ContextFreeGrammar MatchPattern)
@@ -1745,7 +1745,7 @@ liftObjectKeyMatch m = L.foldl' f (MatchSuccess mempty) (KM.keys m)
                KeyReq (NoMatch s) -> NoMatch s
 
 
-matchPatternIsMovable :: MonadIO m => MatchPattern -> MatchStatusT (KeyMap Bool) m Bool
+matchPatternIsMovable :: MonadIO m => MatchPattern -> MatchStatusT s m Bool
 matchPatternIsMovable = cataM goM
   where
     goM (MatchRefF r) = do
@@ -2229,7 +2229,7 @@ thinPattern (MatchObjectOnly m) a = do
   gg <- P.traverse matchPatternIsMovable m
   vv <- P.traverse matchPatternIsMovable (KM.elems m)
   let isOne = (P.length $ P.filter id vv) == 1
-  let f :: MonadIO m => MatchStatusT m (KeyMap MatchResult) -> Key -> MatchStatusT m (KeyMap MatchResult)
+  let f :: MonadIO m => MatchStatusT s m (KeyMap MatchResult) -> Key -> MatchStatusT s m (KeyMap MatchResult)
       f acc' k = do
         acc <- acc'
         g <- (m2mst $ matchFailure "impossible") $ KM.lookup k m
@@ -2540,7 +2540,7 @@ extractSuccess (MatchSuccess x) = x
 versionForTests :: MatchStatusT s IO a -> MatchStatus a
 -- matchPattern :: MatchPattern -> Value -> MatchStatusT IO MatchResult
 
-versionForTests f = unsafePerformIO $ liftIO $ runReaderT (runMatchStatusT $ f) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined }
+versionForTests f = unsafePerformIO $ liftIO $ runReaderT (evalStateT (runMatchStatusT $ f) undefined) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined }
 
 matchPatternI p v = versionForTests $ matchPattern p v
 matchToThinI p v = versionForTests $ matchToThin p v
@@ -2817,7 +2817,7 @@ mdb :: IO ()
 mdb = do
   let p = MatchFromMongoDB "logicore" "products" $ MatchObjectOnly (fromList [(fromText "item", MatchStringExact "card"), (fromText "qty", MatchNumberAny)])
   let v = String "657aa1c7ec43193e13182e9e"
-  a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) emptyEnvValue
+  a <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) undefined) emptyEnvValue
   return ()
   --print a
 
@@ -2827,7 +2827,7 @@ rdb = do
   let p = MatchFromRedis "logicore" "products" $ MatchObjectOnly (fromList [(fromText "item", MatchStringExact "card"), (fromText "qty", MatchNumberAny)])
   let v = String "hello"
   conn <- liftIO $ Redis.connect Redis.defaultConnectInfo
-  a <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) $ MatcherEnv { redisConn = conn }
+  a <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) undefined) $ MatcherEnv { redisConn = conn }
   --print a
   return ()
 
@@ -2843,16 +2843,16 @@ main4 :: IO ()
 main4 = do
   v <- return $ Object (fromList [(fromString "a", String "apple"), (fromString "b", String "banana"), (fromString "c", Number 33)])
   p <- return $ (MatchObjectOnly (fromList [(fromString "a", MatchAny), (fromString "b", MatchNone)]) :: MatchPattern)
-  r <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  r <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) undefined) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print r
 
   -- r must be
-  t <- liftIO $ runReaderT (runMatchStatusT $ matchPattern p v) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  t <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ matchPattern p v) undefined) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print t
 
   -- t must be this:
   tv <- return $ Just (String "xiaomi")
-  tr <- liftIO $ runReaderT (runMatchStatusT $ thinPattern p tv) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
+  tr <- liftIO $ runReaderT (evalStateT (runMatchStatusT $ thinPattern p tv) undefined) $ MatcherEnv { redisConn = undefined, grammarMap = undefined, indexing = False, dataRef = undefined } 
   print tr
 
   rr <- return $ (MatchSuccess $ applyOriginalValueDefaults (extractSuccess tr) (Just (extractSuccess r)))
