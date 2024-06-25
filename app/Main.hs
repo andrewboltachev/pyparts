@@ -250,11 +250,11 @@ mkMatchResultToPattern e = do
   outputValue <- (m2mst $ matchFailure "decode error") $ decode $ encode $ output
   return $ Object $ (KM.fromList [(K.fromString "pattern", outputValue)])
 
-mkMatchResultToValue :: (Object -> MatchStatusT () IO Value)
+mkMatchResultToValue :: (Object -> MatchStatusT (KeyMap Value) IO Value)
 mkMatchResultToValue e = do
   result <- (m2mst $ matchFailure "JSON root element must have result") $ KM.lookup (K.fromString "result") e
   mr <- (m2mst $ matchFailure "Cannot decode MatchResult from presented result") $ (((decode . encode) result) :: Maybe MatchResult) -- TODO
-  output <- return $ matchResultToValue mr
+  output <- matchResultToValue mr
   return $ Object $ (KM.fromList [(K.fromString "value", output)])
 
 mkMatchResultToThinValue :: (Object -> MatchStatusT (KeyMap (Either MatchPattern (Maybe Value))) IO Value)

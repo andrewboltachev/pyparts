@@ -284,7 +284,7 @@ pythonModValueToGrammar = paraM go
           last' <- pythonModValueToGrammar last
           return $ MatchLet items'' last'
         Left e -> do
-          liftIO $ print e
+          --liftIO $ print e
           rr <- P.traverse (uncurry processArrayItem) a
           return $ MatchArrayContextFree $ Seq $ rr
     go (StringF a) = return $ MatchStringExact a

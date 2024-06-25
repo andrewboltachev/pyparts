@@ -1189,7 +1189,7 @@ traceFAlgebra :: MonadIO m => MatchResultF MatchResult -> MatchStatusT s m Match
 traceFAlgebra x = do
   let e = embed x
   liftIO $ print $ matchResultToPattern e
-  liftIO $ BL.putStr $ encode $ matchResultToValue e
+  liftIO $ BL.putStr $ encode $ extract $ matchResultToValueI e
   liftIO $ print ""
   liftIO $ print ""
   return $ e
@@ -1462,14 +1462,15 @@ matchResultToPattern = cata go where
 -- ghci> matchResultToValue $ extract $ matchPatternI (MatchStringChars (MatchArrayContextFree (Seq [(Char (MatchStringExact "a")), (Star (Char (MatchStringExact "b")))]))) (String "abb")
 -- String "abb"
 
-matchResultToValue' :: MatchResult -> StateT (KeyMap Value) Identity Value
-matchResultToValue' = cataM goM
+matchResultToValue :: MonadIO m => MatchResult -> MatchStatusT (KeyMap Value) m Value
+matchResultToValue = cataM goM
   where
     goM (MatchLetResultF m a) = do
-      modify (KM.union m)
+      modifyMatcherState id (KM.union m)
       return a
     goM (MatchVarResultF n) = do
-      vars <- get
+      vars <- getMatcherState id
+      liftIO $ print vars
       let value = fromJust $ KM.lookup (K.fromText n) vars
       return $ value
     goM x = return $ go x
@@ -1520,8 +1521,8 @@ matchResultToValue' = cataM goM
     go (MatchFunnelKeysUResultF r) = Object r
     go (MatchRefResultF ref r) = r
 
-matchResultToValue :: MatchResult -> Value
-matchResultToValue r = runIdentity $ evalStateT (matchResultToValue' r) KM.empty
+--matchResultToValue :: MatchResult -> Value
+--matchResultToValue r = runIdentity $ evalStateT (matchResultToValue' r) KM.empty
 
 valueToExactGrammar :: Value -> MatchPattern
 valueToExactGrammar = cata go
@@ -1767,6 +1768,8 @@ matchPatternIsMovable = cataM goM
     go (MatchObjectOptionalF g o) = True -- TODO
     go (MatchRecordF g) = True
     go (MatchObjectPartialF g) = True -- may have ext --P.any (extractObjectKeyMatch $ error "must not be here") (KM.elems g)
+    go (MatchLetF vs g) = getAny $ mconcat $ fmap Any $ KM.elems (KM.insert "children" g vs)
+    go (MatchVarF _) = False
     go (MatchArrayOnlyF g) = True
     go (MatchStringExactF _) = False
     go (MatchStringRegExpF _) = True
@@ -1869,6 +1872,11 @@ matchResultToThinValueFAlgebra = goM
     nonEmptyMap m = if KM.null m then Nothing else Just m
     replaceSingleton (Object m) = if (KM.size m) == 1 then P.head (KM.elems m) else Object m
     --goM :: MatchResultF (Maybe Value) -> MatchStatus (Maybe Value)
+    goM (MatchLetResultF vs r) = do
+      let rmap = KM.insert "children" r vs
+      goM (MatchObjectOnlyResultF rmap mempty)
+    goM (MatchVarResultF r) = do
+      return $ Nothing
     goM (MatchObjectFullResultF g r) = u
       where
         f (KeyReq v) = v
@@ -2252,6 +2260,19 @@ thinPattern (MatchObjectOnly m) a = do
   return $ MatchObjectOnlyResult rr (KM.empty)
 
 
+thinPattern (MatchLet vs m) a = do
+  pre <- thinPattern (MatchObjectOnly (KM.insert "children" m vs)) a
+  pre' <- case pre of
+              MatchObjectOnlyResult km _ -> return km
+              _ -> matchFailure "shouldn't happen"
+  ch <- (m2mst $ matchFailure "shouldn't happen") $ KM.lookup "children" pre'
+  return $ MatchLetResult (KM.delete "children" pre') ch
+
+
+thinPattern (MatchVar k) _ = do
+  return $ MatchVarResult k
+
+
 thinPattern (MatchRecord m) (Just a) = do
   gg <- matchPatternIsMovable m
   if gg
@@ -2547,6 +2568,7 @@ matchToThinI p v = versionForTests $ matchToThin p v
 thinPatternWithDefaultsI r v = versionForTests $ thinPatternWithDefaults r v
 matchResultToThinValueI r = versionForTests $ matchResultToThinValue r
 thinPatternI p t = versionForTests $ thinPattern p t
+matchResultToValueI r = versionForTests $ matchResultToValue r
 
 tVIs :: MatchPattern -> Value -> Expectation
 tVIs p v = 
@@ -2554,7 +2576,7 @@ tVIs p v =
           t' = extractSuccess $ matchResultToThinValueI r
           r' = extractSuccess $ thinPatternI p t'
           r'' = applyOriginalValueDefaults r' (Just r)
-          v2 = matchResultToValue r''
+          v2 = matchResultToValueI r''
       in r'' `shouldBe` r
 
 tIs :: MatchPattern -> Value -> Maybe Value -> Expectation
@@ -2792,7 +2814,7 @@ thinWithDefaults1 = do
   let t = Just (Array [Array [Number 1.0,Number 10.0],Array [Number 2.0,Number 20.0],Array [Number 0,Number 50.0],Array [Number 3.0,Number 30.0]])
   --return $ thinPattern p t
   r' <- thinPatternWithDefaultsI r t
-  return $ matchResultToValue r'
+  return $ matchResultToValueI r'
 
 thinWithDefaults2 = do
   let v = Array [
@@ -2804,7 +2826,7 @@ thinWithDefaults2 = do
   --return $ matchResultToThinValue r
   let t = Just $ Number 5.0
   r' <- thinPatternWithDefaultsI r t
-  return $ matchResultToValue r'
+  return $ matchResultToValueI r
 
 
 {-ex1 = do
