@@ -2454,6 +2454,12 @@ applyOriginalValueDefaults (MatchObjectOnlyResult m a) (Just (MatchObjectOnlyRes
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
     l = MatchObjectOnlyResult m'' a'
 
+applyOriginalValueDefaults (MatchLetResult m a) (Just (MatchLetResult m' a')) = l --error $ show (m, m', d, a)
+  where
+    m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
+    a'' = applyOriginalValueDefaults a (Just a')
+    l = MatchLetResult m'' a''
+
 applyOriginalValueDefaults (MatchRecordResultValue m) (Just (MatchRecordResultValue m')) = l --error $ show (m, m', d, a)
   where
     m'' = KM.mapMaybeWithKey (\k e -> Just $ applyOriginalValueDefaults e (KM.lookup k m')) m
