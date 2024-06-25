@@ -125,12 +125,16 @@ vars_match = MatchObjectOnly (fromList [
                                           ("guard",MatchNull),
                                           ("pattern",MatchObjectOnly (fromList [("type",MatchStringExact "MatchAs"),("name",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))])),("type",MatchStringExact "MatchCase")])))),
     (Char (MatchObjectOnly (fromList [
-                                          ("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char $ MatchAny])),("type",MatchStringExact "IndentedBlock")])),
+                                          ("body",
+                                            MatchObjectOnly (fromList [("body", MatchAny),("type",MatchStringExact "IndentedBlock")])
+                                              ),
                                           ("guard",MatchNull),
                                           ("pattern",MatchObjectOnly (fromList [("type",MatchStringExact "MatchAs"),("name",MatchNull)])),("type",MatchStringExact "MatchCase")])))
     ])),
   ("subject",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__vars")])),
   ("type",MatchStringExact "Match")])
+
+vars_block = MatchArrayContextFree (Seq [Char vars_match])
 
 simple_ref = MatchObjectOnly (fromList [("args",MatchArrayContextFree (Seq [Char (MatchObjectOnly (fromList [("keyword",MatchNull),("star",MatchStringExact ""),("type",MatchStringExact "Arg"),("value",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))]))])),("func",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringExact "__ref")])),("type",MatchStringExact "Call")])
 
@@ -163,6 +167,12 @@ kw_expr = MatchObjectOnly (fromList [
 getMatch p v = case matchPatternI p v of
   MatchSuccess r -> extract $ matchResultToThinValueI r
   _ -> Nothing
+
+
+getMatch' p v = case matchPatternI p v of
+  MatchSuccess r -> Right $ fromJust $ extract $ matchResultToThinValueI r
+  NoMatch e -> Left (p, v)
+  --MatchFailure e -> Left 
 
 
 extractSeq body = do
@@ -230,20 +240,7 @@ pythonModValueToGrammar = paraM go
   where
     go :: MonadIO m => (ValueF (Value, MatchPattern)) -> IdentityT m MatchPattern
     go (ObjectF a) = do
-      --liftIO $ print (Object (KM.map fst a))
-      case getMatch vars_match (Object (KM.map fst a)) of
-        Just m' -> do
-          let m'' = fromJust $ asArray m'
-              items = fromJust . asArray $ V.head m''
-              last = V.head $ V.tail m''
-              f1 (Object item) = let pattern = fromJust $ asString $ fromJust $ KM.lookup "pattern" item
-                                     body = fromJust $ KM.lookup "body" item
-                                  in (K.fromText pattern, body)
-              items' = KM.fromList $ V.toList $ V.map f1 $ items
-          items'' <- P.traverse pythonModValueToGrammar items'
-          last' <- pythonModValueToGrammar last
-          return $ MatchLet items'' last'
-        _ -> case getMatch simple_var (Object (KM.map fst a)) of
+      case getMatch simple_var (Object (KM.map fst a)) of
               Just (String l) -> return $ MatchVar l
               _ -> case getMatch l_expr (Object (KM.map fst a)) of
                     Just l -> pythonModValueToGrammar l
@@ -273,9 +270,23 @@ pythonModValueToGrammar = paraM go
                                                               rrr <- KM.traverse pythonModValueToGrammar m''
                                                               return $ MatchOr rrr
                                                             _ -> return $ MatchObjectOnly (KM.map snd $ cleanUpPythonWSKeys a)
-    go (ArrayF a) = do
-        rr <- P.traverse (uncurry processArrayItem) a
-        return $ MatchArrayContextFree $ Seq $ rr
+    go (ArrayF a) = 
+      case getMatch' vars_block (Array (V.map fst a)) of
+        Right m' -> do
+          let m'' = fromJust $ asArray m'
+              items = fromJust . asArray $ V.head m''
+              last = V.head $ V.tail m''
+              f1 (Object item) = let pattern = fromJust $ asString $ fromJust $ KM.lookup "pattern" item
+                                     body = fromJust $ KM.lookup "body" item
+                                  in (K.fromText pattern, body)
+              items' = KM.fromList $ V.toList $ V.map f1 $ items
+          items'' <- P.traverse pythonModValueToGrammar items'
+          last' <- pythonModValueToGrammar last
+          return $ MatchLet items'' last'
+        Left e -> do
+          liftIO $ print e
+          rr <- P.traverse (uncurry processArrayItem) a
+          return $ MatchArrayContextFree $ Seq $ rr
     go (StringF a) = return $ MatchStringExact a
     go (NumberF a) = return $ MatchNumberExact a
     go (BoolF a) = return $ MatchBoolExact a
@@ -284,5 +295,6 @@ pythonModValueToGrammar = paraM go
 e1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../star1.json")) :: Value
 o1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../opt1.json")) :: MatchPattern
 m1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../match_r.json")) :: Value
+v1 = (fromJust $ decode $ TL.encodeUtf8 $ TL.pack $ unsafePerformIO (readFile "../vars_r.json")) :: Value
 
 --r1 = P.putStrLn $ TL.unpack $ TL.decodeUtf8 $ encode $ extract $ matchResultToThinValueI $ extract $ matchPatternI special_if e1
