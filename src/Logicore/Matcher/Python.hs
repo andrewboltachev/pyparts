@@ -282,8 +282,8 @@ pythonModValueToGrammar = paraM go
               items' = KM.fromList $ V.toList $ V.map f1 $ items
           items'' <- P.traverse pythonModValueToGrammar items'
           last' <- pythonModValueToGrammar last
-          liftIO $ putStrLn "generating MatchLet"
-          liftIO $ print last'
+          --liftIO $ putStrLn "generating MatchLet"
+          --liftIO $ print last'
           return $ MatchLet items'' last'
         Left e -> do
           --liftIO $ print e
