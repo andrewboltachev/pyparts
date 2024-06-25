@@ -1463,20 +1463,22 @@ matchResultToPattern = cata go where
 -- String "abb"
 
 matchResultToValue :: MonadIO m => MatchResult -> MatchStatusT (KeyMap Value) m Value
-matchResultToValue = cataM goM
+matchResultToValue = paraM goM
   where
-    goM (MatchLetResultF m a) = do
-      modifyMatcherState id (KM.union m)
-      return a
+    goM :: MonadIO m => MatchResultF (MatchResult, Value) -> MatchStatusT (KeyMap Value) m Value
+    goM (MatchLetResultF m (a, _)) = do
+      modifyMatcherState id (KM.union (KM.map snd m))
+      matchResultToValue a
     goM (MatchVarResultF n) = do
       vars <- getMatcherState id
       liftIO $ print vars
       let value = fromJust $ KM.lookup (K.fromText n) vars
       return $ value
-    goM x = return $ go x
+    goM x = do
+      return $ go $ fmap snd x
     stringResultToSource (Array a) = V.foldl f "" a where
       f acc (String s) = acc <> s
-    --go :: (MatchResultF MatchPattern) -> Value
+    go :: (MatchResultF Value) -> Value
     go (MatchObjectFullResultF g r) = Object (KM.map f r)
       where
         f (KeyReq v) = v
