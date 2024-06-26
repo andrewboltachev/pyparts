@@ -111,7 +111,7 @@ special_if = MatchObjectOnly (fromList [("body",MatchObjectOnly (fromList [("bod
 special_v = MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)])
 
 option_match = MatchObjectOnly (fromList [
-  ("cases",MatchArray (MatchObjectOnly (fromList [
+  ("cases",MatchArrayContextFree $ Star $ Char (MatchObjectOnly (fromList [
                                           ("body",MatchObjectOnly (fromList [("body",MatchArrayContextFree (Seq [Char $ MatchAny])),("type",MatchStringExact "IndentedBlock")])),
                                           ("guard",MatchNull),
                                           ("pattern",MatchObjectOnly (fromList [("type",MatchStringExact "MatchAs"),("name",MatchObjectOnly (fromList [("type",MatchStringExact "Name"),("value",MatchStringAny)]))])),("type",MatchStringExact "MatchCase")]))),

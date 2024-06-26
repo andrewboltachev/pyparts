@@ -669,6 +669,7 @@ gatherFunnelFAlgebra (MatchObjectWithDefaultsResultF r _ _) = return $ V.concat 
 gatherFunnelFAlgebra (MatchObjectOnlyResultF r _) = return $ V.concat (KM.elems r)
 gatherFunnelFAlgebra (MatchObjectOptionalResultF r o) = return $ V.concat [(V.concat (KM.elems r)), (V.concat (KM.elems o))]
 gatherFunnelFAlgebra (MatchObjectWholeResultF r) = return $ V.concat (KM.elems r)
+gatherFunnelFAlgebra (MatchLetResultF vs r) = return $ V.concat (KM.elems (KM.insert "children" r vs))
 gatherFunnelFAlgebra (MatchRecordResultValueF r) = return $ V.concat (KM.elems r)
 gatherFunnelFAlgebra (MatchRecordResultEmptyF _) = return $ []
 gatherFunnelFAlgebra (MatchArrayContextFreeResultF c) = return $ gatherFunnelContextFree c
