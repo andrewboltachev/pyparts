@@ -251,6 +251,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchArrayOnly MatchPattern -- bigger pattern???
                   -- literals: match particular value of
                   | MatchStringExact !T.Text
+                  | MatchStringToArray MatchPattern
                   | MatchStringRegExp !T.Text
                   | MatchNumberExact !Sci.Scientific
                   | MatchBoolExact !Bool
@@ -352,6 +353,7 @@ data MatchResult = MatchObjectFullResult (KeyMap MatchPattern) (KeyMap (ObjectKe
                  | MatchArrayOnlyResultSome (V.Vector MatchResult) (V.Vector (Maybe Value))
                  -- literals: match particular value of
                  | MatchStringExactResult !T.Text
+                 | MatchStringToArrayResult MatchResult
                  | MatchStringRegExpResult !T.Text !T.Text
                  | MatchNumberExactResult !Sci.Scientific
                  | MatchBoolExactResult !Bool
@@ -979,6 +981,9 @@ matchPattern' fa (MatchArray ms) (Array []) = do
 
 -- specific (aka exact)
 matchPattern' fa (MatchStringExact m) (String a) = if m == a then return $ MatchStringExactResultF a else noMatch ("string mismatch: expected " ++ (T.pack $ show m) ++ " but found " ++ (T.pack $ show a))
+matchPattern' fa (MatchStringToArray m) (String a) = do
+  r <- undefined fa m (Array (V.fromList $ fmap (String . T.singleton) (T.unpack a)))
+  return $ MatchStringToArrayResultF r
 matchPattern' fa (MatchStringRegExp m) (String a) =
   if a =~ m
      then return $ MatchStringRegExpResultF m a
@@ -1437,6 +1442,7 @@ matchResultToPattern = cata go where
   go (MatchArrayOnlyResultEmptyF g v) = MatchArrayOnly g
   go (MatchArrayOnlyResultSomeF r v) = MatchArrayOnly $ V.head r
   go (MatchStringExactResultF r) = MatchStringExact r
+  go (MatchStringToArrayResultF r) = MatchStringToArray r
   go (MatchStringRegExpResultF e r) = MatchStringRegExp e
   go (MatchNumberExactResultF r) = MatchNumberExact r
   go (MatchBoolExactResultF r) = MatchBoolExact r
@@ -1475,6 +1481,15 @@ matchResultToValue = paraM goM
       liftIO $ print vars
       let value = fromJust $ KM.lookup (K.fromText n) vars
       return $ value
+    goM (MatchStringToArrayResultF r) = do
+      r' <- case r of
+        (Array r') -> return $ r'
+        _ -> matchFailure "must be array here"
+      let f acc' e = do
+        case e of
+          (String t) -> acc' <> t
+      s <- L.foldl' f (return mempty) r
+      return $ String s
     goM x = do
       return $ go $ fmap snd x
     stringResultToSource (Array a) = V.foldl f "" a where
@@ -1598,6 +1613,7 @@ matchPatternIsWellFormed = cataM goM
         f acc (KeyExt _) = False
     go (MatchArrayOnlyF g) = g
     go (MatchStringExactF _) = True
+    go (MatchStringToArrayF g) = g
     go (MatchStringRegExpF e) = True
     go (MatchNumberExactF _) = True
     go (MatchBoolExactF _) = True
@@ -1691,6 +1707,7 @@ matchResultIsWellFormed = paraM checkM
 
     check (MatchRefResultF ref (_, r)) = r
     check (MatchStringExactResultF _) = True
+    check (MatchStringToArrayResultF (_, r)) = r
     check (MatchNumberExactResultF _) = True
     check (MatchBoolExactResultF _) = True
     check (MatchStringAnyResultF _) = True
@@ -1775,6 +1792,7 @@ matchPatternIsMovable = cataM goM
     go (MatchVarF _) = False
     go (MatchArrayOnlyF g) = True
     go (MatchStringExactF _) = False
+    go (MatchStringToArrayF r) = r
     go (MatchStringRegExpF _) = True
     go (MatchNumberExactF _) = False
     go (MatchBoolExactF _) = False
@@ -1934,6 +1952,7 @@ matchResultToThinValueFAlgebra = goM
     go (MatchArrayOnlyResultEmptyF g r) = Nothing
     go (MatchArrayOnlyResultSomeF g r) = Just $ Array $ catMaybes g -- TODO: when Nothing?
     go (MatchStringExactResultF r) = Nothing
+    go (MatchStringToArrayResultF r) = r
     go (MatchStringRegExpResultF e r) = Just $ String r
     go (MatchNumberExactResultF r) = Nothing
     go (MatchBoolExactResultF r) = Nothing
@@ -2377,6 +2396,9 @@ thinPattern (MatchStringChars m) a = do
 
 -- specific (aka exact)
 thinPattern (MatchStringExact m) Nothing = return $ MatchStringExactResult m
+thinPattern (MatchStringToArrayResultF r) a = do
+  r <- thinPattern r a
+  return $ 
 thinPattern (MatchNumberExact m) Nothing = return $ MatchNumberExactResult m
 thinPattern (MatchBoolExact m) Nothing = return $ MatchBoolExactResult m
 -- any (of a type)
