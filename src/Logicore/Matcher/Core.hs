@@ -2396,9 +2396,9 @@ thinPattern (MatchStringChars m) a = do
 
 -- specific (aka exact)
 thinPattern (MatchStringExact m) Nothing = return $ MatchStringExactResult m
-thinPattern (MatchStringToArrayResultF r) a = do
+thinPattern (MatchStringToArray r) a = do
   r <- thinPattern r a
-  return $ 
+  return $ undefined
 thinPattern (MatchNumberExact m) Nothing = return $ MatchNumberExactResult m
 thinPattern (MatchBoolExact m) Nothing = return $ MatchBoolExactResult m
 -- any (of a type)
