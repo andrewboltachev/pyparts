@@ -89,6 +89,7 @@ import Language.Haskell.TH.Syntax (mkNameG_tc, mkNameG_v)
 
 import Logicore.Matcher.ValueBaseFunctor
 import Logicore.Matcher.Helpers
+import Logicore.Matcher.Functions
 import Control.Concurrent.Async (mapConcurrently)
 
 import Text.Regex.TDFA((=~))
@@ -239,6 +240,7 @@ data MatchPattern = MatchObjectFull (KeyMap (ObjectKeyMatch MatchPattern)) -- de
                   | MatchRecord MatchPattern
                   | MatchOmitField Key MatchPattern -- think
                   | MatchSelectFields (V.Vector Key) MatchPattern -- think
+                  | MatchApply Key Value MatchPattern -- think
                   | MatchFork (KeyMap MatchPattern) -- think
                   | MatchObjectPartial (KeyMap (ObjectKeyMatch MatchPattern)) -- delete
                   -- structures - array
@@ -863,6 +865,13 @@ matchPattern' fa (MatchOmitField fname m) (Object a) = do
 matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
   b <- return $ KM.filterWithKey (\k _ -> P.elem k fnames) a
   matchPattern' fa m (Object b)
+
+
+matchPattern' fa (MatchSelectFields fname fparams m) a = do
+  case KM.lookup matchFunctions fname of
+    Just ff -> ff a fparams
+    Nothing -> matchFailure $ "no such function " <> (K.toText fname)
+  matchPattern' fa m 
 
 
 --matchPattern' fa (MatchRegroup m) a = matchPattern' fa m a -- trivial
