@@ -1483,11 +1483,13 @@ matchResultToValue = paraM goM
       return $ value
     goM (MatchStringToArrayResultF r) = do
       r' <- case r of
-        (Array r') -> return $ r'
-        _ -> matchFailure "must be array here"
+              (_, Array r') -> return $ r'
+              _ -> matchFailure "must be array here"
       let f acc' e = do
-        case e of
-          (String t) -> acc' <> t
+                        acc <- acc'
+                        case e of
+                                (String t) -> return $ acc <> t
+                                _ -> matchFailure $ "must be string here"
       s <- L.foldl' f (return mempty) r
       return $ String s
     goM x = do
