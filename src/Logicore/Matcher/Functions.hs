@@ -66,6 +66,7 @@ import Data.Functor.Foldable
 import Data.Bifunctor
 import Data.Maybe (isJust, fromJust)
 import Data.Monoid
+import Data.Char
 import qualified Data.Set                     as S
 
 import Control.Lens hiding (indexing)
@@ -102,7 +103,20 @@ import System.IO.Unsafe (unsafePerformIO)
 
 
 splitPascalCase :: Value -> Value -> Either T.Text Value
-splitPascalCase (String s) _ = Left "a"
+splitPascalCase (String s) _ = do
+  let lastIsEmpty xs = if V.null xs
+                          then False
+                          else (V.last xs) == (String "")
+      h (String s) newChar = String $ T.snoc s newChar
+      g newChar acc idx elt = if idx == (V.length acc) - 1 then h elt newChar else elt
+      f acc' e = do
+        acc <- acc'
+        let nextAcc = if (isUpper e) && (not $ lastIsEmpty acc)
+                    then V.snoc acc (String "")
+                    else acc
+        return $ V.imap (g e nextAcc) nextAcc
+  v <- V.foldl' f (return $ [String ""]) ((V.fromList . T.unpack) s)
+  return $ Array v
 splitPascalCase _ _ = Left "splitPascalCase needs a string" 
 
 
