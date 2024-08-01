@@ -60,7 +60,6 @@ import Control.Monad ((>=>), liftM)
 import Control.Comonad
 --import qualified Data.ByteString.UTF8       as BLU
 --import Logicore.Matcher.Utils
-import Logicore.Matcher.Status
 import Data.Fix (Fix (..), unFix, Mu (..), Nu (..))
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Functor.Foldable
@@ -102,11 +101,12 @@ import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
 
 
-splitPascalCase :: Value -> Value -> MatchStatus Value
-splitPascalCase
+splitPascalCase :: Value -> Value -> Either T.Text Value
+splitPascalCase (String s) _ = Left "a"
+splitPascalCase _ _ = Left "splitPascalCase needs a string" 
 
 
-matchFunctions :: KeyMap (Value -> Value -> MatchStatus Value)
+matchFunctions :: KeyMap (Value -> Value -> Either T.Text Value)
 matchFunctions = fromList [
   ("splitPascalCase", splitPascalCase)
   ]
