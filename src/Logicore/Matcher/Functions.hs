@@ -117,7 +117,7 @@ splitPascalCase (String s) _ = do
         return $ V.imap (g e nextAcc) nextAcc
   v <- V.foldl' f (return $ [String ""]) ((V.fromList . T.unpack) s)
   return $ Array v
-splitPascalCase _ _ = Left "splitPascalCase needs a string" 
+splitPascalCase v _ = Left $ "splitPascalCase needs a string, got: " <> (T.decodeUtf8 $ BL.toStrict $ encode v)
 
 
 matchFunctions :: KeyMap (Value -> Value -> Either T.Text Value)

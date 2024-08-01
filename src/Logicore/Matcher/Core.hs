@@ -868,12 +868,21 @@ matchPattern' fa (MatchSelectFields fnames m) (Object a) = do
 
 
 matchPattern' fa (MatchApply fname fparams m) a = do
-  a' <- case KM.lookup fname matchFunctions of
+  --liftIO $ putStrLn "enter"
+  a'' <- case KM.lookup fname matchFunctions of
     Just ff -> case ff a fparams of
-      Right a' -> return a'
-      Left e -> noMatch e
-    Nothing -> matchFailure $ "no such function " <> (K.toText fname)
-  matchPattern' fa m a'
+      Right a' -> do
+          --liftIO $ print $ "function result" <> (K.toText fname)
+          return a'
+      Left e -> do
+          liftIO $ print $ "function error: " <> e
+          noMatch e
+    Nothing -> do
+      liftIO $ putStrLn $ T.unpack $ "no such function " <> (K.toText fname)
+      matchFailure $ "no such function " <> (K.toText fname)
+  --liftIO $ putStrLn "here"
+  --liftIO $ print a''
+  matchPattern' fa m a''
 
 
 --matchPattern' fa (MatchRegroup m) a = matchPattern' fa m a -- trivial
